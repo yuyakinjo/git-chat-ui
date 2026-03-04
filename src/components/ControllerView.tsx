@@ -439,7 +439,7 @@ export function ControllerView({
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_360px] gap-3 max-[1380px]:grid-cols-[250px_minmax(0,1fr)] max-[1180px]:grid-cols-1">
+      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_280px] gap-3 max-[1380px]:grid-cols-[250px_minmax(0,1fr)] max-[1180px]:grid-cols-1">
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
@@ -483,7 +483,7 @@ export function ControllerView({
           <CommitDetailPanel detail={commitDetail} loading={loadingCommitDetail} />
         </div>
 
-        <div className="max-[1380px]:col-span-2 max-[1180px]:col-span-1">
+        <div className="min-h-0 overflow-hidden max-[1380px]:col-span-2 max-[1180px]:col-span-1">
           <GitOperationPanel
             status={workingStatus}
             stashes={stashes}

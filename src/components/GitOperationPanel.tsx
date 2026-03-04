@@ -97,7 +97,7 @@ export function GitOperationPanel({
   };
 
   return (
-    <section className="panel flex min-h-0 flex-col p-3">
+    <section className="panel flex h-full min-h-0 flex-col p-3">
       <div className="mb-2 px-2">
         <div className="section-title">Git Operations</div>
       </div>
