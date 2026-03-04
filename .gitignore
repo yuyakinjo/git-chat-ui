@@ -10,3 +10,4 @@ coverage
 *.log
 src-tauri/target
 *.tsbuildinfo
+.incremental
