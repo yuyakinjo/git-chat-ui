@@ -16,8 +16,10 @@ interface CommitGraphProps {
   hasMore: boolean;
   loading: boolean;
   loadingMore: boolean;
+  busy: boolean;
   onSelectCommit: (commit: CommitListItem) => void;
   onCheckoutCommit: (commit: CommitListItem) => void;
+  onCheckoutBranchRef: (refName: string) => void;
   onLoadMore: () => void;
 }
 
@@ -145,8 +147,10 @@ export function CommitGraph({
   hasMore,
   loading,
   loadingMore,
+  busy,
   onSelectCommit,
   onCheckoutCommit,
+  onCheckoutBranchRef,
   onLoadMore
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -285,7 +289,7 @@ export function CommitGraph({
   const gridTemplateColumns = `${graphColumnWidth}px ${refsColumnWidth}px 140px minmax(0,1fr) 130px 96px`;
 
   return (
-    <section className="panel flex min-h-0 flex-col p-3">
+    <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
       <div className="mb-2 flex items-center justify-between px-2">
         <div>
           <div className="section-title">Commit Graph</div>
@@ -297,7 +301,7 @@ export function CommitGraph({
 
       <div
         ref={rootRef}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-auto"
         onScroll={(event) => {
           const target = event.currentTarget;
           if (!hasMore || loadingMore) {
@@ -358,7 +362,11 @@ export function CommitGraph({
               data-animate="commit-enter"
               data-commit-sha={commit.sha}
               onClick={() => onSelectCommit(commit)}
-              onDoubleClick={() => onCheckoutCommit(commit)}
+              onDoubleClick={() => {
+                if (!busy) {
+                  onCheckoutCommit(commit);
+                }
+              }}
             >
               {isDetailedMode ? (
                 <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
@@ -453,9 +461,20 @@ export function CommitGraph({
                     {commitRefLabels.map((label) => (
                       <span
                         key={`${commit.sha}-${label.type}-${label.name}`}
-                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-[1px] text-[10px] font-semibold leading-4 ${refLabelClass(label.type)}`}
+                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-[1px] text-[10px] font-semibold leading-4 ${
+                          refLabelClass(label.type)
+                        } ${label.type === 'tag' ? '' : 'cursor-pointer'}`}
                         style={{ maxWidth: `${Math.max(90, refsColumnWidth - 16)}px` }}
                         title={label.name}
+                        onDoubleClick={(event) => {
+                          if (busy || label.type === 'tag') {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCheckoutBranchRef(label.name);
+                        }}
                       >
                         <span className="truncate">{label.name}</span>
                       </span>

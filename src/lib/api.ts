@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type {
   AppConfig,
+  BranchDiffDetail,
   BranchResponse,
   CommitDetail,
   CommitResponse,
@@ -135,6 +136,15 @@ export const api = {
 
     const params = new URLSearchParams({ repoPath, sha });
     return request(`/commits/detail?${params.toString()}`);
+  },
+
+  getBranchDiffDetail(repoPath: string, baseRef: string, targetRef: string): Promise<BranchDiffDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_branch_diff_detail', { repoPath, baseRef, targetRef });
+    }
+
+    const params = new URLSearchParams({ repoPath, baseRef, targetRef });
+    return request(`/branches/diff?${params.toString()}`);
   },
 
   getWorkingTreeStatus(repoPath: string): Promise<WorkingTreeStatus> {

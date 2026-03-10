@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import type {
   Branch,
+  BranchDiffDetail,
   CommitDetail,
   CommitListItem,
   Repository,
@@ -351,6 +352,53 @@ export async function getCommitDetail(repoPath: string, sha: string): Promise<Co
     body,
     files,
     diff: diff.slice(0, 25000)
+  };
+}
+
+export async function getBranchDiffDetail(options: {
+  repoPath: string;
+  baseRef: string;
+  targetRef: string;
+}): Promise<BranchDiffDetail> {
+  await ensureRepoPath(options.repoPath);
+
+  const baseRef = options.baseRef.trim();
+  const targetRef = options.targetRef.trim();
+
+  if (!baseRef) {
+    throw new Error('baseRef is required.');
+  }
+
+  if (!targetRef) {
+    throw new Error('targetRef is required.');
+  }
+
+  const mergeBaseSha = await runGit(['merge-base', baseRef, targetRef], options.repoPath);
+  const range = `${mergeBaseSha}..${targetRef}`;
+  const fileStatsOutput = await runGit(['diff', '--numstat', range], options.repoPath);
+  const files = fileStatsOutput
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [additionsRaw, deletionsRaw, file] = line.split('\t');
+
+      return {
+        file,
+        additions: Number.isNaN(Number(additionsRaw)) ? 0 : Number(additionsRaw),
+        deletions: Number.isNaN(Number(deletionsRaw)) ? 0 : Number(deletionsRaw)
+      };
+    });
+
+  const diff = await runGit(['diff', range], options.repoPath);
+  const isDiffTruncated = diff.length > 25000;
+
+  return {
+    baseRef,
+    targetRef,
+    mergeBaseSha,
+    files,
+    diff: diff.slice(0, 25000),
+    isDiffTruncated
   };
 }
 
