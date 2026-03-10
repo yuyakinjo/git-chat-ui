@@ -1,8 +1,9 @@
-import { AlertTriangle, ArrowLeft, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
 import { describeGitError, type UiError } from '../lib/errors';
+import { BranchDiffDetailPanel } from './BranchDiffDetailPanel';
 import { BranchTree } from './BranchTree';
 import { CommitDetailPanel } from './CommitDetailPanel';
 import { CommitGraph } from './CommitGraph';
@@ -10,6 +11,7 @@ import { GitOperationPanel } from './GitOperationPanel';
 import type {
   AppConfig,
   Branch,
+  BranchDiffDetail,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
@@ -22,11 +24,10 @@ import type {
 interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
-  onBackToDashboard: () => void;
   onNotify: (message: string) => void;
 }
 
-function resolveDefaultBranchRef(branches: BranchResponse | null): string | undefined {
+function resolveDefaultBranch(branches: BranchResponse | null): Branch | undefined {
   if (!branches) {
     return undefined;
   }
@@ -38,6 +39,15 @@ function resolveDefaultBranchRef(branches: BranchResponse | null): string | unde
     localBranches.find((branch) => branch.name === branches.current) ??
     localBranches[0];
 
+  if (!candidate) {
+    return undefined;
+  }
+
+  return candidate;
+}
+
+function resolveDefaultBranchRef(branches: BranchResponse | null): string | undefined {
+  const candidate = resolveDefaultBranch(branches);
   if (!candidate) {
     return undefined;
   }
@@ -85,12 +95,7 @@ function isHeadDecoration(decoration: string): boolean {
     .some((entry) => entry === 'HEAD' || entry.startsWith('HEAD -> '));
 }
 
-export function ControllerView({
-  repository,
-  appConfig,
-  onBackToDashboard,
-  onNotify
-}: ControllerViewProps): JSX.Element {
+export function ControllerView({ repository, appConfig, onNotify }: ControllerViewProps): JSX.Element {
   const [branches, setBranches] = useState<BranchResponse | null>(null);
   const [selectedBranchForHover, setSelectedBranchForHover] = useState<Branch | null>(null);
   const [activeLogRef, setActiveLogRef] = useState<string>('HEAD');
@@ -104,6 +109,9 @@ export function ControllerView({
   const [activeCommit, setActiveCommit] = useState<CommitListItem | null>(null);
   const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
   const [loadingCommitDetail, setLoadingCommitDetail] = useState(false);
+  const [branchDiffDetail, setBranchDiffDetail] = useState<BranchDiffDetail | null>(null);
+  const [loadingBranchDiffDetail, setLoadingBranchDiffDetail] = useState(false);
+  const [showBranchDiff, setShowBranchDiff] = useState(false);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
@@ -118,6 +126,15 @@ export function ControllerView({
   const refreshLockRef = useRef(false);
 
   const repoPath = repository.path;
+  const currentBranchName = branches?.current ?? null;
+  const currentLocalBranch = useMemo(
+    () => branches?.local.find((branch) => branch.name === branches?.current) ?? null,
+    [branches]
+  );
+  const defaultBranch = useMemo(() => resolveDefaultBranch(branches) ?? null, [branches]);
+  const canCompareCurrentBranch = Boolean(
+    currentLocalBranch && defaultBranch && currentLocalBranch.name !== defaultBranch.name
+  );
 
   const reportError = useCallback(
     (error: unknown, fallbackTitle: string): void => {
@@ -142,6 +159,27 @@ export function ControllerView({
     },
     [repoPath, reportError]
   );
+
+  const loadBranchDiffDetail = useCallback(async (): Promise<void> => {
+    if (!currentLocalBranch || !defaultBranch || currentLocalBranch.name === defaultBranch.name) {
+      setBranchDiffDetail(null);
+      return;
+    }
+
+    setLoadingBranchDiffDetail(true);
+    try {
+      const detail = await api.getBranchDiffDetail(
+        repoPath,
+        defaultBranch.fullRef || defaultBranch.name,
+        currentLocalBranch.fullRef || currentLocalBranch.name
+      );
+      setBranchDiffDetail(detail);
+    } catch (error) {
+      reportError(error, 'ブランチ差分の取得に失敗しました。');
+    } finally {
+      setLoadingBranchDiffDetail(false);
+    }
+  }, [currentLocalBranch, defaultBranch, repoPath, reportError]);
 
   const loadCommits = useCallback(
     async (options: {
@@ -267,9 +305,23 @@ export function ControllerView({
     setPendingScrollCommitSha(null);
     setCommitTitle('');
     setCommitDescription('');
+    setBranchDiffDetail(null);
+    setShowBranchDiff(false);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [refreshAll, repoPath]);
+
+  useEffect(() => {
+    if (!canCompareCurrentBranch) {
+      setShowBranchDiff(false);
+      setBranchDiffDetail(null);
+      return;
+    }
+
+    if (showBranchDiff) {
+      void loadBranchDiffDetail();
+    }
+  }, [canCompareCurrentBranch, loadBranchDiffDetail, showBranchDiff]);
 
   useEffect(() => {
     setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
@@ -321,13 +373,27 @@ export function ControllerView({
   };
 
   const handleCheckoutCommit = async (commit: CommitListItem): Promise<void> => {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        `このコミット ${commit.sha.slice(0, 7)} に checkout しますか？\n\nDetached HEAD になります。開いている作業内容によっては画面が再読み込みされたり不安定になる場合があります。`
+      )
+    ) {
+      return;
+    }
+
     setOperationBusy(true);
 
     try {
+      setSelectedBranchForHover(null);
+      setPendingScrollCommitSha(null);
+      setShowBranchDiff(false);
+      setActiveCompareRefs([]);
+      setActiveLogRef('HEAD');
       await api.checkout(repoPath, commit.sha);
       setInlineError(null);
       onNotify(`${commit.sha.slice(0, 7)} にチェックアウトしました。`);
-      await refreshAll();
+      await refreshAll('HEAD');
     } catch (error) {
       reportError(error, 'コミットチェックアウトに失敗しました。');
     } finally {
@@ -354,7 +420,6 @@ export function ControllerView({
     }
   };
 
-  const currentBranchName = branches?.current ?? null;
   const highlightedCommitSha = selectedBranchForHover?.commit ?? null;
   const checkedOutCommitSha = useMemo(() => {
     if (branches?.current && branches.current !== 'HEAD') {
@@ -391,22 +456,38 @@ export function ControllerView({
     });
   };
 
+  const handleCheckoutBranchRef = (refName: string): void => {
+    const target = [...(branches?.local ?? []), ...(branches?.remote ?? [])].find((branch) => branch.name === refName);
+    if (!target) {
+      onNotify(`${refName} を checkout できませんでした。`);
+      return;
+    }
+
+    void handleCheckoutBranch(target);
+  };
+
   return (
     <section className="flex h-full flex-col gap-3">
       <header className="panel flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button type="button" className="button button-secondary" onClick={onBackToDashboard}>
-            <ArrowLeft size={14} />
-            Dashboard
-          </button>
-          <div>
-            <div className="text-sm font-semibold text-ink">{repository.name}</div>
-            <div className="text-xs text-ink-subtle">{repository.path}</div>
-          </div>
+        <div>
+          <div className="text-sm font-semibold text-ink">{repository.name}</div>
+          <div className="text-xs text-ink-subtle">{repository.path}</div>
         </div>
 
         <div className="flex items-center gap-2">
           <span className="badge">{currentBranchName ?? 'detached'}</span>
+          {canCompareCurrentBranch ? (
+            <button
+              type="button"
+              className={`button ${showBranchDiff ? 'button-primary' : 'button-secondary'}`}
+              disabled={loadingBranchDiffDetail}
+              onClick={() => {
+                setShowBranchDiff((current) => !current);
+              }}
+            >
+              {showBranchDiff ? 'Commit Detail' : `Diff vs ${defaultBranch?.name ?? 'default'}`}
+            </button>
+          ) : null}
           <button
             type="button"
             className="button button-secondary"
@@ -449,7 +530,7 @@ export function ControllerView({
           }}
         />
 
-        <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(260px,42%)] gap-3 max-[1180px]:grid-rows-[minmax(0,1fr)_minmax(220px,45%)]">
+        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(260px,42%)] gap-3 max-[1180px]:grid-rows-[minmax(0,1fr)_minmax(220px,45%)]">
           <CommitGraph
             commits={commits}
             mode={commitGraphMode}
@@ -463,6 +544,7 @@ export function ControllerView({
             hasMore={hasMoreCommits}
             loading={loadingCommits}
             loadingMore={loadingMoreCommits}
+            busy={operationBusy}
             onSelectCommit={(commit) => {
               setActiveCommit(commit);
               void loadCommitDetail(commit.sha);
@@ -470,6 +552,7 @@ export function ControllerView({
             onCheckoutCommit={(commit) => {
               void handleCheckoutCommit(commit);
             }}
+            onCheckoutBranchRef={handleCheckoutBranchRef}
             onLoadMore={() => {
               void loadCommits({
                 append: true,
@@ -480,7 +563,17 @@ export function ControllerView({
             }}
           />
 
-          <CommitDetailPanel detail={commitDetail} loading={loadingCommitDetail} />
+          {showBranchDiff ? (
+            <BranchDiffDetailPanel
+              detail={branchDiffDetail}
+              loading={loadingBranchDiffDetail}
+              baseBranchName={defaultBranch?.name ?? null}
+              targetBranchName={currentLocalBranch?.name ?? null}
+              onBackToCommitDetail={() => setShowBranchDiff(false)}
+            />
+          ) : (
+            <CommitDetailPanel detail={commitDetail} loading={loadingCommitDetail} />
+          )}
         </div>
 
         <div className="min-h-0 overflow-hidden max-[1380px]:col-span-2 max-[1180px]:col-span-1">

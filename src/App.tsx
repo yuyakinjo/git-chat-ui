@@ -164,7 +164,6 @@ export default function App(): JSX.Element {
           <ControllerView
             repository={selectedRepository}
             appConfig={appConfig}
-            onBackToDashboard={() => setScreen('dashboard')}
             onNotify={setNotice}
           />
         ) : null}

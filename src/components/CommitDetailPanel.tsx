@@ -10,7 +10,7 @@ interface CommitDetailPanelProps {
 
 export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): JSX.Element {
   return (
-    <section className="panel flex min-h-0 flex-col p-3">
+    <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
       <div className="mb-2 px-2">
         <div className="section-title">Commit Detail</div>
       </div>

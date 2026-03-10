@@ -7,6 +7,7 @@ import {
   checkoutRef,
   commitChanges,
   discoverRepositories,
+  getBranchDiffDetail,
   getBranches,
   getCommitDetail,
   getCommits,
@@ -134,6 +135,22 @@ app.get('/api/commits/detail', async (request, response, next) => {
     const repoPath = getRepoPathFromQuery(request);
     const sha = getRequiredString(request.query.sha, 'sha');
     const detail = await getCommitDetail(repoPath, sha);
+    response.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/branches/diff', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const baseRef = getRequiredString(request.query.baseRef, 'baseRef');
+    const targetRef = getRequiredString(request.query.targetRef, 'targetRef');
+    const detail = await getBranchDiffDetail({
+      repoPath,
+      baseRef,
+      targetRef
+    });
     response.json(detail);
   } catch (error) {
     next(error);

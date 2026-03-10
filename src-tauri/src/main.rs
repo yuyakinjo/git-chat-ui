@@ -11,6 +11,7 @@ fn main() {
             backend::get_branches,
             backend::get_commits,
             backend::get_commit_detail,
+            backend::get_branch_diff_detail,
             backend::get_working_tree_status,
             backend::stage_file,
             backend::unstage_file,

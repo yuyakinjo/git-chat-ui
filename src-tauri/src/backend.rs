@@ -128,6 +128,17 @@ pub struct CommitDetail {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BranchDiffDetail {
+    pub base_ref: String,
+    pub target_ref: String,
+    pub merge_base_sha: String,
+    pub files: Vec<CommitFileStat>,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkingFile {
     pub file: String,
     pub x: String,
@@ -1142,6 +1153,65 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
         body: meta_parts[5].to_string(),
         files,
         diff: diff.chars().take(25_000).collect(),
+    })
+}
+
+#[tauri::command]
+pub fn get_branch_diff_detail(
+    repo_path: String,
+    base_ref: String,
+    target_ref: String,
+) -> Result<BranchDiffDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let base_ref = base_ref.trim().to_string();
+    let target_ref = target_ref.trim().to_string();
+
+    if base_ref.is_empty() {
+        return Err("baseRef is required.".to_string());
+    }
+
+    if target_ref.is_empty() {
+        return Err("targetRef is required.".to_string());
+    }
+
+    let merge_base_sha = run_git(
+        &["merge-base", base_ref.as_str(), target_ref.as_str()],
+        &repo_path,
+    )?;
+    let range = format!("{merge_base_sha}..{target_ref}");
+
+    let file_stats_raw = run_git(&["diff", "--numstat", range.as_str()], &repo_path)?;
+    let files: Vec<CommitFileStat> = file_stats_raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() != 3 {
+                return None;
+            }
+
+            let additions = parts[0].parse::<i64>().unwrap_or(0);
+            let deletions = parts[1].parse::<i64>().unwrap_or(0);
+
+            Some(CommitFileStat {
+                file: parts[2].to_string(),
+                additions,
+                deletions,
+            })
+        })
+        .collect();
+
+    let diff = run_git(&["diff", range.as_str()], &repo_path)?;
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(BranchDiffDetail {
+        base_ref,
+        target_ref,
+        merge_base_sha,
+        files,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
     })
 }
 

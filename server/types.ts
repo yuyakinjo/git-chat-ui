@@ -37,6 +37,19 @@ export interface CommitDetail {
   diff: string;
 }
 
+export interface BranchDiffDetail {
+  baseRef: string;
+  targetRef: string;
+  mergeBaseSha: string;
+  files: Array<{
+    file: string;
+    additions: number;
+    deletions: number;
+  }>;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
 export interface WorkingFile {
   file: string;
   x: string;
