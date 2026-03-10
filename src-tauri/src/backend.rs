@@ -1,11 +1,13 @@
+use git2::{
+    build::CheckoutBuilder, Commit as GitCommit, Repository as GitRepository, Status, StatusOptions,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_REPOSITORIES: usize = 300;
@@ -434,6 +436,29 @@ fn set_recently_used_repository(repo_path: &str) -> Result<(), String> {
     write_config(&config)
 }
 
+fn map_git2_error(error: git2::Error) -> String {
+    let message = error.message().trim();
+    if message.is_empty() {
+        "Git operation failed.".to_string()
+    } else {
+        message.to_string()
+    }
+}
+
+fn open_repository(repo_path: &str) -> Result<GitRepository, String> {
+    let path = Path::new(repo_path);
+
+    if !path.is_absolute() {
+        return Err("Repository path must be absolute.".to_string());
+    }
+
+    if !path.is_dir() {
+        return Err("Repository path is not a directory.".to_string());
+    }
+
+    GitRepository::open(path).map_err(map_git2_error)
+}
+
 fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
@@ -466,53 +491,14 @@ fn run_git_owned(args: &[String], repo_path: &str) -> Result<String, String> {
     run_git(&refs, repo_path)
 }
 
-fn hash_text_with_git(repo_path: &str, text: &str) -> String {
-    let mut child = match Command::new("git")
-        .args(["hash-object", "--stdin"])
-        .current_dir(repo_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => {
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            text.hash(&mut hasher);
-            return format!("{:016x}", hasher.finish());
-        }
-    };
-
-    if let Some(stdin) = child.stdin.as_mut() {
-        let _ = stdin.write_all(text.as_bytes());
-    }
-
-    if let Ok(output) = child.wait_with_output() {
-        if output.status.success() {
-            let hashed = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !hashed.is_empty() {
-                return hashed;
-            }
-        }
-    }
-
+fn hash_text(text: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
 fn ensure_repo_path(repo_path: &str) -> Result<(), String> {
-    let path = Path::new(repo_path);
-
-    if !path.is_absolute() {
-        return Err("Repository path must be absolute.".to_string());
-    }
-
-    if !path.is_dir() {
-        return Err("Repository path is not a directory.".to_string());
-    }
-
-    run_git(&["rev-parse", "--is-inside-work-tree"], repo_path)?;
-
+    open_repository(repo_path).map(|_| ())?;
     Ok(())
 }
 
@@ -528,6 +514,60 @@ fn status_label(code: &str) -> String {
         _ => "Changed",
     }
     .to_string()
+}
+
+fn git_status_index_code(status: Status) -> char {
+    if status.contains(Status::CONFLICTED) {
+        'U'
+    } else if status.contains(Status::INDEX_NEW) {
+        'A'
+    } else if status.contains(Status::INDEX_MODIFIED) {
+        'M'
+    } else if status.contains(Status::INDEX_DELETED) {
+        'D'
+    } else if status.contains(Status::INDEX_RENAMED) {
+        'R'
+    } else if status.contains(Status::INDEX_TYPECHANGE) {
+        'T'
+    } else {
+        ' '
+    }
+}
+
+fn git_status_worktree_code(status: Status) -> char {
+    if status.contains(Status::CONFLICTED) {
+        'U'
+    } else if status.contains(Status::WT_NEW) {
+        '?'
+    } else if status.contains(Status::WT_MODIFIED) {
+        'M'
+    } else if status.contains(Status::WT_DELETED) {
+        'D'
+    } else if status.contains(Status::WT_RENAMED) {
+        'R'
+    } else if status.contains(Status::WT_TYPECHANGE) {
+        'T'
+    } else {
+        ' '
+    }
+}
+
+fn status_entry_path(entry: &git2::StatusEntry<'_>) -> Option<String> {
+    entry.path().map(ToString::to_string)
+}
+
+fn build_status_options(include_untracked_dirs: bool) -> StatusOptions {
+    let mut options = StatusOptions::new();
+    options
+        .include_untracked(true)
+        .renames_head_to_index(true)
+        .renames_index_to_workdir(true);
+
+    if include_untracked_dirs {
+        options.recurse_untracked_dirs(true);
+    }
+
+    options
 }
 
 fn should_skip_dir(home: &Path, current: &Path, dir_name: &str) -> bool {
@@ -688,8 +728,18 @@ fn discover_repositories(
 }
 
 fn get_current_branch(repo_path: &str) -> Result<String, String> {
-    ensure_repo_path(repo_path)?;
-    run_git(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path)
+    let repository = open_repository(repo_path)?;
+
+    let current = match repository.head() {
+        Ok(head) => Ok(head
+            .shorthand()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "HEAD".to_string())),
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => Ok("HEAD".to_string()),
+        Err(error) => Err(map_git2_error(error)),
+    };
+
+    current
 }
 
 fn get_diff_snippet(repo_path: &str, files: &[String]) -> Result<String, String> {
@@ -1217,28 +1267,27 @@ pub fn get_branch_diff_detail(
 
 #[tauri::command]
 pub fn get_working_tree_status(repo_path: String) -> Result<WorkingTreeStatus, String> {
-    ensure_repo_path(&repo_path)?;
-
-    let status = run_git(&["status", "--porcelain=v1", "-uall"], &repo_path)?;
+    let repository = open_repository(&repo_path)?;
+    let mut options = build_status_options(true);
+    let statuses = repository
+        .statuses(Some(&mut options))
+        .map_err(map_git2_error)?;
 
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
 
-    for line in status.lines() {
-        if line.trim().is_empty() {
+    for entry in statuses.iter() {
+        let status = entry.status();
+        let x = git_status_index_code(status);
+        let y = git_status_worktree_code(status);
+
+        if x == ' ' && y == ' ' {
             continue;
         }
 
-        let x = line.chars().nth(0).unwrap_or(' ');
-        let y = line.chars().nth(1).unwrap_or(' ');
-
-        let raw_path = line.chars().skip(3).collect::<String>().trim().to_string();
-        let file = raw_path
-            .split(" -> ")
-            .last()
-            .unwrap_or(raw_path.as_str())
-            .to_string();
-
+        let Some(file) = status_entry_path(&entry) else {
+            continue;
+        };
         let code = if x != ' ' && x != '?' { x } else { y };
         let label = status_label(&code.to_string());
 
@@ -1266,26 +1315,56 @@ pub fn get_working_tree_status(repo_path: String) -> Result<WorkingTreeStatus, S
 
 #[tauri::command]
 pub fn stage_file(repo_path: String, file: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
     if file.trim().is_empty() {
         return Err("file is required.".to_string());
     }
 
-    run_git(&["add", "--", &file], &repo_path)?;
+    let repository = open_repository(&repo_path)?;
+    let relative_path = Path::new(file.trim());
+    let status = repository
+        .status_file(relative_path)
+        .unwrap_or(Status::WT_NEW);
+    let mut index = repository.index().map_err(map_git2_error)?;
+
+    if status.contains(Status::WT_DELETED) && !status.contains(Status::WT_NEW) {
+        index.remove_path(relative_path).map_err(map_git2_error)?;
+    } else {
+        index.add_path(relative_path).map_err(map_git2_error)?;
+    }
+
+    index.write().map_err(map_git2_error)?;
     Ok(OkResponse { ok: true })
 }
 
 #[tauri::command]
 pub fn unstage_file(repo_path: String, file: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
     if file.trim().is_empty() {
         return Err("file is required.".to_string());
     }
 
-    if run_git(&["restore", "--staged", "--", &file], &repo_path).is_err() {
-        run_git(&["reset", "HEAD", "--", &file], &repo_path)?;
+    let repository = open_repository(&repo_path)?;
+
+    match repository.revparse_single("HEAD") {
+        Ok(head) => {
+            repository
+                .reset_default(Some(&head), [file.trim()])
+                .map_err(map_git2_error)?;
+        }
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => {
+            let mut index = repository.index().map_err(map_git2_error)?;
+            index
+                .remove_path(Path::new(file.trim()))
+                .or_else(|remove_error| {
+                    if remove_error.code() == git2::ErrorCode::NotFound {
+                        Ok(())
+                    } else {
+                        Err(remove_error)
+                    }
+                })
+                .map_err(map_git2_error)?;
+            index.write().map_err(map_git2_error)?;
+        }
+        Err(error) => return Err(map_git2_error(error)),
     }
 
     Ok(OkResponse { ok: true })
@@ -1355,33 +1434,91 @@ pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
 
 #[tauri::command]
 pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
     if reference.trim().is_empty() {
         return Err("ref is required.".to_string());
     }
 
-    run_git(&["checkout", &reference], &repo_path)?;
+    let repository = open_repository(&repo_path)?;
+    let (object, reference_match) = repository
+        .revparse_ext(reference.trim())
+        .map_err(map_git2_error)?;
+
+    let mut checkout = CheckoutBuilder::new();
+    checkout.safe();
+
+    if let Some(git_reference) = reference_match {
+        let reference_name = git_reference
+            .name()
+            .ok_or_else(|| "Failed to resolve reference name.".to_string())?;
+        repository
+            .set_head(reference_name)
+            .map_err(map_git2_error)?;
+        repository
+            .checkout_head(Some(&mut checkout))
+            .map_err(map_git2_error)?;
+    } else {
+        repository
+            .checkout_tree(&object, Some(&mut checkout))
+            .map_err(map_git2_error)?;
+        repository
+            .set_head_detached(object.id())
+            .map_err(map_git2_error)?;
+    }
 
     Ok(OkResponse { ok: true })
 }
 
 #[tauri::command]
 pub fn commit(repo_path: String, title: String, description: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
     if title.trim().is_empty() {
         return Err("Commit title is required.".to_string());
     }
 
-    if description.trim().is_empty() {
-        run_git(&["commit", "-m", title.trim()], &repo_path)?;
-    } else {
-        run_git(
-            &["commit", "-m", title.trim(), "-m", description.trim()],
-            &repo_path,
-        )?;
+    let repository = open_repository(&repo_path)?;
+    let mut index = repository.index().map_err(map_git2_error)?;
+    if index.has_conflicts() {
+        return Err("Cannot commit while the index has unresolved conflicts.".to_string());
     }
+
+    let tree_oid = index.write_tree().map_err(map_git2_error)?;
+    let tree = repository.find_tree(tree_oid).map_err(map_git2_error)?;
+    let signature = repository.signature().map_err(map_git2_error)?;
+    let message = if description.trim().is_empty() {
+        title.trim().to_string()
+    } else {
+        format!("{}\n\n{}", title.trim(), description.trim())
+    };
+
+    match repository.head() {
+        Ok(head) => {
+            let parent = head.peel_to_commit().map_err(map_git2_error)?;
+            let parents: [&GitCommit<'_>; 1] = [&parent];
+            repository
+                .commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &message,
+                    &tree,
+                    &parents,
+                )
+                .map_err(map_git2_error)?;
+        }
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => {
+            let parents: [&GitCommit<'_>; 0] = [];
+            repository
+                .commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &message,
+                    &tree,
+                    &parents,
+                )
+                .map_err(map_git2_error)?;
+        }
+        Err(error) => return Err(map_git2_error(error)),
+    };
 
     Ok(OkResponse { ok: true })
 }
@@ -1397,13 +1534,36 @@ pub fn push(repo_path: String) -> Result<OkResponse, String> {
 
 #[tauri::command]
 pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String> {
-    ensure_repo_path(&repo_path)?;
+    let repository = open_repository(&repo_path)?;
+    let head = match repository.head() {
+        Ok(head) => head
+            .target()
+            .map(|oid| oid.to_string())
+            .unwrap_or_else(|| "HEAD".to_string()),
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => "HEAD".to_string(),
+        Err(error) => return Err(map_git2_error(error)),
+    };
 
-    let head = run_git(&["rev-parse", "HEAD"], &repo_path)?;
-    let status = run_git(&["status", "--porcelain=v1"], &repo_path)?;
+    let mut options = build_status_options(false);
+    let statuses = repository
+        .statuses(Some(&mut options))
+        .map_err(map_git2_error)?;
+
+    let mut snapshot = String::new();
+    snapshot.push_str(&head);
+
+    for entry in statuses.iter() {
+        snapshot.push('\n');
+        snapshot.push(git_status_index_code(entry.status()));
+        snapshot.push(git_status_worktree_code(entry.status()));
+        snapshot.push(' ');
+        if let Some(path) = status_entry_path(&entry) {
+            snapshot.push_str(&path);
+        }
+    }
 
     Ok(FingerprintResponse {
-        fingerprint: hash_text_with_git(&repo_path, &format!("{head}\n{status}")),
+        fingerprint: hash_text(&snapshot),
     })
 }
 
