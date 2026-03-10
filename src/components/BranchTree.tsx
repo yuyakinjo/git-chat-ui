@@ -15,6 +15,8 @@ interface TreeNode {
   leaves: Array<{ branch: Branch; displayName: string }>;
 }
 
+const SINGLE_CLICK_DELAY_MS = 400;
+
 function buildTree(items: Branch[]): TreeNode {
   const root: TreeNode = {
     children: new Map<string, TreeNode>(),
@@ -101,16 +103,7 @@ export function BranchTree({
     });
   };
 
-  const handleBranchClick = (branch: Branch, clickCount: number): void => {
-    if (clickCount >= 2) {
-      if (pendingClickRef.current) {
-        globalThis.clearTimeout(pendingClickRef.current.timeoutId);
-        pendingClickRef.current = null;
-      }
-      onCheckoutBranch(branch);
-      return;
-    }
-
+  const handleBranchClick = (branch: Branch): void => {
     if (pendingClickRef.current) {
       globalThis.clearTimeout(pendingClickRef.current.timeoutId);
     }
@@ -122,8 +115,17 @@ export function BranchTree({
           pendingClickRef.current = null;
         }
         onSelectBranch(branch);
-      }, 220)
+      }, SINGLE_CLICK_DELAY_MS)
     };
+  };
+
+  const handleBranchDoubleClick = (branch: Branch): void => {
+    if (pendingClickRef.current) {
+      globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+      pendingClickRef.current = null;
+    }
+
+    onCheckoutBranch(branch);
   };
 
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
@@ -162,7 +164,8 @@ export function BranchTree({
               type="button"
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
               className={`list-item w-full text-left ${isCurrent ? 'active' : ''}`}
-              onClick={(event) => handleBranchClick(leaf.branch, event.detail)}
+              onClick={() => handleBranchClick(leaf.branch)}
+              onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
             >
               <GitBranch size={13} />
               <span className="truncate text-[13px] font-medium">{leaf.displayName}</span>
