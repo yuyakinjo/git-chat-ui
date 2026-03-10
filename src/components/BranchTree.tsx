@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Folder, GitBranch } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Branch, BranchResponse } from '../types';
 
@@ -73,9 +73,21 @@ export function BranchTree({
   onCheckoutBranch
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const pendingClickRef = useRef<{
+    branchName: string;
+    timeoutId: ReturnType<typeof globalThis.setTimeout>;
+  } | null>(null);
 
   const localTree = useMemo(() => buildTree(branches?.local ?? []), [branches]);
   const remoteTree = useMemo(() => buildTree(branches?.remote ?? []), [branches]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingClickRef.current) {
+        globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+      }
+    };
+  }, []);
 
   const toggle = (key: string): void => {
     setExpanded((current) => {
@@ -87,6 +99,31 @@ export function BranchTree({
       }
       return next;
     });
+  };
+
+  const handleBranchClick = (branch: Branch, clickCount: number): void => {
+    if (clickCount >= 2) {
+      if (pendingClickRef.current) {
+        globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+        pendingClickRef.current = null;
+      }
+      onCheckoutBranch(branch);
+      return;
+    }
+
+    if (pendingClickRef.current) {
+      globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+    }
+
+    pendingClickRef.current = {
+      branchName: branch.name,
+      timeoutId: globalThis.setTimeout(() => {
+        if (pendingClickRef.current?.branchName === branch.name) {
+          pendingClickRef.current = null;
+        }
+        onSelectBranch(branch);
+      }, 220)
+    };
   };
 
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
@@ -125,8 +162,7 @@ export function BranchTree({
               type="button"
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
               className={`list-item w-full text-left ${isCurrent ? 'active' : ''}`}
-              onClick={() => onSelectBranch(leaf.branch)}
-              onDoubleClick={() => onCheckoutBranch(leaf.branch)}
+              onClick={(event) => handleBranchClick(leaf.branch, event.detail)}
             >
               <GitBranch size={13} />
               <span className="truncate text-[13px] font-medium">{leaf.displayName}</span>
