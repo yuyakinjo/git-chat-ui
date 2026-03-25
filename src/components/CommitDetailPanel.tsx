@@ -2,6 +2,7 @@ import { CalendarClock, FileCode2, User } from 'lucide-react';
 
 import { formatRelativeDate, shortSha } from '../lib/format';
 import type { CommitDetail } from '../types';
+import { SplitDiffViewer } from './SplitDiffViewer';
 
 interface CommitDetailPanelProps {
   detail: CommitDetail | null;
@@ -22,7 +23,7 @@ export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): 
       ) : null}
 
       {detail ? (
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-2">
+        <div className="min-h-0 flex flex-1 flex-col gap-3 overflow-hidden px-2 pb-2">
           <div className="rounded-xl border border-black/10 bg-white/65 p-3">
             <div className="mb-2 text-sm font-semibold text-ink">{detail.body.split('\n')[0] || 'No title'}</div>
             <div className="space-y-1 text-xs text-ink-soft">
@@ -45,7 +46,7 @@ export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): 
             <div className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
               Changed Files
             </div>
-            <div className="overflow-hidden rounded-xl border border-black/10 bg-white/65">
+            <div className="max-h-36 overflow-y-auto rounded-xl border border-black/10 bg-white/65">
               {detail.files.length === 0 ? (
                 <div className="p-3 text-xs text-ink-subtle">ファイル差分はありません。</div>
               ) : (
@@ -63,11 +64,11 @@ export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): 
             </div>
           </div>
 
-          <div>
+          <div className="min-h-0 flex flex-1 flex-col">
             <div className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">Diff</div>
-            <pre className="max-h-56 overflow-auto rounded-xl border border-black/10 bg-[#111827] p-3 text-[11px] leading-5 text-[#e5e7eb]">
-              {detail.diff || 'No diff'}
-            </pre>
+            <div className="min-h-0 flex-1">
+              <SplitDiffViewer diff={detail.diff} files={detail.files} />
+            </div>
           </div>
         </div>
       ) : null}
