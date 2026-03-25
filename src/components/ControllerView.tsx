@@ -6,6 +6,7 @@ import { describeGitError, type UiError } from '../lib/errors';
 import { BranchDiffDetailPanel } from './BranchDiffDetailPanel';
 import { BranchTree } from './BranchTree';
 import { CommitDetailPanel } from './CommitDetailPanel';
+import { CommitDiffOverlay } from './CommitDiffOverlay';
 import { CommitGraph } from './CommitGraph';
 import { GitOperationPanel } from './GitOperationPanel';
 import type {
@@ -112,6 +113,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const [branchDiffDetail, setBranchDiffDetail] = useState<BranchDiffDetail | null>(null);
   const [loadingBranchDiffDetail, setLoadingBranchDiffDetail] = useState(false);
   const [showBranchDiff, setShowBranchDiff] = useState(false);
+  const [focusedCommitDiffFile, setFocusedCommitDiffFile] = useState<string | null>(null);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
@@ -307,9 +309,14 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     setCommitDescription('');
     setBranchDiffDetail(null);
     setShowBranchDiff(false);
+    setFocusedCommitDiffFile(null);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [refreshAll, repoPath]);
+
+  useEffect(() => {
+    setFocusedCommitDiffFile(null);
+  }, [activeCommit?.sha]);
 
   useEffect(() => {
     if (!canCompareCurrentBranch) {
@@ -326,6 +333,16 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   useEffect(() => {
     setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
   }, [appConfig?.commitGraphMode]);
+
+  useEffect(() => {
+    if (!focusedCommitDiffFile) {
+      return;
+    }
+
+    if (!commitDetail || !commitDetail.files.some((file) => file.file === focusedCommitDiffFile)) {
+      setFocusedCommitDiffFile(null);
+    }
+  }, [commitDetail, focusedCommitDiffFile]);
 
   useEffect(() => {
     let active = true;
@@ -440,6 +457,10 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     ],
     [workingStatus]
   );
+  const selectedCommitDetail = useMemo(
+    () => (commitDetail && activeCommit && commitDetail.sha === activeCommit.sha ? commitDetail : null),
+    [activeCommit, commitDetail]
+  );
 
   const handleSelectBranch = (branch: Branch): void => {
     setSelectedBranchForHover(branch);
@@ -467,7 +488,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   };
 
   return (
-    <section className="flex h-full flex-col gap-3">
+    <section className="relative flex h-full flex-col gap-3">
       <header className="panel flex items-center justify-between px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-ink">{repository.name}</div>
@@ -580,9 +601,17 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           <GitOperationPanel
             status={workingStatus}
             stashes={stashes}
+            selectedCommitTitle={selectedCommitDetail?.body.split('\n')[0] || null}
+            selectedCommitSha={selectedCommitDetail?.sha ?? activeCommit?.sha ?? null}
+            selectedCommitFiles={selectedCommitDetail?.files ?? []}
+            selectedCommitLoading={loadingCommitDetail}
+            activeCommitDiffFile={focusedCommitDiffFile}
             commitTitle={commitTitle}
             commitDescription={commitDescription}
             busy={operationBusy}
+            onOpenCommitFileDiff={(file) => {
+              setFocusedCommitDiffFile(file);
+            }}
             onCommitTitleChange={setCommitTitle}
             onCommitDescriptionChange={setCommitDescription}
             onStageFile={(file) => {
@@ -637,6 +666,14 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           />
         </div>
       </div>
+
+      {selectedCommitDetail && focusedCommitDiffFile ? (
+        <CommitDiffOverlay
+          detail={selectedCommitDetail}
+          filePath={focusedCommitDiffFile}
+          onClose={() => setFocusedCommitDiffFile(null)}
+        />
+      ) : null}
     </section>
   );
 }

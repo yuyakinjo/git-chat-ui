@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { parseUnifiedDiff, type ParsedDiffCell, type ParsedDiffFile, type ParsedDiffRow } from '../lib/diff';
+import { buildIntralineSegments, type IntralineSegment } from '../lib/intralineDiff';
 
 interface SplitDiffFileStat {
   file: string;
@@ -12,6 +13,7 @@ interface SplitDiffViewerProps {
   diff: string;
   files?: SplitDiffFileStat[];
   isDiffTruncated?: boolean;
+  preferredFilePath?: string | null;
   emptyMessage?: string;
 }
 
@@ -22,11 +24,22 @@ const fileKindLabel: Record<ParsedDiffFile['kind'], string> = {
   renamed: 'Renamed'
 };
 
+function matchesFilePath(
+  file: Pick<ParsedDiffFile, 'displayPath' | 'newPath' | 'oldPath'>,
+  targetPath: string | null | undefined
+): boolean {
+  if (!targetPath) {
+    return false;
+  }
+
+  return file.displayPath === targetPath || file.newPath === targetPath || file.oldPath === targetPath;
+}
+
 function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefined): ParsedDiffFile & {
   additions: number;
   deletions: number;
 } {
-  const matched = stats?.find((item) => item.file === file.displayPath || item.file === file.newPath || item.file === file.oldPath);
+  const matched = stats?.find((item) => matchesFilePath(file, item.file));
   if (matched) {
     return {
       ...file,
@@ -57,7 +70,30 @@ function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefi
   };
 }
 
-function renderCell(cell: ParsedDiffCell | null, side: 'left' | 'right'): JSX.Element {
+function renderSegments(segments: IntralineSegment[] | null): JSX.Element {
+  if (!segments || segments.length === 0) {
+    return <>{' '}</>;
+  }
+
+  return (
+    <>
+      {segments.map((segment, index) => (
+        <span
+          key={`${segment.text}-${index}`}
+          className={segment.emphasized ? 'diff-cell__chunk diff-cell__chunk--emphasis' : 'diff-cell__chunk'}
+        >
+          {segment.text || ' '}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function renderCell(
+  cell: ParsedDiffCell | null,
+  side: 'left' | 'right',
+  segments: IntralineSegment[] | null = null
+): JSX.Element {
   if (!cell) {
     return <div className={`diff-cell diff-cell-empty diff-cell--${side}`} aria-hidden="true" />;
   }
@@ -65,16 +101,19 @@ function renderCell(cell: ParsedDiffCell | null, side: 'left' | 'right'): JSX.El
   return (
     <div className={`diff-cell diff-cell--${cell.kind} diff-cell--${side}`}>
       <div className="diff-cell__line-number">{cell.lineNumber ?? ''}</div>
-      <code className="diff-cell__content">{cell.content || ' '}</code>
+      <code className="diff-cell__content">{segments ? renderSegments(segments) : cell.content || ' '}</code>
     </div>
   );
 }
 
 function renderRow(row: ParsedDiffRow, index: number): JSX.Element {
+  const segments =
+    row.kind === 'change' && row.left && row.right ? buildIntralineSegments(row.left.content, row.right.content) : null;
+
   return (
     <div key={`${row.kind}-${index}`} className={`diff-row diff-row--${row.kind} ${row.kind === 'context' ? 'is-context' : ''}`}>
-      {renderCell(row.left, 'left')}
-      {renderCell(row.right, 'right')}
+      {renderCell(row.left, 'left', segments?.left ?? null)}
+      {renderCell(row.right, 'right', segments?.right ?? null)}
     </div>
   );
 }
@@ -99,6 +138,7 @@ export function SplitDiffViewer({
   diff,
   files: fileStats,
   isDiffTruncated = false,
+  preferredFilePath = null,
   emptyMessage = 'No diff'
 }: SplitDiffViewerProps): JSX.Element {
   const parsedFiles = useMemo(() => parseUnifiedDiff(diff), [diff]);
@@ -111,13 +151,18 @@ export function SplitDiffViewer({
         return null;
       }
 
+      const preferredFile = files.find((file) => matchesFilePath(file, preferredFilePath));
+      if (preferredFile) {
+        return preferredFile.key;
+      }
+
       if (current && files.some((file) => file.key === current)) {
         return current;
       }
 
       return files[0]?.key ?? null;
     });
-  }, [files]);
+  }, [files, preferredFilePath]);
 
   if (!diff.trim()) {
     return <div className="diff-empty-state">{emptyMessage}</div>;
