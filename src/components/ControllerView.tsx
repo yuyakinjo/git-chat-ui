@@ -566,6 +566,13 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
             loading={loadingCommits}
             loadingMore={loadingMoreCommits}
             busy={operationBusy}
+            wipStagedCount={workingStatus?.staged.length ?? 0}
+            wipUnstagedCount={workingStatus?.unstaged.length ?? 0}
+            onSelectWip={() => {
+              setActiveCommit(null);
+              setCommitDetail(null);
+              setShowBranchDiff(false);
+            }}
             onSelectCommit={(commit) => {
               setActiveCommit(commit);
               void loadCommitDetail(commit.sha);

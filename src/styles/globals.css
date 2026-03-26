@@ -198,6 +198,35 @@ body {
   animation: commit-node-firefly 2.4s ease-in-out infinite;
 }
 
+.wip-row {
+  border-color: rgba(217, 119, 6, 0.25) !important;
+  background: rgba(254, 243, 199, 0.45) !important;
+}
+
+.wip-row:hover {
+  background: rgba(254, 243, 199, 0.7) !important;
+}
+
+.wip-node {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #d97706;
+  border: 2px dashed #fbbf24;
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.18);
+  animation: wip-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes wip-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(217, 119, 6, 0.1), 0 0 12px rgba(251, 191, 36, 0.3);
+  }
+}
+
 @keyframes commit-node-firefly {
   0%,
   100% {
