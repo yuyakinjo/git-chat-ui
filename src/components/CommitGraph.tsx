@@ -17,6 +17,9 @@ interface CommitGraphProps {
   loading: boolean;
   loadingMore: boolean;
   busy: boolean;
+  wipStagedCount: number;
+  wipUnstagedCount: number;
+  onSelectWip: () => void;
   onSelectCommit: (commit: CommitListItem) => void;
   onCheckoutCommit: (commit: CommitListItem) => void;
   onCheckoutBranchRef: (refName: string) => void;
@@ -148,6 +151,9 @@ export function CommitGraph({
   loading,
   loadingMore,
   busy,
+  wipStagedCount,
+  wipUnstagedCount,
+  onSelectWip,
   onSelectCommit,
   onCheckoutCommit,
   onCheckoutBranchRef,
@@ -339,6 +345,74 @@ export function CommitGraph({
         </div>
 
         {loading ? <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div> : null}
+
+        {(wipStagedCount > 0 || wipUnstagedCount > 0) && !loading ? (
+          <div
+            className="wip-row commit-row"
+            style={{ gridTemplateColumns }}
+            onClick={onSelectWip}
+            title="未コミットの変更があります"
+          >
+            {isDetailedMode ? (
+              <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+                <svg
+                  className="absolute left-0"
+                  width={graphColumnWidth}
+                  height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+                  style={{ top: `${-LINE_OVERDRAW}px` }}
+                  viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+                  fill="none"
+                >
+                  <line
+                    x1={laneX(0)}
+                    y1={ROW_HEIGHT / 2}
+                    x2={laneX(0)}
+                    y2={ROW_HEIGHT + LINE_OVERDRAW}
+                    stroke={LANE_COLORS[0]}
+                    strokeWidth={2.2}
+                    opacity={0.85}
+                    strokeLinecap="round"
+                    strokeDasharray="4 3"
+                  />
+                </svg>
+                <span
+                  className="absolute block wip-node"
+                  style={{
+                    left: `${laneX(0) - 6}px`,
+                    top: `${ROW_HEIGHT / 2 - 6}px`
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="relative flex h-8 items-center justify-center">
+                <div
+                  className="absolute w-[2px] bg-accent/20"
+                  style={{
+                    top: `${ROW_HEIGHT / 2}px`,
+                    height: `${ROW_HEIGHT / 2 + LINE_OVERDRAW}px`
+                  }}
+                />
+                <span className="wip-node" />
+              </div>
+            )}
+            <div className="overflow-hidden whitespace-nowrap text-xs">
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-[1px] text-[10px] font-semibold leading-4 text-amber-700">
+                WIP
+              </span>
+            </div>
+            <div className="truncate text-xs text-ink-subtle">今</div>
+            <div className="flex items-center gap-2 truncate text-sm font-medium text-amber-700">
+              <span>// WIP</span>
+              <span className="text-xs font-normal text-ink-subtle">
+                {wipStagedCount > 0 ? `${wipStagedCount} staged` : ''}
+                {wipStagedCount > 0 && wipUnstagedCount > 0 ? ' · ' : ''}
+                {wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : ''}
+              </span>
+            </div>
+            <div className="truncate text-xs text-ink-subtle">—</div>
+            <div className="commit-id-column truncate text-xs text-ink-subtle">—</div>
+          </div>
+        ) : null}
 
         {visibleCommits.map((commit, index) => {
           const isHighlighted = highlightedCommitSha === commit.sha;
