@@ -3,6 +3,33 @@ import { describe, expect, test } from 'bun:test';
 import { describeGitError } from './errors';
 
 describe('describeGitError', () => {
+  test('maps invalid gh auth message', () => {
+    const parsed = describeGitError(
+      'Failed to log in to github.com account yuyakinjo. The token in default is invalid. gh auth login -h github.com',
+      'Pull Request の準備に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('GitHub CLI の認証が必要です');
+  });
+
+  test('maps existing pull request message', () => {
+    const parsed = describeGitError(
+      'pull request already exists: https://github.com/example/repo/pull/12',
+      'Pull Request の作成に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('Pull Request は既に存在します');
+  });
+
+  test('maps missing origin remote message', () => {
+    const parsed = describeGitError(
+      "No such remote 'origin'",
+      'Pull Request の準備に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('origin remote が見つかりません');
+  });
+
   test('maps push rejection to friendly title', () => {
     const parsed = describeGitError('failed to push some refs to origin', 'Git操作に失敗しました。');
 
@@ -16,6 +43,12 @@ describe('describeGitError', () => {
     );
 
     expect(parsed.title).toBe('未コミット変更が衝突しています');
+  });
+
+  test('maps merge conflicts', () => {
+    const parsed = describeGitError('Automatic merge failed; fix conflicts and then commit the result.', 'ブランチマージに失敗しました。');
+
+    expect(parsed.title).toBe('競合が発生しました');
   });
 
   test('keeps fallback title for unknown errors', () => {

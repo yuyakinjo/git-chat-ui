@@ -6,6 +6,7 @@ import { readConfig, setRecentlyUsedRepository, writeConfig } from './configStor
 import {
   checkoutRef,
   commitChanges,
+  createPullRequest,
   discoverRepositories,
   getBranchDiffDetail,
   getBranches,
@@ -15,6 +16,8 @@ import {
   getRepositoryFingerprint,
   getStashes,
   getWorkingTreeStatus,
+  mergeBranches,
+  preparePullRequest,
   pushChanges,
   stageFile,
   stashFile,
@@ -216,6 +219,43 @@ app.post('/api/checkout', async (request, response, next) => {
     const ref = getRequiredString(request.body.ref, 'ref');
     await checkoutRef(repoPath, ref);
     response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/branches/merge', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const sourceBranch = getRequiredString(request.body.sourceBranch, 'sourceBranch');
+    const targetBranch = getRequiredString(request.body.targetBranch, 'targetBranch');
+    await mergeBranches(repoPath, sourceBranch, targetBranch);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/pull-request/prepare', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const sourceBranch = getRequiredString(request.body.sourceBranch, 'sourceBranch');
+    const targetBranch = getRequiredString(request.body.targetBranch, 'targetBranch');
+    const result = await preparePullRequest(repoPath, sourceBranch, targetBranch);
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/pull-request', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const sourceBranch = getRequiredString(request.body.sourceBranch, 'sourceBranch');
+    const targetBranch = getRequiredString(request.body.targetBranch, 'targetBranch');
+    const pushSourceBranch = Boolean(request.body.pushSourceBranch);
+    const result = await createPullRequest(repoPath, sourceBranch, targetBranch, pushSourceBranch);
+    response.json(result);
   } catch (error) {
     next(error);
   }

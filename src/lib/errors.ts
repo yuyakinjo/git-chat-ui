@@ -23,6 +23,27 @@ export function describeGitError(error: unknown, fallbackTitle: string): UiError
   const raw = stringifyError(error);
   const message = normalizeWhitespace(raw);
 
+  if (/failed to log in to github\.com|gh auth login|token .* invalid|authentication failed/i.test(message)) {
+    return {
+      title: 'GitHub CLI の認証が必要です',
+      detail: `${message} gh auth login で再認証してから再実行してください。`
+    };
+  }
+
+  if (/pull request .*already exists|already exists.*pull request/i.test(message)) {
+    return {
+      title: 'Pull Request は既に存在します',
+      detail: message
+    };
+  }
+
+  if (/origin remote is not configured|no such remote ['"]?origin['"]?/i.test(message)) {
+    return {
+      title: 'origin remote が見つかりません',
+      detail: `${message} origin を設定してから再実行してください。`
+    };
+  }
+
   if (/failed to push some refs/i.test(message) || /non-fast-forward/i.test(message)) {
     return {
       title: 'Push が拒否されました',

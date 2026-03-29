@@ -50,6 +50,14 @@ export interface BranchDiffDetail {
   isDiffTruncated: boolean;
 }
 
+export interface PullRequestPreparation {
+  pushRequired: boolean;
+}
+
+export interface PullRequestResponse {
+  url: string;
+}
+
 export interface WorkingFile {
   file: string;
   x: string;

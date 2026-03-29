@@ -193,6 +193,17 @@ pub struct StashesResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PullRequestPreparationResponse {
+    pub push_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PullRequestResponse {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveConfigResponse {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -459,12 +470,12 @@ fn open_repository(repo_path: &str) -> Result<GitRepository, String> {
     GitRepository::open(path).map_err(map_git2_error)
 }
 
-fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
-    let output = Command::new("git")
+fn run_command(command: &str, args: &[&str], repo_path: &str) -> Result<String, String> {
+    let output = Command::new(command)
         .args(args)
         .current_dir(repo_path)
         .output()
-        .map_err(|error| format!("Failed to execute git: {error}"))?;
+        .map_err(|error| format!("Failed to execute {command}: {error}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -478,7 +489,7 @@ fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
             return Err(stdout);
         }
 
-        return Err("Failed to execute git command".to_string());
+        return Err(format!("Failed to execute {command} command"));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout)
@@ -486,9 +497,25 @@ fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
         .to_string())
 }
 
-fn run_git_owned(args: &[String], repo_path: &str) -> Result<String, String> {
+fn run_command_owned(command: &str, args: &[String], repo_path: &str) -> Result<String, String> {
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_git(&refs, repo_path)
+    run_command(command, &refs, repo_path)
+}
+
+fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
+    run_command("git", args, repo_path)
+}
+
+fn run_git_owned(args: &[String], repo_path: &str) -> Result<String, String> {
+    run_command_owned("git", args, repo_path)
+}
+
+fn run_gh(args: &[&str], repo_path: &str) -> Result<String, String> {
+    run_command("gh", args, repo_path)
+}
+
+fn run_gh_owned(args: &[String], repo_path: &str) -> Result<String, String> {
+    run_command_owned("gh", args, repo_path)
 }
 
 fn hash_text(text: &str) -> String {
@@ -500,6 +527,106 @@ fn hash_text(text: &str) -> String {
 fn ensure_repo_path(repo_path: &str) -> Result<(), String> {
     open_repository(repo_path).map(|_| ())?;
     Ok(())
+}
+
+fn ensure_local_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    if branch_name.trim().is_empty() {
+        return Err("branchName is required.".to_string());
+    }
+
+    let reference = format!("refs/heads/{branch_name}");
+    run_git(&["rev-parse", "--verify", reference.as_str()], repo_path).map(|_| ())
+}
+
+fn ensure_branch_pair(repo_path: &str, source_branch: &str, target_branch: &str) -> Result<(), String> {
+    if source_branch.trim().is_empty() || target_branch.trim().is_empty() {
+        return Err("sourceBranch and targetBranch are required.".to_string());
+    }
+
+    if source_branch == target_branch {
+        return Err("sourceBranch and targetBranch must be different.".to_string());
+    }
+
+    ensure_local_branch(repo_path, source_branch)?;
+    ensure_local_branch(repo_path, target_branch)?;
+
+    Ok(())
+}
+
+fn ensure_origin_remote(repo_path: &str) -> Result<(), String> {
+    run_git(&["remote", "get-url", "origin"], repo_path).map(|_| ())
+}
+
+fn ensure_github_auth(repo_path: &str) -> Result<(), String> {
+    run_gh(&["auth", "status", "-h", "github.com"], repo_path).map(|_| ())
+}
+
+fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
+    let upstream_ref = format!("{branch_name}@{{upstream}}");
+    run_git(&["rev-parse", "--abbrev-ref", upstream_ref.as_str()], repo_path)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn is_push_required(repo_path: &str, branch_name: &str) -> Result<bool, String> {
+    let Some(upstream) = get_branch_upstream(repo_path, branch_name) else {
+        return Ok(true);
+    };
+
+    let range = format!("{upstream}..{branch_name}");
+    let ahead = run_git(&["rev-list", "--count", range.as_str()], repo_path)?;
+    let count = ahead.trim().parse::<usize>().unwrap_or(0);
+    Ok(count > 0)
+}
+
+fn push_branch_to_origin(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    if get_branch_upstream(repo_path, branch_name).is_some() {
+        run_git(&["push", "origin", branch_name], repo_path)?;
+    } else {
+        run_git(&["push", "-u", "origin", branch_name], repo_path)?;
+    }
+
+    Ok(())
+}
+
+fn find_existing_pull_request(
+    repo_path: &str,
+    source_branch: &str,
+    target_branch: &str,
+) -> Result<Option<String>, String> {
+    let args = vec![
+        "pr".to_string(),
+        "list".to_string(),
+        "--state".to_string(),
+        "open".to_string(),
+        "--head".to_string(),
+        source_branch.to_string(),
+        "--base".to_string(),
+        target_branch.to_string(),
+        "--json".to_string(),
+        "url".to_string(),
+    ];
+    let output = run_gh_owned(&args, repo_path)?;
+
+    if output.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let parsed = serde_json::from_str::<Value>(&output).unwrap_or(Value::Null);
+    let url = parsed
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("url"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
+    Ok(url)
+}
+
+fn extract_url_from_text(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|token| token.starts_with("https://") || token.starts_with("http://"))
+        .map(ToString::to_string)
 }
 
 fn status_label(code: &str) -> String {
@@ -1466,6 +1593,82 @@ pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, Stri
     }
 
     Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn merge_branches(
+    repo_path: String,
+    source_branch: String,
+    target_branch: String,
+) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+    ensure_branch_pair(&repo_path, &source_branch, &target_branch)?;
+
+    let current_branch = get_current_branch(&repo_path)?;
+    if current_branch != target_branch {
+        run_git(&["checkout", target_branch.as_str()], &repo_path)?;
+    }
+
+    run_git(&["merge", source_branch.as_str()], &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn prepare_pull_request(
+    repo_path: String,
+    source_branch: String,
+    target_branch: String,
+) -> Result<PullRequestPreparationResponse, String> {
+    ensure_repo_path(&repo_path)?;
+    ensure_branch_pair(&repo_path, &source_branch, &target_branch)?;
+    ensure_origin_remote(&repo_path)?;
+    ensure_github_auth(&repo_path)?;
+
+    Ok(PullRequestPreparationResponse {
+        push_required: is_push_required(&repo_path, &source_branch)?,
+    })
+}
+
+#[tauri::command]
+pub fn create_pull_request(
+    repo_path: String,
+    source_branch: String,
+    target_branch: String,
+    push_source_branch: bool,
+) -> Result<PullRequestResponse, String> {
+    ensure_repo_path(&repo_path)?;
+    ensure_branch_pair(&repo_path, &source_branch, &target_branch)?;
+    ensure_origin_remote(&repo_path)?;
+    ensure_github_auth(&repo_path)?;
+
+    let push_required = is_push_required(&repo_path, &source_branch)?;
+    if push_required && !push_source_branch {
+        return Err("Source branch must be pushed before creating a pull request.".to_string());
+    }
+
+    if push_source_branch {
+        push_branch_to_origin(&repo_path, &source_branch)?;
+    }
+
+    if let Some(url) = find_existing_pull_request(&repo_path, &source_branch, &target_branch)? {
+        return Err(format!("Pull request already exists: {url}"));
+    }
+
+    let args = vec![
+        "pr".to_string(),
+        "create".to_string(),
+        "--base".to_string(),
+        target_branch,
+        "--head".to_string(),
+        source_branch,
+        "--fill".to_string(),
+    ];
+    let output = run_gh_owned(&args, &repo_path)?;
+    let url = extract_url_from_text(&output)
+        .ok_or_else(|| "Pull request created but URL was not returned.".to_string())?;
+
+    Ok(PullRequestResponse { url })
 }
 
 #[tauri::command]

@@ -8,6 +8,7 @@ import {
   isCurrentBranchDiffDetail
 } from '../lib/branchDiff';
 import { describeGitError, type UiError } from '../lib/errors';
+import { BranchActionDialog, type BranchActionDialogStep } from './BranchActionDialog';
 import { BranchDiffOverlay } from './BranchDiffOverlay';
 import { BranchTree } from './BranchTree';
 import { CommitDetailPanel } from './CommitDetailPanel';
@@ -119,6 +120,11 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const [loadingBranchDiffDetail, setLoadingBranchDiffDetail] = useState(false);
   const [showBranchDiff, setShowBranchDiff] = useState(false);
   const [focusedCommitDiffFile, setFocusedCommitDiffFile] = useState<string | null>(null);
+  const [branchAction, setBranchAction] = useState<{
+    source: Branch;
+    target: Branch;
+    step: BranchActionDialogStep;
+  } | null>(null);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
@@ -305,6 +311,29 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     [activeLogRef, branches, loadBranches, loadCommits, loadWorkingState, repoPath]
   );
 
+  const reloadAfterBranchMutation = useCallback(
+    async (preferredBranchName?: string): Promise<void> => {
+      const [nextBranches] = await Promise.all([loadBranches(), loadWorkingState()]);
+      const branchContext = nextBranches ?? branches;
+      const preferredBranch =
+        preferredBranchName
+          ? branchContext?.local.find((branch) => branch.name === preferredBranchName) ?? null
+          : null;
+      const currentBranch =
+        branchContext?.local.find((branch) => branch.name === branchContext.current) ?? null;
+      const resolvedBranch = preferredBranch ?? currentBranch;
+      const resolvedRef = resolvedBranch?.fullRef || resolvedBranch?.name || resolveLogRef(activeLogRef, branchContext);
+      const compareRefs = resolveCompareRefs(resolvedRef, branchContext);
+
+      setActiveLogRef(resolvedRef);
+      await loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs });
+
+      const fingerprintResponse = await api.getFingerprint(repoPath);
+      setFingerprint(fingerprintResponse.fingerprint);
+    },
+    [activeLogRef, branches, loadBranches, loadCommits, loadWorkingState, repoPath]
+  );
+
   useEffect(() => {
     const defaultRef = 'HEAD';
     setActiveLogRef(defaultRef);
@@ -316,6 +345,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     setBranchDiffDetail(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
+    setBranchAction(null);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [refreshAll, repoPath]);
@@ -505,6 +535,113 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     void handleCheckoutBranch(target);
   };
 
+  const handleBranchDrop = (sourceBranch: Branch, targetBranch: Branch): void => {
+    if (operationBusy || sourceBranch.name === targetBranch.name) {
+      return;
+    }
+
+    setShowBranchDiff(false);
+    setFocusedCommitDiffFile(null);
+    setBranchAction({
+      source: sourceBranch,
+      target: targetBranch,
+      step: 'select-action'
+    });
+  };
+
+  const handleMergeBranchAction = async (): Promise<void> => {
+    const currentAction = branchAction;
+    if (!currentAction) {
+      return;
+    }
+
+    setOperationBusy(true);
+    let primaryError = false;
+
+    try {
+      await api.mergeBranches(repoPath, currentAction.source.name, currentAction.target.name);
+      setInlineError(null);
+      setBranchAction(null);
+      onNotify(`${currentAction.source.name} を ${currentAction.target.name} に merge しました。`);
+    } catch (error) {
+      primaryError = true;
+      reportError(error, 'ブランチマージに失敗しました。');
+    } finally {
+      try {
+        await reloadAfterBranchMutation(currentAction.target.name);
+      } catch (refreshError) {
+        if (!primaryError) {
+          reportError(refreshError, '画面の更新に失敗しました。');
+        }
+      } finally {
+        setOperationBusy(false);
+      }
+    }
+  };
+
+  const handleCreatePullRequest = async (pushSourceBranch: boolean): Promise<void> => {
+    const currentAction = branchAction;
+    if (!currentAction) {
+      return;
+    }
+
+    setOperationBusy(true);
+
+    try {
+      const response = await api.createPullRequest(
+        repoPath,
+        currentAction.source.name,
+        currentAction.target.name,
+        pushSourceBranch
+      );
+      setInlineError(null);
+      setBranchAction(null);
+      onNotify(`Pull Request を作成しました: ${response.url}`);
+      await refreshAll();
+    } catch (error) {
+      reportError(error, 'Pull Request の作成に失敗しました。');
+    } finally {
+      setOperationBusy(false);
+    }
+  };
+
+  const handlePreparePullRequest = async (): Promise<void> => {
+    const currentAction = branchAction;
+    if (!currentAction) {
+      return;
+    }
+
+    setOperationBusy(true);
+    let shouldCreateImmediately = false;
+
+    try {
+      const response = await api.preparePullRequest(repoPath, currentAction.source.name, currentAction.target.name);
+      setInlineError(null);
+
+      if (response.pushRequired) {
+        setBranchAction((current) =>
+          current &&
+          current.source.name === currentAction.source.name &&
+          current.target.name === currentAction.target.name
+            ? { ...current, step: 'confirm-push' }
+            : current
+        );
+        return;
+      }
+
+      shouldCreateImmediately = true;
+    } catch (error) {
+      reportError(error, 'Pull Request の準備に失敗しました。');
+      return;
+    } finally {
+      setOperationBusy(false);
+    }
+
+    if (shouldCreateImmediately) {
+      void handleCreatePullRequest(false);
+    }
+  };
+
   return (
     <section className="relative flex h-full flex-col gap-3">
       <header className="panel flex items-center justify-between px-4 py-3">
@@ -564,10 +701,12 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
+          busy={operationBusy}
           onSelectBranch={handleSelectBranch}
           onCheckoutBranch={(branch) => {
             void handleCheckoutBranch(branch);
           }}
+          onBranchDrop={handleBranchDrop}
         />
 
         <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(260px,42%)] gap-3 max-[1180px]:grid-rows-[minmax(0,1fr)_minmax(220px,45%)]">
@@ -720,6 +859,28 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           baseBranchName={defaultBranch?.name ?? null}
           targetBranchName={currentLocalBranch?.name ?? null}
           onClose={() => setShowBranchDiff(false)}
+        />
+      ) : null}
+
+      {branchAction ? (
+        <BranchActionDialog
+          sourceBranchName={branchAction.source.name}
+          targetBranchName={branchAction.target.name}
+          step={branchAction.step}
+          busy={operationBusy}
+          onClose={() => setBranchAction(null)}
+          onMerge={() => {
+            void handleMergeBranchAction();
+          }}
+          onPreparePullRequest={() => {
+            void handlePreparePullRequest();
+          }}
+          onConfirmPushAndCreatePullRequest={() => {
+            void handleCreatePullRequest(true);
+          }}
+          onBack={() => {
+            setBranchAction((current) => (current ? { ...current, step: 'select-action' } : current));
+          }}
         />
       ) : null}
     </section>
