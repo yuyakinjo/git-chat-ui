@@ -2,6 +2,11 @@ import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
+import {
+  canCompareCurrentBranch,
+  getBranchDiffButtonLabel,
+  isCurrentBranchDiffDetail
+} from '../lib/branchDiff';
 import { describeGitError, type UiError } from '../lib/errors';
 import { BranchDiffDetailPanel } from './BranchDiffDetailPanel';
 import { BranchTree } from './BranchTree';
@@ -134,9 +139,9 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     [branches]
   );
   const defaultBranch = useMemo(() => resolveDefaultBranch(branches) ?? null, [branches]);
-  const canCompareCurrentBranch = Boolean(
-    currentLocalBranch && defaultBranch && currentLocalBranch.name !== defaultBranch.name
-  );
+  const showBranchDiffButton = canCompareCurrentBranch(currentLocalBranch, defaultBranch);
+  const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(branchDiffDetail, defaultBranch, currentLocalBranch);
+  const branchDiffButtonLabel = getBranchDiffButtonLabel(defaultBranch?.name ?? null);
 
   const reportError = useCallback(
     (error: unknown, fallbackTitle: string): void => {
@@ -168,6 +173,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       return;
     }
 
+    setBranchDiffDetail(null);
     setLoadingBranchDiffDetail(true);
     try {
       const detail = await api.getBranchDiffDetail(
@@ -319,7 +325,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   }, [activeCommit?.sha]);
 
   useEffect(() => {
-    if (!canCompareCurrentBranch) {
+    if (!showBranchDiffButton) {
       setShowBranchDiff(false);
       setBranchDiffDetail(null);
       return;
@@ -328,7 +334,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     if (showBranchDiff) {
       void loadBranchDiffDetail();
     }
-  }, [canCompareCurrentBranch, loadBranchDiffDetail, showBranchDiff]);
+  }, [loadBranchDiffDetail, showBranchDiff, showBranchDiffButton]);
 
   useEffect(() => {
     setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
@@ -497,7 +503,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
 
         <div className="flex items-center gap-2">
           <span className="badge">{currentBranchName ?? 'detached'}</span>
-          {canCompareCurrentBranch ? (
+          {showBranchDiffButton ? (
             <button
               type="button"
               className={`button ${showBranchDiff ? 'button-primary' : 'button-secondary'}`}
@@ -506,7 +512,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
                 setShowBranchDiff((current) => !current);
               }}
             >
-              {showBranchDiff ? 'Commit Detail' : `Diff vs ${defaultBranch?.name ?? 'default'}`}
+              {showBranchDiff ? 'Back to Commit Detail' : branchDiffButtonLabel}
             </button>
           ) : null}
           <button
@@ -593,7 +599,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
 
           {showBranchDiff ? (
             <BranchDiffDetailPanel
-              detail={branchDiffDetail}
+              detail={branchDiffMatchesCurrentBranch ? branchDiffDetail : null}
               loading={loadingBranchDiffDetail}
               baseBranchName={defaultBranch?.name ?? null}
               targetBranchName={currentLocalBranch?.name ?? null}
