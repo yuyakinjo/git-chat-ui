@@ -6,6 +6,8 @@ import type {
   BranchResponse,
   CommitDetail,
   CommitResponse,
+  PullRequestPreparation,
+  PullRequestResponse,
   Repository,
   StashEntry,
   WorkingTreeStatus
@@ -206,6 +208,53 @@ export const api = {
     return request('/checkout', {
       method: 'POST',
       body: JSON.stringify({ repoPath, ref })
+    });
+  },
+
+  mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('merge_branches', { repoPath, sourceBranch, targetBranch });
+    }
+
+    return request('/branches/merge', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch })
+    });
+  },
+
+  preparePullRequest(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string
+  ): Promise<PullRequestPreparation> {
+    if (isTauriRuntime()) {
+      return invokeCommand('prepare_pull_request', { repoPath, sourceBranch, targetBranch });
+    }
+
+    return request('/pull-request/prepare', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch })
+    });
+  },
+
+  createPullRequest(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+    pushSourceBranch: boolean
+  ): Promise<PullRequestResponse> {
+    if (isTauriRuntime()) {
+      return invokeCommand('create_pull_request', {
+        repoPath,
+        sourceBranch,
+        targetBranch,
+        pushSourceBranch
+      });
+    }
+
+    return request('/pull-request', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch, pushSourceBranch })
     });
   },
 

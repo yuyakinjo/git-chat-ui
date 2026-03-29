@@ -1,13 +1,16 @@
 import { ChevronDown, ChevronRight, Folder, GitBranch } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 
+import { canDropBranchOnBranch, readBranchDragPayload, writeBranchDragPayload } from '../lib/branchDragDrop';
 import type { Branch, BranchResponse } from '../types';
 
 interface BranchTreeProps {
   branches: BranchResponse | null;
   selectedBranchName: string | null;
+  busy: boolean;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
+  onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
 }
 
 interface TreeNode {
@@ -71,10 +74,14 @@ function SectionTitle({ children }: { children: string }): JSX.Element {
 export function BranchTree({
   branches,
   selectedBranchName,
+  busy,
   onSelectBranch,
-  onCheckoutBranch
+  onCheckoutBranch,
+  onBranchDrop
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [draggedBranchName, setDraggedBranchName] = useState<string | null>(null);
+  const [dropTargetBranchName, setDropTargetBranchName] = useState<string | null>(null);
   const pendingClickRef = useRef<{
     branchName: string;
     timeoutId: ReturnType<typeof globalThis.setTimeout>;
@@ -82,6 +89,10 @@ export function BranchTree({
 
   const localTree = useMemo(() => buildTree(branches?.local ?? []), [branches]);
   const remoteTree = useMemo(() => buildTree(branches?.remote ?? []), [branches]);
+  const localBranchMap = useMemo(
+    () => new Map((branches?.local ?? []).map((branch) => [branch.name, branch])),
+    [branches]
+  );
 
   useEffect(() => {
     return () => {
@@ -128,6 +139,68 @@ export function BranchTree({
     onCheckoutBranch(branch);
   };
 
+  const handleBranchDragStart = (event: DragEvent<HTMLButtonElement>, branch: Branch): void => {
+    if (busy || branch.type !== 'local') {
+      event.preventDefault();
+      return;
+    }
+
+    writeBranchDragPayload(event.dataTransfer, {
+      branchName: branch.name,
+      branchType: branch.type
+    });
+    setDraggedBranchName(branch.name);
+  };
+
+  const handleBranchDragEnd = (): void => {
+    setDraggedBranchName(null);
+    setDropTargetBranchName(null);
+  };
+
+  const handleBranchDragOver = (event: DragEvent<HTMLButtonElement>, branch: Branch): void => {
+    const payload = readBranchDragPayload(event.dataTransfer);
+    const canDrop = canDropBranchOnBranch({
+      busy,
+      source: payload,
+      target: branch
+    });
+
+    if (!canDrop) {
+      if (dropTargetBranchName === branch.name) {
+        setDropTargetBranchName(null);
+      }
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTargetBranchName(branch.name);
+  };
+
+  const handleBranchDrop = (event: DragEvent<HTMLButtonElement>, targetBranch: Branch): void => {
+    event.preventDefault();
+    setDropTargetBranchName(null);
+    setDraggedBranchName(null);
+
+    const payload = readBranchDragPayload(event.dataTransfer);
+    const canDrop = canDropBranchOnBranch({
+      busy,
+      source: payload,
+      target: targetBranch
+    });
+
+    if (!canDrop || !payload) {
+      return;
+    }
+
+    const sourceBranch = localBranchMap.get(payload.branchName);
+    if (!sourceBranch) {
+      return;
+    }
+
+    onBranchDrop(sourceBranch, targetBranch);
+  };
+
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
     const children = [...node.children.entries()].sort(([left], [right]) => left.localeCompare(right));
     const leaves = [...node.leaves].sort((left, right) =>
@@ -158,14 +231,35 @@ export function BranchTree({
 
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
+          const isLocalBranch = leaf.branch.type === 'local';
+          const isDropTarget = dropTargetBranchName === leaf.branch.name;
+          const isDragSource = draggedBranchName === leaf.branch.name;
           return (
             <button
               key={`${prefix}/${leaf.branch.name}`}
               type="button"
+              draggable={isLocalBranch && !busy}
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
-              className={`list-item w-full text-left ${isCurrent ? 'active' : ''}`}
+              className={`list-item w-full text-left ${isCurrent ? 'active' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragSource ? 'is-drag-source' : ''}`}
               onClick={() => handleBranchClick(leaf.branch)}
               onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
+              onDragStart={(event) => handleBranchDragStart(event, leaf.branch)}
+              onDragEnd={handleBranchDragEnd}
+              onDragOver={(event) => {
+                if (isLocalBranch) {
+                  handleBranchDragOver(event, leaf.branch);
+                }
+              }}
+              onDragLeave={() => {
+                if (dropTargetBranchName === leaf.branch.name) {
+                  setDropTargetBranchName(null);
+                }
+              }}
+              onDrop={(event) => {
+                if (isLocalBranch) {
+                  handleBranchDrop(event, leaf.branch);
+                }
+              }}
             >
               <GitBranch size={13} />
               <span className="truncate text-[13px] font-medium">{leaf.displayName}</span>

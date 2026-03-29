@@ -50,10 +50,10 @@ function statusLabel(code: string): string {
   }
 }
 
-async function runGit(args: string[], repoPath: string): Promise<string> {
+async function runCommand(command: string, args: string[], cwd: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', args, {
-      cwd: repoPath,
+    const { stdout } = await execFileAsync(command, args, {
+      cwd,
       maxBuffer: 20 * 1024 * 1024
     });
 
@@ -61,8 +61,17 @@ async function runGit(args: string[], repoPath: string): Promise<string> {
   } catch (error) {
     const typed = error as Error & { stderr?: string; stdout?: string };
     const stderr = typed.stderr?.trim();
-    throw new Error(stderr || typed.message || 'Failed to execute git command.');
+    const stdout = typed.stdout?.trim();
+    throw new Error(stderr || stdout || typed.message || `Failed to execute ${command} command.`);
   }
+}
+
+async function runGit(args: string[], repoPath: string): Promise<string> {
+  return runCommand('git', args, repoPath);
+}
+
+async function runGh(args: string[], repoPath: string): Promise<string> {
+  return runCommand('gh', args, repoPath);
 }
 
 async function ensureRepoPath(repoPath: string): Promise<void> {
@@ -502,6 +511,150 @@ export async function getStashes(repoPath: string): Promise<StashEntry[]> {
 export async function checkoutRef(repoPath: string, ref: string): Promise<void> {
   await ensureRepoPath(repoPath);
   await runGit(['checkout', ref], repoPath);
+}
+
+async function ensureLocalBranch(repoPath: string, branchName: string): Promise<void> {
+  if (!branchName.trim()) {
+    throw new Error('branchName is required.');
+  }
+
+  await runGit(['rev-parse', '--verify', `refs/heads/${branchName}`], repoPath);
+}
+
+async function ensureBranchPair(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
+  if (!sourceBranch.trim() || !targetBranch.trim()) {
+    throw new Error('sourceBranch and targetBranch are required.');
+  }
+
+  if (sourceBranch === targetBranch) {
+    throw new Error('sourceBranch and targetBranch must be different.');
+  }
+
+  await Promise.all([ensureLocalBranch(repoPath, sourceBranch), ensureLocalBranch(repoPath, targetBranch)]);
+}
+
+async function ensureOriginRemote(repoPath: string): Promise<void> {
+  await runGit(['remote', 'get-url', 'origin'], repoPath);
+}
+
+async function ensureGithubAuth(repoPath: string): Promise<void> {
+  await runGh(['auth', 'status', '-h', 'github.com'], repoPath);
+}
+
+async function getBranchUpstream(repoPath: string, branchName: string): Promise<string | null> {
+  try {
+    const upstream = await runGit(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`], repoPath);
+    return upstream.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function isPushRequired(repoPath: string, branchName: string): Promise<boolean> {
+  const upstream = await getBranchUpstream(repoPath, branchName);
+  if (!upstream) {
+    return true;
+  }
+
+  const aheadCount = await runGit(['rev-list', '--count', `${upstream}..${branchName}`], repoPath);
+  return Number(aheadCount) > 0;
+}
+
+async function pushBranchToOrigin(repoPath: string, branchName: string): Promise<void> {
+  const upstream = await getBranchUpstream(repoPath, branchName);
+
+  if (upstream) {
+    await runGit(['push', 'origin', branchName], repoPath);
+    return;
+  }
+
+  await runGit(['push', '-u', 'origin', branchName], repoPath);
+}
+
+async function findExistingPullRequest(repoPath: string, sourceBranch: string, targetBranch: string): Promise<string | null> {
+  const output = await runGh(
+    ['pr', 'list', '--state', 'open', '--head', sourceBranch, '--base', targetBranch, '--json', 'url'],
+    repoPath
+  );
+
+  if (!output.trim()) {
+    return null;
+  }
+
+  const parsed = JSON.parse(output) as Array<{ url?: string }>;
+  return parsed[0]?.url?.trim() || null;
+}
+
+function extractUrlFromText(text: string): string | null {
+  return text
+    .split(/\s+/)
+    .find((token) => /^https?:\/\//.test(token))
+    ?.trim() ?? null;
+}
+
+export async function mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
+  await ensureRepoPath(repoPath);
+  await ensureBranchPair(repoPath, sourceBranch, targetBranch);
+
+  const currentBranch = await getCurrentBranch(repoPath);
+  if (currentBranch !== targetBranch) {
+    await runGit(['checkout', targetBranch], repoPath);
+  }
+
+  await runGit(['merge', sourceBranch], repoPath);
+}
+
+export async function preparePullRequest(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string
+): Promise<{ pushRequired: boolean }> {
+  await ensureRepoPath(repoPath);
+  await ensureBranchPair(repoPath, sourceBranch, targetBranch);
+  await ensureOriginRemote(repoPath);
+  await ensureGithubAuth(repoPath);
+
+  return {
+    pushRequired: await isPushRequired(repoPath, sourceBranch)
+  };
+}
+
+export async function createPullRequest(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string,
+  pushSourceBranch: boolean
+): Promise<{ url: string }> {
+  await ensureRepoPath(repoPath);
+  await ensureBranchPair(repoPath, sourceBranch, targetBranch);
+  await ensureOriginRemote(repoPath);
+  await ensureGithubAuth(repoPath);
+
+  const pushRequired = await isPushRequired(repoPath, sourceBranch);
+  if (pushRequired && !pushSourceBranch) {
+    throw new Error('Source branch must be pushed before creating a pull request.');
+  }
+
+  if (pushSourceBranch) {
+    await pushBranchToOrigin(repoPath, sourceBranch);
+  }
+
+  const existingUrl = await findExistingPullRequest(repoPath, sourceBranch, targetBranch);
+  if (existingUrl) {
+    throw new Error(`Pull request already exists: ${existingUrl}`);
+  }
+
+  const output = await runGh(
+    ['pr', 'create', '--base', targetBranch, '--head', sourceBranch, '--fill'],
+    repoPath
+  );
+  const url = extractUrlFromText(output);
+
+  if (!url) {
+    throw new Error('Pull request created but URL was not returned.');
+  }
+
+  return { url };
 }
 
 export async function commitChanges(repoPath: string, title: string, description: string): Promise<void> {
