@@ -92,6 +92,26 @@ export const api = {
     return request(`/repositories/github-url?${params.toString()}`);
   },
 
+  getRepositoryMutationSafety(repoPath: string): Promise<{ isSelfRepository: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_repository_mutation_safety', { repoPath });
+    }
+
+    const params = new URLSearchParams({ repoPath });
+    return request(`/repositories/mutation-safety?${params.toString()}`);
+  },
+
+  async openExternalUrl(url: string): Promise<void> {
+    if (isTauriRuntime()) {
+      await invokeCommand('open_external_url', { url });
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  },
+
   getBranches(repoPath: string): Promise<BranchResponse> {
     if (isTauriRuntime()) {
       return invokeCommand('get_branches', { repoPath });

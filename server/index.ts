@@ -1,5 +1,7 @@
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import { generateCommitTitle } from './aiService.js';
 import { readConfig, setRecentlyUsedRepository, writeConfig } from './configStore.js';
@@ -92,6 +94,22 @@ app.post('/api/repositories/recent', async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
     await setRecentlyUsedRepository(repoPath);
     response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/repositories/mutation-safety', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const [resolvedRepoPath, resolvedAppRootPath] = await Promise.all([
+      fs.realpath(repoPath).catch(() => path.resolve(repoPath)),
+      fs.realpath(process.cwd()).catch(() => path.resolve(process.cwd()))
+    ]);
+
+    response.json({
+      isSelfRepository: resolvedRepoPath === resolvedAppRootPath
+    });
   } catch (error) {
     next(error);
   }

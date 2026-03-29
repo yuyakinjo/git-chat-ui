@@ -6,9 +6,11 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             backend::health,
+            backend::open_external_url,
             backend::get_repositories,
             backend::mark_recent_repository,
             backend::get_repository_github_url,
+            backend::get_repository_mutation_safety,
             backend::get_branches,
             backend::get_commits,
             backend::get_commit_detail,

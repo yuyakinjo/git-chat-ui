@@ -8,6 +8,7 @@ interface BranchActionDialogProps {
   targetBranchName: string;
   step: BranchActionDialogStep;
   busy: boolean;
+  mergeDisabledReason?: string | null;
   onClose: () => void;
   onMerge: () => void;
   onPreparePullRequest: () => void;
@@ -20,6 +21,7 @@ export function BranchActionDialog({
   targetBranchName,
   step,
   busy,
+  mergeDisabledReason = null,
   onClose,
   onMerge,
   onPreparePullRequest,
@@ -88,6 +90,12 @@ export function BranchActionDialog({
                 <span className="font-medium text-ink">{targetBranchName}</span>
               </div>
             </div>
+            {mergeDisabledReason ? (
+              <div className="rounded-2xl border border-amber-300/70 bg-amber-50/85 p-4 text-sm text-amber-900">
+                <div className="font-semibold">Merge is unavailable here</div>
+                <div className="mt-1 leading-6">{mergeDisabledReason}</div>
+              </div>
+            ) : null}
             <div className="mt-auto flex items-center justify-end gap-2">
               <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
                 Cancel
@@ -95,7 +103,12 @@ export function BranchActionDialog({
               <button type="button" className="button button-secondary" onClick={onPreparePullRequest} disabled={busy}>
                 Pull Request
               </button>
-              <button type="button" className="button button-primary" onClick={onMerge} disabled={busy}>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={onMerge}
+                disabled={busy || Boolean(mergeDisabledReason)}
+              >
                 Merge
               </button>
             </div>
