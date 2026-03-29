@@ -1,7 +1,12 @@
 import { ChevronDown, ChevronRight, Folder, GitBranch } from 'lucide-react';
 import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 
-import { canDropBranchOnBranch, readBranchDragPayload, writeBranchDragPayload } from '../lib/branchDragDrop';
+import {
+  type BranchDragPayload,
+  canDropBranchOnBranch,
+  readBranchDragPayload,
+  writeBranchDragPayload
+} from '../lib/branchDragDrop';
 import type { Branch, BranchResponse } from '../types';
 
 interface BranchTreeProps {
@@ -82,6 +87,7 @@ export function BranchTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [draggedBranchName, setDraggedBranchName] = useState<string | null>(null);
   const [dropTargetBranchName, setDropTargetBranchName] = useState<string | null>(null);
+  const draggedPayloadRef = useRef<BranchDragPayload | null>(null);
   const pendingClickRef = useRef<{
     branchName: string;
     timeoutId: ReturnType<typeof globalThis.setTimeout>;
@@ -145,20 +151,23 @@ export function BranchTree({
       return;
     }
 
-    writeBranchDragPayload(event.dataTransfer, {
+    const payload: BranchDragPayload = {
       branchName: branch.name,
       branchType: branch.type
-    });
+    };
+    writeBranchDragPayload(event.dataTransfer, payload);
+    draggedPayloadRef.current = payload;
     setDraggedBranchName(branch.name);
   };
 
   const handleBranchDragEnd = (): void => {
+    draggedPayloadRef.current = null;
     setDraggedBranchName(null);
     setDropTargetBranchName(null);
   };
 
   const handleBranchDragOver = (event: DragEvent<HTMLButtonElement>, branch: Branch): void => {
-    const payload = readBranchDragPayload(event.dataTransfer);
+    const payload = draggedPayloadRef.current ?? readBranchDragPayload(event.dataTransfer);
     const canDrop = canDropBranchOnBranch({
       busy,
       source: payload,
@@ -182,7 +191,8 @@ export function BranchTree({
     setDropTargetBranchName(null);
     setDraggedBranchName(null);
 
-    const payload = readBranchDragPayload(event.dataTransfer);
+    const payload = draggedPayloadRef.current ?? readBranchDragPayload(event.dataTransfer);
+    draggedPayloadRef.current = null;
     const canDrop = canDropBranchOnBranch({
       busy,
       source: payload,
