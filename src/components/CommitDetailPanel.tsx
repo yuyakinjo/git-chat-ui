@@ -1,15 +1,21 @@
-import { CalendarClock, FileCode2, User } from 'lucide-react';
+import { CalendarClock, Expand, FileCode2, User } from 'lucide-react';
 
 import { formatRelativeDate, shortSha } from '../lib/format';
 import type { CommitDetail } from '../types';
-import { SplitDiffViewer } from './SplitDiffViewer';
 
 interface CommitDetailPanelProps {
   detail: CommitDetail | null;
   loading: boolean;
+  activeDiffFile: string | null;
+  onOpenFileDiff: (file: string) => void;
 }
 
-export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): JSX.Element {
+export function CommitDetailPanel({
+  detail,
+  loading,
+  activeDiffFile,
+  onOpenFileDiff
+}: CommitDetailPanelProps): JSX.Element {
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
       <div className="mb-2 px-2">
@@ -42,32 +48,42 @@ export function CommitDetailPanel({ detail, loading }: CommitDetailPanelProps): 
             </div>
           </div>
 
-          <div>
-            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-              Changed Files
+          <div className="min-h-0 flex flex-1 flex-col">
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+              <span>Changed Files</span>
+              <span className="text-[11px] font-medium normal-case tracking-normal text-ink-soft">
+                クリックすると diff dialog を開きます
+              </span>
             </div>
-            <div className="max-h-36 overflow-y-auto rounded-xl border border-black/10 bg-white/65">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-black/10 bg-white/65 p-2">
               {detail.files.length === 0 ? (
                 <div className="p-3 text-xs text-ink-subtle">ファイル差分はありません。</div>
               ) : (
                 detail.files.map((file) => (
-                  <div
+                  <button
                     key={file.file}
-                    className="grid grid-cols-[1fr_56px_56px] gap-2 border-b border-black/5 px-3 py-2 text-xs last:border-none"
+                    type="button"
+                    className={`mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                      activeDiffFile === file.file
+                        ? 'border-[#0f172a]/40 bg-[#0f172a] text-white'
+                        : 'border-black/5 bg-white/80 text-ink hover:border-accent/25 hover:bg-accent-soft/50'
+                    }`}
+                    onClick={() => onOpenFileDiff(file.file)}
                   >
-                    <span className="truncate text-ink">{file.file}</span>
-                    <span className="text-right text-[#157347]">+{file.additions}</span>
-                    <span className="text-right text-[#b42318]">-{file.deletions}</span>
-                  </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium">{file.file}</div>
+                      <div className={`mt-1 flex items-center gap-2 text-[11px] ${activeDiffFile === file.file ? 'text-white/80' : 'text-ink-subtle'}`}>
+                        <span className="text-[#157347]">+{file.additions}</span>
+                        <span className="text-[#b42318]">-{file.deletions}</span>
+                      </div>
+                    </div>
+                    <div className={`flex items-center gap-1 text-[11px] font-semibold ${activeDiffFile === file.file ? 'text-white' : 'text-accent'}`}>
+                      <Expand size={12} />
+                      Open Diff
+                    </div>
+                  </button>
                 ))
               )}
-            </div>
-          </div>
-
-          <div className="min-h-0 flex flex-1 flex-col">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">Diff</div>
-            <div className="min-h-0 flex-1">
-              <SplitDiffViewer diff={detail.diff} files={detail.files} />
             </div>
           </div>
         </div>

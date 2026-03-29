@@ -21,5 +21,5 @@ export function isCurrentBranchDiffDetail(
 }
 
 export function getBranchDiffButtonLabel(defaultBranchName: string | null): string {
-  return `Changed Files vs ${defaultBranchName ?? 'default'}`;
+  return `Diffs vs ${defaultBranchName ?? 'default'}`;
 }

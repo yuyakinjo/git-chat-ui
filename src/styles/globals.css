@@ -325,6 +325,27 @@ body {
   padding: 10px;
 }
 
+.diff-workbench__sidebar-controls {
+  padding: 10px 10px 0;
+}
+
+.diff-workbench__filter-input {
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+}
+
+.diff-workbench__sidebar-empty {
+  padding: 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.2);
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .diff-workbench__file-tab {
   width: 100%;
   display: flex;

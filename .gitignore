@@ -14,4 +14,4 @@ src-tauri/target
 .playwright-mcp
 
 # Ignore generated task files
-tasks/
+tasks
