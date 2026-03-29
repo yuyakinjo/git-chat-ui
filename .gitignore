@@ -12,3 +12,4 @@ src-tauri/target
 *.tsbuildinfo
 .incremental
 .playwright-mcp
+tasks/
