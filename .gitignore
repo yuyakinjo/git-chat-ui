@@ -12,4 +12,6 @@ src-tauri/target
 *.tsbuildinfo
 .incremental
 .playwright-mcp
+
+# Ignore generated task files
 tasks/
