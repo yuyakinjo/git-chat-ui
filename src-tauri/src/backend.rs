@@ -182,6 +182,12 @@ pub struct FingerprintResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryGithubUrlResponse {
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TitleResponse {
     pub title: String,
 }
@@ -555,6 +561,43 @@ fn ensure_branch_pair(repo_path: &str, source_branch: &str, target_branch: &str)
 
 fn ensure_origin_remote(repo_path: &str) -> Result<(), String> {
     run_git(&["remote", "get-url", "origin"], repo_path).map(|_| ())
+}
+
+fn normalize_github_remote_url(remote_url: &str) -> Option<String> {
+    let trimmed = remote_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    fn normalize_repo_path(path: &str) -> Option<String> {
+        let without_git = path.trim().trim_matches('/').trim_end_matches(".git");
+        let mut segments = without_git.split('/').filter(|segment| !segment.is_empty());
+        let owner = segments.next()?;
+        let repo = segments.next()?;
+
+        if segments.next().is_some() {
+            return None;
+        }
+
+        Some(format!("{owner}/{repo}"))
+    }
+
+    if let Some(path) = trimmed.strip_prefix("git@github.com:") {
+        return normalize_repo_path(path).map(|repo| format!("https://github.com/{repo}"));
+    }
+
+    for prefix in [
+        "https://github.com/",
+        "http://github.com/",
+        "ssh://git@github.com/",
+        "git://github.com/",
+    ] {
+        if let Some(path) = trimmed.strip_prefix(prefix) {
+            return normalize_repo_path(path).map(|repo| format!("https://github.com/{repo}"));
+        }
+    }
+
+    None
 }
 
 fn ensure_github_auth(repo_path: &str) -> Result<(), String> {
@@ -1173,6 +1216,24 @@ pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
         current,
         local,
         remote,
+    })
+}
+
+#[tauri::command]
+pub fn get_repository_github_url(
+    repo_path: String,
+) -> Result<RepositoryGithubUrlResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let remote_url = match run_git(&["remote", "get-url", "origin"], &repo_path) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(RepositoryGithubUrlResponse { url: None });
+        }
+    };
+
+    Ok(RepositoryGithubUrlResponse {
+        url: normalize_github_remote_url(&remote_url),
     })
 }
 

@@ -83,6 +83,15 @@ export const api = {
     });
   },
 
+  getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_repository_github_url', { repoPath });
+    }
+
+    const params = new URLSearchParams({ repoPath });
+    return request(`/repositories/github-url?${params.toString()}`);
+  },
+
   getBranches(repoPath: string): Promise<BranchResponse> {
     if (isTauriRuntime()) {
       return invokeCommand('get_branches', { repoPath });

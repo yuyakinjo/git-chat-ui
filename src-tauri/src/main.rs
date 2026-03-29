@@ -8,6 +8,7 @@ fn main() {
             backend::health,
             backend::get_repositories,
             backend::mark_recent_repository,
+            backend::get_repository_github_url,
             backend::get_branches,
             backend::get_commits,
             backend::get_commit_detail,

@@ -11,6 +11,7 @@ import {
   getBranchDiffDetail,
   getBranches,
   getCommitDetail,
+  getRepositoryGithubUrl,
   getCommits,
   getDiffSnippet,
   getRepositoryFingerprint,
@@ -91,6 +92,16 @@ app.post('/api/repositories/recent', async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
     await setRecentlyUsedRepository(repoPath);
     response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/repositories/github-url', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const url = await getRepositoryGithubUrl(repoPath);
+    response.json({ url });
   } catch (error) {
     next(error);
   }
