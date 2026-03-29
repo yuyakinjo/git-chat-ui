@@ -136,6 +136,9 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const [inlineError, setInlineError] = useState<UiError | null>(null);
 
   const [fingerprint, setFingerprint] = useState<string>('');
+  const [repositoryMutationSafety, setRepositoryMutationSafety] = useState<{ isSelfRepository: boolean }>({
+    isSelfRepository: false
+  });
   const refreshLockRef = useRef(false);
 
   const repoPath = repository.path;
@@ -148,6 +151,10 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const showBranchDiffButton = canCompareCurrentBranch(currentLocalBranch, defaultBranch);
   const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(branchDiffDetail, defaultBranch, currentLocalBranch);
   const branchDiffButtonLabel = getBranchDiffButtonLabel(defaultBranch?.name ?? null);
+  const selfMutationBlockedReason =
+    import.meta.env.DEV && repositoryMutationSafety.isSelfRepository
+      ? '開発モードでアプリ自身のリポジトリに checkout / merge を行うと、dev server や tauri dev が再起動して UI が落ちるため、この操作は無効です。clone した repo かビルド済みアプリで実行してください。'
+      : null;
 
   const reportError = useCallback(
     (error: unknown, fallbackTitle: string): void => {
@@ -156,6 +163,23 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       onNotify(nextError.title);
     },
     [onNotify]
+  );
+
+  const reportBlockedMutation = useCallback(
+    (title: string): boolean => {
+      if (!selfMutationBlockedReason) {
+        return false;
+      }
+
+      const nextError: UiError = {
+        title,
+        detail: selfMutationBlockedReason
+      };
+      setInlineError(nextError);
+      onNotify(title);
+      return true;
+    },
+    [onNotify, selfMutationBlockedReason]
   );
 
   const loadCommitDetail = useCallback(
@@ -351,6 +375,27 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   }, [refreshAll, repoPath]);
 
   useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      try {
+        const response = await api.getRepositoryMutationSafety(repoPath);
+        if (active) {
+          setRepositoryMutationSafety(response);
+        }
+      } catch {
+        if (active) {
+          setRepositoryMutationSafety({ isSelfRepository: false });
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [repoPath]);
+
+  useEffect(() => {
     setFocusedCommitDiffFile(null);
   }, [activeCommit?.sha]);
 
@@ -409,6 +454,10 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   }, [fingerprint, operationBusy, refreshAll, repoPath]);
 
   const handleCheckoutBranch = async (branch: Branch): Promise<void> => {
+    if (reportBlockedMutation('開発中のアプリ自身の repo は checkout できません')) {
+      return;
+    }
+
     setOperationBusy(true);
     const branchRefForLog = branch.fullRef || branch.name;
 
@@ -426,6 +475,10 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   };
 
   const handleCheckoutCommit = async (commit: CommitListItem): Promise<void> => {
+    if (reportBlockedMutation('開発中のアプリ自身の repo は checkout できません')) {
+      return;
+    }
+
     if (
       typeof window !== 'undefined' &&
       !window.confirm(
@@ -552,6 +605,10 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const handleMergeBranchAction = async (): Promise<void> => {
     const currentAction = branchAction;
     if (!currentAction) {
+      return;
+    }
+
+    if (reportBlockedMutation('開発中のアプリ自身の repo は merge できません')) {
       return;
     }
 
@@ -868,6 +925,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           targetBranchName={branchAction.target.name}
           step={branchAction.step}
           busy={operationBusy}
+          mergeDisabledReason={branchAction.step === 'select-action' ? selfMutationBlockedReason : null}
           onClose={() => setBranchAction(null)}
           onMerge={() => {
             void handleMergeBranchAction();

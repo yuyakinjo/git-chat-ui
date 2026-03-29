@@ -141,6 +141,18 @@ export default function App(): JSX.Element {
     []
   );
 
+  const handleOpenGithubRepository = async (): Promise<void> => {
+    if (!selectedRepositoryGithubUrl) {
+      return;
+    }
+
+    try {
+      await api.openExternalUrl(selectedRepositoryGithubUrl);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'GitHub を開けませんでした。');
+    }
+  };
+
   return (
     <main className="app-shell">
       <div className="mb-3 flex items-center justify-between">
@@ -167,16 +179,17 @@ export default function App(): JSX.Element {
         </div>
 
         {selectedRepositoryGithubUrl ? (
-          <a
-            href={selectedRepositoryGithubUrl}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
             aria-label={`${selectedRepository?.name ?? 'Repository'} を GitHub で開く`}
             title={`${selectedRepository?.name ?? 'Repository'} を GitHub で開く`}
             className="button button-secondary flex h-10 w-10 items-center justify-center !rounded-full !p-0 text-[#24292f] shadow-sm hover:border-[rgba(0,113,227,0.22)] hover:text-[#0f172a]"
+            onClick={() => {
+              void handleOpenGithubRepository();
+            }}
           >
             <Github size={16} />
-          </a>
+          </button>
         ) : null}
       </div>
 

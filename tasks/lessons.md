@@ -8,3 +8,5 @@
 - Tauri/webview で確実に動かしたい内部 DnD は HTML5 `dataTransfer` ベースに寄せすぎない。branch list のような同一ペイン内操作は pointer ベースの内部 DnD を優先する
 - DnD が機能しても完了扱いにしない。source、drop candidate、drop target、追従プレビューの少なくとも 2 つは見えるようにして、ドラッグ中の意図を UI で明示する
 - DnD の方向性を見せたいときは target row を薄いハイライトだけで済ませず、`source -> target` が読める非対称な split preview に寄せる
+- 開発中のアプリ自身の repo を controller 対象にする場合、merge / checkout のようなローカル変更操作は dev server や `tauri dev` の再起動条件になる。self-repo 判定を入れて事前に無効化し、built app / clone repo を案内する
+- Tauri/webview で外部サイトを開くボタンは `<a target="_blank">` 任せにしない。web は `window.open`、Tauri は backend command 経由で OS の既定ブラウザを明示的に起動する

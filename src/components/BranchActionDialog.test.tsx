@@ -11,6 +11,7 @@ describe('BranchActionDialog', () => {
         targetBranchName="main"
         step="select-action"
         busy={false}
+        mergeDisabledReason={null}
         onClose={() => {}}
         onMerge={() => {}}
         onPreparePullRequest={() => {}}
@@ -33,6 +34,7 @@ describe('BranchActionDialog', () => {
         targetBranchName="main"
         step="confirm-push"
         busy={false}
+        mergeDisabledReason={null}
         onClose={() => {}}
         onMerge={() => {}}
         onPreparePullRequest={() => {}}
@@ -44,5 +46,25 @@ describe('BranchActionDialog', () => {
     expect(html).toContain('Push Required');
     expect(html).toContain('Push and Create PR');
     expect(html).toContain('Back');
+  });
+
+  test('shows a disabled merge reason when merge is blocked', () => {
+    const html = renderToStaticMarkup(
+      <BranchActionDialog
+        sourceBranchName="feature/dnd"
+        targetBranchName="main"
+        step="select-action"
+        busy={false}
+        mergeDisabledReason="開発モードではアプリ自身の repo を merge できません。"
+        onClose={() => {}}
+        onMerge={() => {}}
+        onPreparePullRequest={() => {}}
+        onConfirmPushAndCreatePullRequest={() => {}}
+        onBack={() => {}}
+      />
+    );
+
+    expect(html).toContain('Merge is unavailable here');
+    expect(html).toContain('disabled=""');
   });
 });

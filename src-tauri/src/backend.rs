@@ -188,6 +188,12 @@ pub struct RepositoryGithubUrlResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryMutationSafetyResponse {
+    pub is_self_repository: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TitleResponse {
     pub title: String,
 }
@@ -520,6 +526,42 @@ fn run_gh(args: &[&str], repo_path: &str) -> Result<String, String> {
     run_command("gh", args, repo_path)
 }
 
+fn open_external_url_with_system(url: &str) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return Err("Only http/https URLs can be opened.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(trimmed);
+        command
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(trimmed);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", trimmed]);
+        command
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    return Err("Opening external URLs is not supported on this platform.".to_string());
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to open URL: {error}"))
+}
+
 fn run_gh_owned(args: &[String], repo_path: &str) -> Result<String, String> {
     run_command_owned("gh", args, repo_path)
 }
@@ -561,6 +603,12 @@ fn ensure_branch_pair(repo_path: &str, source_branch: &str, target_branch: &str)
 
 fn ensure_origin_remote(repo_path: &str) -> Result<(), String> {
     run_git(&["remote", "get-url", "origin"], repo_path).map(|_| ())
+}
+
+fn canonicalize_path_string(path: &Path) -> Option<String> {
+    fs::canonicalize(path)
+        .ok()
+        .and_then(|value| value.to_str().map(ToString::to_string))
 }
 
 fn normalize_github_remote_url(remote_url: &str) -> Option<String> {
@@ -1133,6 +1181,12 @@ pub fn health() -> Result<OkResponse, String> {
 }
 
 #[tauri::command]
+pub fn open_external_url(url: String) -> Result<OkResponse, String> {
+    open_external_url_with_system(&url)?;
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
 pub fn get_repositories(query: Option<String>) -> Result<RepositoriesResponse, String> {
     let config = read_config()?;
     let recent_map: HashMap<String, String> = config
@@ -1235,6 +1289,21 @@ pub fn get_repository_github_url(
     Ok(RepositoryGithubUrlResponse {
         url: normalize_github_remote_url(&remote_url),
     })
+}
+
+#[tauri::command]
+pub fn get_repository_mutation_safety(
+    repo_path: String,
+) -> Result<RepositoryMutationSafetyResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let is_self_repository = canonicalize_path_string(Path::new(&repo_path))
+        .zip(canonicalize_path_string(&app_root))
+        .map(|(repo, root)| repo == root)
+        .unwrap_or(false);
+
+    Ok(RepositoryMutationSafetyResponse { is_self_repository })
 }
 
 #[tauri::command]
