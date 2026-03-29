@@ -5,3 +5,4 @@
 - diff action の文言は、一覧だけか全差分かを正確に表す名前にする
 - commit detail のような高密度 diff は常設せず、changed files から dialog で開く導線を優先する
 - 複数パネルに同じ commit 情報を重複表示しない。責務を 1 箇所に寄せる
+- branch DnD の `dragover` / `drop` 判定は `dataTransfer.getData()` だけに依存しない。ブラウザ差異に備えて in-memory の drag payload をフォールバックに持つ
