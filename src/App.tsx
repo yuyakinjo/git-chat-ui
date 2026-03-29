@@ -1,4 +1,4 @@
-import { GitBranch, LayoutDashboard, Settings2, type LucideIcon } from 'lucide-react';
+import { GitBranch, Github, LayoutDashboard, Settings2, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ConfigView } from './components/ConfigView';
@@ -15,6 +15,7 @@ export default function App(): JSX.Element {
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loadingRepositories, setLoadingRepositories] = useState(false);
   const [selectedRepository, setSelectedRepository] = useState<Repository | null>(null);
+  const [selectedRepositoryGithubUrl, setSelectedRepositoryGithubUrl] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>('');
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
 
@@ -60,6 +61,33 @@ export default function App(): JSX.Element {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedRepository) {
+      setSelectedRepositoryGithubUrl(null);
+      return;
+    }
+
+    let active = true;
+    setSelectedRepositoryGithubUrl(null);
+
+    void (async () => {
+      try {
+        const response = await api.getRepositoryGithubUrl(selectedRepository.path);
+        if (active) {
+          setSelectedRepositoryGithubUrl(response.url ?? null);
+        }
+      } catch {
+        if (active) {
+          setSelectedRepositoryGithubUrl(null);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedRepository]);
 
   useEffect(() => {
     if (screen !== 'dashboard') {
@@ -138,10 +166,17 @@ export default function App(): JSX.Element {
           })}
         </div>
 
-        {selectedRepository ? (
-          <div className="rounded-full border border-black/10 bg-white/65 px-3 py-1 text-xs text-ink-soft">
-            {selectedRepository.name}
-          </div>
+        {selectedRepositoryGithubUrl ? (
+          <a
+            href={selectedRepositoryGithubUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`${selectedRepository?.name ?? 'Repository'} を GitHub で開く`}
+            title={`${selectedRepository?.name ?? 'Repository'} を GitHub で開く`}
+            className="button button-secondary flex h-10 w-10 items-center justify-center !rounded-full !p-0 text-[#24292f] shadow-sm hover:border-[rgba(0,113,227,0.22)] hover:text-[#0f172a]"
+          >
+            <Github size={16} />
+          </a>
         ) : null}
       </div>
 

@@ -537,6 +537,34 @@ async function ensureOriginRemote(repoPath: string): Promise<void> {
   await runGit(['remote', 'get-url', 'origin'], repoPath);
 }
 
+export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const sshMatch = trimmed.match(/^git@github\.com:(?<repo>[^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i);
+  if (sshMatch?.groups?.repo) {
+    return `https://github.com/${sshMatch.groups.repo}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname.toLowerCase() !== 'github.com') {
+      return null;
+    }
+
+    const repoPath = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+    if (!/^[^/]+\/[^/]+$/.test(repoPath)) {
+      return null;
+    }
+
+    return `https://github.com/${repoPath}`;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureGithubAuth(repoPath: string): Promise<void> {
   await runGh(['auth', 'status', '-h', 'github.com'], repoPath);
 }
@@ -655,6 +683,17 @@ export async function createPullRequest(
   }
 
   return { url };
+}
+
+export async function getRepositoryGithubUrl(repoPath: string): Promise<string | null> {
+  await ensureRepoPath(repoPath);
+
+  try {
+    const remoteUrl = await runGit(['remote', 'get-url', 'origin'], repoPath);
+    return normalizeGithubRemoteUrl(remoteUrl);
+  } catch {
+    return null;
+  }
 }
 
 export async function commitChanges(repoPath: string, title: string, description: string): Promise<void> {
