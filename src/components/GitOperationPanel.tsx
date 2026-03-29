@@ -1,25 +1,20 @@
-import { Expand, Sparkles, UploadCloud } from 'lucide-react';
+import { Sparkles, UploadCloud } from 'lucide-react';
 import { type DragEvent, useMemo, useState } from 'react';
 
-import type { CommitDetail, StashEntry, WorkingTreeStatus } from '../types';
+import type { StashEntry, WorkingTreeStatus } from '../types';
 
 interface GitOperationPanelProps {
   status: WorkingTreeStatus | null;
   stashes: StashEntry[];
-  selectedCommitTitle: string | null;
-  selectedCommitSha: string | null;
-  selectedCommitFiles: CommitDetail['files'];
-  selectedCommitLoading: boolean;
-  activeCommitDiffFile: string | null;
   commitTitle: string;
   commitDescription: string;
   busy: boolean;
-  onOpenCommitFileDiff: (file: string) => void;
   onCommitTitleChange: (value: string) => void;
   onCommitDescriptionChange: (value: string) => void;
   onStageFile: (file: string) => void;
   onUnstageFile: (file: string) => void;
   onStageAll: () => void;
+  onUnstageAll: () => void;
   onStashFile: (file: string) => void;
   onGenerateTitle: () => void;
   onCommit: () => void;
@@ -31,20 +26,15 @@ type DropZone = 'staged' | 'unstaged' | 'stash' | null;
 export function GitOperationPanel({
   status,
   stashes,
-  selectedCommitTitle,
-  selectedCommitSha,
-  selectedCommitFiles,
-  selectedCommitLoading,
-  activeCommitDiffFile,
   commitTitle,
   commitDescription,
   busy,
-  onOpenCommitFileDiff,
   onCommitTitleChange,
   onCommitDescriptionChange,
   onStageFile,
   onUnstageFile,
   onStageAll,
+  onUnstageAll,
   onStashFile,
   onGenerateTitle,
   onCommit,
@@ -117,56 +107,6 @@ export function GitOperationPanel({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 pb-2">
         <div>
           <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
-            <span>Selected Commit Files ({selectedCommitFiles.length})</span>
-            <span className="font-mono">{selectedCommitSha ? selectedCommitSha.slice(0, 7) : 'No commit'}</span>
-          </div>
-          <div className="rounded-2xl border border-black/10 bg-white/65 p-2">
-            {selectedCommitLoading ? (
-              <div className="px-2 py-3 text-xs text-ink-subtle">選択コミットの変更ファイルを読み込み中...</div>
-            ) : selectedCommitFiles.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-ink-subtle">
-                {selectedCommitSha ? 'このコミットには表示できる変更ファイルがありません。' : 'コミットを選択すると変更ファイルを表示します。'}
-              </div>
-            ) : (
-              <>
-                <div className="mb-2 truncate px-2 text-[11px] text-ink-soft">{selectedCommitTitle ?? 'Selected commit'}</div>
-                <div className="max-h-36 space-y-1 overflow-y-auto">
-                  {selectedCommitFiles.map((file) => {
-                    const isActive = activeCommitDiffFile === file.file;
-
-                    return (
-                      <button
-                        key={`commit-file-${file.file}`}
-                        type="button"
-                        className={`flex w-full items-center justify-between gap-3 rounded-xl border px-2 py-2 text-left transition ${
-                          isActive
-                            ? 'border-[#0f172a]/40 bg-[#0f172a] text-white'
-                            : 'border-black/5 bg-white/80 text-ink hover:border-accent/25 hover:bg-accent-soft/50'
-                        }`}
-                        onClick={() => onOpenCommitFileDiff(file.file)}
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium">{file.file}</div>
-                          <div className={`mt-1 flex items-center gap-2 text-[11px] ${isActive ? 'text-white/80' : 'text-ink-subtle'}`}>
-                            <span className="text-[#157347]">+{file.additions}</span>
-                            <span className="text-[#b42318]">-{file.deletions}</span>
-                          </div>
-                        </div>
-                        <div className={`flex items-center gap-1 text-[11px] font-semibold ${isActive ? 'text-white' : 'text-accent'}`}>
-                          <Expand size={12} />
-                          Diff
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
             <span>Unstaged Files ({unstaged.length})</span>
             <button
               className="button button-secondary !px-2 !py-1 text-[11px]"
@@ -215,7 +155,17 @@ export function GitOperationPanel({
         </div>
 
         <div>
-          <div className="mb-1 px-1 text-xs text-ink-subtle">Staged Files ({staged.length})</div>
+          <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
+            <span>Staged Files ({staged.length})</span>
+            <button
+              className="button button-secondary !px-2 !py-1 text-[11px]"
+              type="button"
+              disabled={staged.length === 0 || busy}
+              onClick={onUnstageAll}
+            >
+              Unstage all
+            </button>
+          </div>
           <div
             className={`drop-zone max-h-28 overflow-auto ${dropZone === 'staged' ? 'is-over' : ''}`}
             onDragOver={(event) => {

@@ -8,7 +8,7 @@ import {
   isCurrentBranchDiffDetail
 } from '../lib/branchDiff';
 import { describeGitError, type UiError } from '../lib/errors';
-import { BranchDiffDetailPanel } from './BranchDiffDetailPanel';
+import { BranchDiffOverlay } from './BranchDiffOverlay';
 import { BranchTree } from './BranchTree';
 import { CommitDetailPanel } from './CommitDetailPanel';
 import { CommitDiffOverlay } from './CommitDiffOverlay';
@@ -354,7 +354,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     let active = true;
 
     const timer = setInterval(async () => {
-      if (!active || refreshLockRef.current) {
+      if (!active || refreshLockRef.current || operationBusy) {
         return;
       }
 
@@ -376,7 +376,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       active = false;
       clearInterval(timer);
     };
-  }, [fingerprint, refreshAll, repoPath]);
+  }, [fingerprint, operationBusy, refreshAll, repoPath]);
 
   const handleCheckoutBranch = async (branch: Branch): Promise<void> => {
     setOperationBusy(true);
@@ -424,18 +424,30 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     }
   };
 
-  const mutateAndReload = async (task: () => Promise<void>): Promise<void> => {
+  const mutateAndReload = async (
+    task: () => Promise<void>,
+    options: { reloadCommits?: boolean } = {}
+  ): Promise<void> => {
     setOperationBusy(true);
     try {
       await task();
       setInlineError(null);
-      const resolvedRef = resolveLogRef(activeLogRef, branches);
-      const compareRefs = resolveCompareRefs(resolvedRef, branches);
-      setActiveLogRef(resolvedRef);
-      await Promise.all([
-        loadWorkingState(),
-        loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs })
-      ]);
+      const shouldReloadCommits = options.reloadCommits ?? true;
+
+      if (shouldReloadCommits) {
+        const resolvedRef = resolveLogRef(activeLogRef, branches);
+        const compareRefs = resolveCompareRefs(resolvedRef, branches);
+        setActiveLogRef(resolvedRef);
+        await Promise.all([
+          loadWorkingState(),
+          loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs })
+        ]);
+      } else {
+        await loadWorkingState();
+      }
+
+      const fingerprintResponse = await api.getFingerprint(repoPath);
+      setFingerprint(fingerprintResponse.fingerprint);
     } catch (error) {
       reportError(error, 'Git 操作に失敗しました。');
     } finally {
@@ -509,10 +521,11 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
               className={`button ${showBranchDiff ? 'button-primary' : 'button-secondary'}`}
               disabled={loadingBranchDiffDetail}
               onClick={() => {
+                setFocusedCommitDiffFile(null);
                 setShowBranchDiff((current) => !current);
               }}
             >
-              {showBranchDiff ? 'Back to Commit Detail' : branchDiffButtonLabel}
+              {showBranchDiff ? 'Close Diffs' : branchDiffButtonLabel}
             </button>
           ) : null}
           <button
@@ -597,58 +610,70 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
             }}
           />
 
-          {showBranchDiff ? (
-            <BranchDiffDetailPanel
-              detail={branchDiffMatchesCurrentBranch ? branchDiffDetail : null}
-              loading={loadingBranchDiffDetail}
-              baseBranchName={defaultBranch?.name ?? null}
-              targetBranchName={currentLocalBranch?.name ?? null}
-              onBackToCommitDetail={() => setShowBranchDiff(false)}
-            />
-          ) : (
-            <CommitDetailPanel detail={commitDetail} loading={loadingCommitDetail} />
-          )}
+          <CommitDetailPanel
+            detail={commitDetail}
+            loading={loadingCommitDetail}
+            activeDiffFile={focusedCommitDiffFile}
+            onOpenFileDiff={(file) => {
+              setFocusedCommitDiffFile(file);
+            }}
+          />
         </div>
 
         <div className="min-h-0 overflow-hidden max-[1380px]:col-span-2 max-[1180px]:col-span-1">
           <GitOperationPanel
             status={workingStatus}
             stashes={stashes}
-            selectedCommitTitle={selectedCommitDetail?.body.split('\n')[0] || null}
-            selectedCommitSha={selectedCommitDetail?.sha ?? activeCommit?.sha ?? null}
-            selectedCommitFiles={selectedCommitDetail?.files ?? []}
-            selectedCommitLoading={loadingCommitDetail}
-            activeCommitDiffFile={focusedCommitDiffFile}
             commitTitle={commitTitle}
             commitDescription={commitDescription}
             busy={operationBusy}
-            onOpenCommitFileDiff={(file) => {
-              setFocusedCommitDiffFile(file);
-            }}
             onCommitTitleChange={setCommitTitle}
             onCommitDescriptionChange={setCommitDescription}
             onStageFile={(file) => {
-              void mutateAndReload(async () => {
-                await api.stageFile(repoPath, file);
-              });
+              void mutateAndReload(
+                async () => {
+                  await api.stageFile(repoPath, file);
+                },
+                { reloadCommits: false }
+              );
             }}
             onUnstageFile={(file) => {
-              void mutateAndReload(async () => {
-                await api.unstageFile(repoPath, file);
-              });
+              void mutateAndReload(
+                async () => {
+                  await api.unstageFile(repoPath, file);
+                },
+                { reloadCommits: false }
+              );
             }}
             onStageAll={() => {
-              void mutateAndReload(async () => {
-                const files = workingStatus?.unstaged.map((item) => item.file) ?? [];
-                for (const file of files) {
-                  await api.stageFile(repoPath, file);
-                }
-              });
+              void mutateAndReload(
+                async () => {
+                  const files = workingStatus?.unstaged.map((item) => item.file) ?? [];
+                  for (const file of files) {
+                    await api.stageFile(repoPath, file);
+                  }
+                },
+                { reloadCommits: false }
+              );
+            }}
+            onUnstageAll={() => {
+              void mutateAndReload(
+                async () => {
+                  const files = workingStatus?.staged.map((item) => item.file) ?? [];
+                  for (const file of files) {
+                    await api.unstageFile(repoPath, file);
+                  }
+                },
+                { reloadCommits: false }
+              );
             }}
             onStashFile={(file) => {
-              void mutateAndReload(async () => {
-                await api.stashFile(repoPath, file);
-              });
+              void mutateAndReload(
+                async () => {
+                  await api.stashFile(repoPath, file);
+                },
+                { reloadCommits: false }
+              );
             }}
             onGenerateTitle={() => {
               void (async () => {
@@ -685,6 +710,16 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           detail={selectedCommitDetail}
           filePath={focusedCommitDiffFile}
           onClose={() => setFocusedCommitDiffFile(null)}
+        />
+      ) : null}
+
+      {showBranchDiff ? (
+        <BranchDiffOverlay
+          detail={branchDiffMatchesCurrentBranch ? branchDiffDetail : null}
+          loading={loadingBranchDiffDetail}
+          baseBranchName={defaultBranch?.name ?? null}
+          targetBranchName={currentLocalBranch?.name ?? null}
+          onClose={() => setShowBranchDiff(false)}
         />
       ) : null}
     </section>

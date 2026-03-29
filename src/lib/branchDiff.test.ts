@@ -58,6 +58,6 @@ describe('isCurrentBranchDiffDetail', () => {
 
 describe('getBranchDiffButtonLabel', () => {
   test('describes the default branch comparison target', () => {
-    expect(getBranchDiffButtonLabel('main')).toBe('Changed Files vs main');
+    expect(getBranchDiffButtonLabel('main')).toBe('Diffs vs main');
   });
 });
