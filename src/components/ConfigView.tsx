@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import { api } from '../lib/api';
 import type { AiGenerationConfig, AiProvider, AppConfig, CommitGraphMode, TokenValidationResult } from '../types';
@@ -181,7 +181,7 @@ export function TokenValidationIndicator({
   if (validationState === 'valid') {
     return (
       <span
-        className="inline-flex items-center text-[var(--success)]"
+        className="inline-flex items-center text-(--success)"
         role="img"
         aria-label={`${providerName} token is valid`}
         title={`${providerName} token is valid`}

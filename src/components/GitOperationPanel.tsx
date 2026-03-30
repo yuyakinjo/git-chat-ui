@@ -1,7 +1,14 @@
 import { GripVertical, LoaderCircle, Sparkles, UploadCloud } from 'lucide-react';
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
+import {
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+} from 'react';
 import { createPortal } from 'react-dom';
 
+import { getCommitMessageFiles } from '../lib/commitMessage';
 import { resolveGitOperationPanelColumnCount } from '../lib/controllerPanelLayout';
 import {
   canDropWorkingTreeFile,
@@ -80,9 +87,12 @@ export function GitOperationPanel({
 
   const unstaged = status?.unstaged ?? [];
   const staged = status?.staged ?? [];
+  const canGenerateCommitMessage = getCommitMessageFiles(status).length > 0;
+  const showGenerateCommitMessageButton = generatingCommitMessage || canGenerateCommitMessage;
   const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, ' ');
   const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
   const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
+  const generateCommitMessageTitle = generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成';
 
   const updateDraggedFile = (value: WorkingTreeDragPayload | null): void => {
     draggedFileRef.current = value;
@@ -336,7 +346,7 @@ export function GitOperationPanel({
           <button
             type="button"
             data-working-tree-no-drag="true"
-            className="button button-secondary !px-2 !py-1 text-[11px]"
+            className="button button-secondary px-2! py-1! text-[11px]"
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
@@ -394,6 +404,13 @@ export function GitOperationPanel({
       : columnCount === 2
         ? 'git-operation-panel__grid--2'
         : 'git-operation-panel__grid--1';
+  const stackedBucketClass = columnCount > 1 ? 'git-operation-panel__stacked-buckets--split' : '';
+  const commitColumnClass =
+    columnCount === 4
+      ? 'git-operation-panel__commit-column--span-2'
+      : columnCount === 2
+        ? 'git-operation-panel__commit-column--full'
+        : '';
 
   return (
     <>
@@ -411,11 +428,11 @@ export function GitOperationPanel({
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2" data-controller-panel-drag-ignore="true">
           <div className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass}`}>
             <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
+              <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
                 <span>Unstaged Files ({unstaged.length})</span>
                 {unstaged.length > 0 ? (
                   <button
-                    className="button button-secondary !px-2 !py-1 text-[11px]"
+                    className="button button-secondary px-2! py-1! text-[11px]"
                     type="button"
                     disabled={busy}
                     onClick={onStageAll}
@@ -438,86 +455,61 @@ export function GitOperationPanel({
               </div>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
-                <span>Staged Files ({staged.length})</span>
-                {staged.length > 0 ? (
-                  <button
-                    className="button button-secondary !px-2 !py-1 text-[11px]"
-                    type="button"
-                    disabled={busy}
-                    onClick={onUnstageAll}
-                  >
-                    Unstage all
-                  </button>
-                ) : null}
+            <div className={`git-operation-panel__stacked-buckets min-h-0 min-w-0 ${stackedBucketClass}`}>
+              <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged flex min-h-0 min-w-0 flex-col">
+                <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
+                  <span>Staged Files ({staged.length})</span>
+                  {staged.length > 0 ? (
+                    <button
+                      className="button button-secondary px-2! py-1! text-[11px]"
+                      type="button"
+                      disabled={busy}
+                      onClick={onUnstageAll}
+                    >
+                      Unstage all
+                    </button>
+                  ) : null}
+                </div>
+                <div
+                  data-working-tree-drop-zone="staged"
+                  className={`drop-zone min-h-[148px] flex-1 overflow-auto ${stagedDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'staged' ? 'is-drop-target' : ''}`}
+                >
+                  {dropZone === 'staged' ? (
+                    renderDropPreview('staged')
+                  ) : staged.length === 0 ? (
+                    <div className="text-xs text-ink-subtle">ステージされたファイルはありません。</div>
+                  ) : (
+                    staged.map((item) => renderWorkingFileRow(item, 'staged', 'Unstage', onUnstageFile))
+                  )}
+                </div>
               </div>
-              <div
-                data-working-tree-drop-zone="staged"
-                className={`drop-zone min-h-[148px] flex-1 overflow-auto ${stagedDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'staged' ? 'is-drop-target' : ''}`}
-              >
-                {dropZone === 'staged' ? (
-                  renderDropPreview('staged')
-                ) : staged.length === 0 ? (
-                  <div className="text-xs text-ink-subtle">ステージされたファイルはありません。</div>
-                ) : (
-                  staged.map((item) => renderWorkingFileRow(item, 'staged', 'Unstage', onUnstageFile))
-                )}
-              </div>
-            </div>
 
-            <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="mb-1 px-1 text-xs text-ink-subtle">Stash Area</div>
-              <div
-                data-working-tree-drop-zone="stash"
-                className={`drop-zone flex min-h-[148px] flex-1 flex-col ${stashDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'stash' ? 'is-drop-target' : ''}`}
-              >
-                {dropZone === 'stash' ? (
-                  renderDropPreview('stash')
-                ) : (
-                  <>
-                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-soft">
+              <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex min-h-0 min-w-0 flex-col">
+                <div className="mb-1 px-1 text-xs text-ink-subtle">Stash Area</div>
+                <div
+                  data-working-tree-drop-zone="stash"
+                  className={`drop-zone flex min-h-[148px] flex-1 flex-col ${stashDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'stash' ? 'is-drop-target' : ''}`}
+                >
+                  {dropZone === 'stash' ? (
+                    renderDropPreview('stash')
+                  ) : (
+                    <div className="flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
                       <UploadCloud size={16} />
                       ファイルをここにドロップしてスタッシュ
                     </div>
-                    <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-                      {stashes.length === 0 ? (
-                        <div className="text-xs text-ink-subtle">スタッシュはありません。</div>
-                      ) : (
-                        stashes.map((stash) => (
-                          <div key={stash.id} className="rounded-lg bg-white/70 px-2 py-1.5 text-xs">
-                            <div className="font-medium text-ink">{stash.id}</div>
-                            <div className="truncate text-ink-subtle">{stash.message}</div>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {stash.files.length > 0 ? (
-                                stash.files.map((file) => (
-                                  <span
-                                    key={`${stash.id}-${file}`}
-                                    className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] text-accent"
-                                    title={file}
-                                  >
-                                    {file}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-[11px] text-ink-subtle">No file details</span>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="mb-1 px-1 text-xs text-ink-subtle">Commit</div>
+            <div className={`git-operation-panel__commit-column flex min-h-0 min-w-0 flex-col ${commitColumnClass}`}>
+              <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center px-1 text-xs text-ink-subtle">
+                <span>Commit</span>
+              </div>
               <div className="flex min-h-[148px] flex-1 flex-col gap-2 rounded-2xl border border-black/10 bg-white/65 p-3">
-                <div className="relative">
+                <div className="relative isolate">
                   <textarea
-                    className={`git-operation-panel__title-input input ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
+                    className={`git-operation-panel__title-input input relative z-0 block ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
                     placeholder="Commit summary"
                     value={commitTitle}
                     rows={1}
@@ -526,26 +518,28 @@ export function GitOperationPanel({
                     aria-invalid={commitTitleOverflowCount > 0}
                     onChange={(event) => onCommitTitleChange(event.target.value.replace(/\r?\n/g, ' '))}
                   />
-                  <button
-                    type="button"
-                    className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-accent transition hover:bg-accent-soft"
-                    onClick={onGenerateCommitMessage}
-                    disabled={busy || generatingCommitMessage}
-                    title={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
-                    aria-label={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
-                  >
-                    {generatingCommitMessage ? (
-                      <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Sparkles size={16} aria-hidden="true" />
-                    )}
-                  </button>
+                  {showGenerateCommitMessageButton ? (
+                    <button
+                      type="button"
+                      className="git-operation-panel__title-action absolute inset-y-0 right-1 z-10 my-auto flex h-8 w-8 items-center justify-center rounded-lg text-accent transition hover:bg-accent-soft"
+                      onClick={onGenerateCommitMessage}
+                      disabled={busy || generatingCommitMessage}
+                      title={generateCommitMessageTitle}
+                      aria-label={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
+                    >
+                      {generatingCommitMessage ? (
+                        <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Sparkles size={16} aria-hidden="true" />
+                      )}
+                    </button>
+                  ) : null}
                 </div>
                 <div className={`git-operation-panel__commit-meta ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}>
                   <span>
                     {commitTitleLength} / {COMMIT_TITLE_SOFT_LIMIT}
                   </span>
-                  <span>{commitTitleOverflowCount > 0 ? `${commitTitleOverflowCount} chars over` : '72-char target'}</span>
+                  {commitTitleOverflowCount > 0 ? <span>{commitTitleOverflowCount} chars over</span> : null}
                 </div>
                 <textarea
                   className="input min-h-20 flex-1 resize-y"

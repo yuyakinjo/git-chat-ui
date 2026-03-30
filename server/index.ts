@@ -20,6 +20,7 @@ import {
   getCommits,
   getDiffSnippet,
   getRepositoryFingerprint,
+  renameStash,
   getStashes,
   getWorkingTreeDiffDetail,
   getWorkingTreeStatus,
@@ -285,6 +286,18 @@ app.get('/api/stashes', async (request, response, next) => {
     const repoPath = getRepoPathFromQuery(request);
     const stashes = await getStashes(repoPath);
     response.json({ stashes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/stashes/rename', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const stashId = getRequiredString(request.body.stashId, 'stashId');
+    const message = getRequiredString(request.body.message, 'message');
+    await renameStash(repoPath, stashId, message);
+    response.json({ ok: true });
   } catch (error) {
     next(error);
   }

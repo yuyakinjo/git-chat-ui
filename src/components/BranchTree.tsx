@@ -1,25 +1,28 @@
-import { ChevronDown, ChevronRight, Folder, GitBranch, Plus, Trash2 } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Folder, GitBranch, Plus, Trash2 } from 'lucide-react';
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type JSX,
 } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
 import { canDropBranchOnBranch } from '../lib/branchDragDrop';
-import type { Branch, BranchResponse } from '../types';
+import type { Branch, BranchResponse, StashEntry } from '../types';
 
 interface BranchTreeProps {
   branches: BranchResponse | null;
+  stashes: StashEntry[];
   selectedBranchName: string | null;
   busy: boolean;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
   onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
+  onRequestRenameStash: (stash: StashEntry) => void;
   onRequestCreateBranch: (branch: Branch) => void;
   onRequestDeleteBranch: (branch: Branch) => void;
 }
@@ -34,6 +37,7 @@ const DRAG_THRESHOLD_PX = 6;
 const CONTEXT_MENU_WIDTH_PX = 232;
 const REMOTE_CONTEXT_MENU_HEIGHT_PX = 112;
 const LOCAL_CONTEXT_MENU_HEIGHT_PX = 156;
+const STASH_CONTEXT_MENU_HEIGHT_PX = 104;
 
 function clampContextMenuPosition(x: number, y: number, height: number): { x: number; y: number } {
   if (typeof window === 'undefined') {
@@ -60,6 +64,10 @@ function getContextMenuHint(branch: Branch, deleteDisabledReason: string | null)
   }
 
   return deleteDisabledReason ?? '確認ダイアログを開いてから削除します。';
+}
+
+function getStashContextMenuHint(): string {
+  return 'stash message だけを編集します。stash の順序や差分内容は変更しません。';
 }
 
 function getBranchDisplayName(branchName: string): string {
@@ -110,6 +118,21 @@ function buildTree(items: Branch[]): TreeNode {
   return root;
 }
 
+function getStashPrimaryLabel(stash: StashEntry): string {
+  const message = stash.message.trim();
+  return message || stash.id;
+}
+
+function getStashMetaLabel(stash: StashEntry): string {
+  const parts = [stash.id];
+  const relativeDate = stash.relativeDate.trim();
+  if (relativeDate) {
+    parts.push(relativeDate);
+  }
+
+  return parts.join(' • ');
+}
+
 function SectionTitle({ children }: { children: string }): JSX.Element {
   return (
     <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
@@ -120,24 +143,37 @@ function SectionTitle({ children }: { children: string }): JSX.Element {
 
 export function BranchTree({
   branches,
+  stashes,
   selectedBranchName,
   busy,
   onSelectBranch,
   onCheckoutBranch,
   onBranchDrop,
+  onRequestRenameStash,
   onRequestCreateBranch,
   onRequestDeleteBranch
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [isStashesExpanded, setIsStashesExpanded] = useState(true);
   const [draggedBranchName, setDraggedBranchName] = useState<string | null>(null);
   const [dropTargetBranchName, setDropTargetBranchName] = useState<string | null>(null);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{
-    branch: Branch;
-    x: number;
-    y: number;
-    disabledReason: string | null;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | {
+        kind: 'branch';
+        branch: Branch;
+        x: number;
+        y: number;
+        disabledReason: string | null;
+      }
+    | {
+        kind: 'stash';
+        stash: StashEntry;
+        x: number;
+        y: number;
+      }
+    | null
+  >(null);
   const draggedBranchNameRef = useRef<string | null>(null);
   const dropTargetBranchNameRef = useRef<string | null>(null);
   const dragPointerRef = useRef<{
@@ -196,7 +232,7 @@ export function BranchTree({
   useEffect(() => {
     setContextMenu(null);
     clearDragState();
-  }, [branches, selectedBranchName]);
+  }, [branches, selectedBranchName, stashes]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -419,10 +455,27 @@ export function BranchTree({
 
     const position = clampContextMenuPosition(event.clientX, event.clientY, getContextMenuHeight(branch));
     setContextMenu({
+      kind: 'branch',
       branch,
       x: position.x,
       y: position.y,
       disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName)
+    });
+  };
+
+  const handleStashContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, stash: StashEntry): void => {
+    event.preventDefault();
+
+    if (busy) {
+      return;
+    }
+
+    const position = clampContextMenuPosition(event.clientX, event.clientY, STASH_CONTEXT_MENU_HEIGHT_PX);
+    setContextMenu({
+      kind: 'stash',
+      stash,
+      x: position.x,
+      y: position.y
     });
   };
 
@@ -434,6 +487,11 @@ export function BranchTree({
   const handleCreateRequestFromTree = (branch: Branch): void => {
     setContextMenu(null);
     onRequestCreateBranch(branch);
+  };
+
+  const handleRenameStashRequestFromTree = (stash: StashEntry): void => {
+    setContextMenu(null);
+    onRequestRenameStash(stash);
   };
 
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
@@ -547,35 +605,55 @@ export function BranchTree({
             ref={contextMenuRef}
             className="branch-context-menu"
             role="menu"
-            aria-label="branch context menu"
+            aria-label={contextMenu.kind === 'branch' ? 'branch context menu' : 'stash context menu'}
             style={{
               left: `${contextMenu.x}px`,
               top: `${contextMenu.y}px`
             }}
           >
-            {contextMenu.branch.type === 'local' ? (
-              <button
-                type="button"
-                role="menuitem"
-                className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
-                disabled={busy}
-                onClick={() => handleCreateRequestFromTree(contextMenu.branch)}
-              >
-                <Plus size={14} />
-                <span>このブランチから作成</span>
-              </button>
-            ) : null}
-            <button
-              type="button"
-              role="menuitem"
-              className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
-              disabled={busy || Boolean(contextMenu.disabledReason)}
-              onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
-            >
-              <Trash2 size={14} />
-              <span>ブランチを削除</span>
-            </button>
-            <div className="branch-context-menu__hint">{getContextMenuHint(contextMenu.branch, contextMenu.disabledReason)}</div>
+            {contextMenu.kind === 'branch' ? (
+              <>
+                {contextMenu.branch.type === 'local' ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                    disabled={busy}
+                    onClick={() => handleCreateRequestFromTree(contextMenu.branch)}
+                  >
+                    <Plus size={14} />
+                    <span>このブランチから作成</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
+                  disabled={busy || Boolean(contextMenu.disabledReason)}
+                  onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
+                >
+                  <Trash2 size={14} />
+                  <span>ブランチを削除</span>
+                </button>
+                <div className="branch-context-menu__hint">
+                  {getContextMenuHint(contextMenu.branch, contextMenu.disabledReason)}
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                  disabled={busy}
+                  onClick={() => handleRenameStashRequestFromTree(contextMenu.stash)}
+                >
+                  <Archive size={14} />
+                  <span>Rename stash</span>
+                </button>
+                <div className="branch-context-menu__hint">{getStashContextMenuHint()}</div>
+              </>
+            )}
           </div>,
           document.body
         )
@@ -594,6 +672,49 @@ export function BranchTree({
 
           <SectionTitle>Remote</SectionTitle>
           <div className="mt-1">{renderNode(remoteTree, 'remote', 0)}</div>
+
+          <div className="mt-4 border-t border-black/5 pt-3">
+            <button
+              type="button"
+              className="branch-tree__expand-button"
+              aria-expanded={isStashesExpanded}
+              aria-controls="branch-tree-stashes"
+              onClick={() => setIsStashesExpanded((current) => !current)}
+            >
+              <div className="branch-tree__expand-title">
+                {isStashesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <Archive size={14} className="text-ink-subtle" />
+                <span className="section-title">Stashes</span>
+              </div>
+              <span className="branch-tree__expand-count">{stashes.length}</span>
+            </button>
+
+            {isStashesExpanded ? (
+              <div id="branch-tree-stashes" className="branch-tree__stash-list" role="list" aria-label="stashes">
+                {stashes.length === 0 ? (
+                  <div className="branch-tree__empty">No stashes</div>
+                ) : (
+                  stashes.map((stash) => (
+                    <button
+                      key={stash.id}
+                      type="button"
+                      className="branch-tree__stash-item"
+                      role="listitem"
+                      title={`${getStashPrimaryLabel(stash)} (${stash.id})`}
+                      onContextMenu={(event) => handleStashContextMenu(event, stash)}
+                      disabled={busy}
+                    >
+                      <Archive size={13} className="shrink-0 text-ink-subtle" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-ink">{getStashPrimaryLabel(stash)}</div>
+                        <div className="branch-tree__stash-meta truncate">{getStashMetaLabel(stash)}</div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {draggedBranchName && dragPreviewPosition ? (

@@ -85,6 +85,10 @@ export interface PullRequestResponse {
   url: string;
 }
 
+export interface RepositoryMutationSafety {
+  isSelfRepository: boolean;
+}
+
 export interface WorkingFile {
   file: string;
   x: string;

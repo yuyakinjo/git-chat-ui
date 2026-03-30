@@ -17,6 +17,7 @@
 - `src/components/`: 画面コンポーネント（`CommitGraph.tsx` など）
 - `src/lib/`: フロント側ユーティリティ・レイアウト計算・API クライアント
 - `server/`: Web 開発用 API（Node/Express）
+- `test/`: ルート配下に集約したフロントエンド / サーバーのテスト
 - `src-tauri/`: Tauri アプリ本体（Rust バックエンド）
 
 ## 実行コマンド
@@ -28,4 +29,4 @@
 ## 変更時の確認ポイント
 - UI 変更時は `bun run typecheck` を必ず実行
 - `src-tauri/` 変更時は `cargo check` で Rust 側も確認
-- コミットグラフ関連変更時は `src/lib/commitGraphLayout.test.ts` を確認
+- コミットグラフ関連変更時は `test/src/lib/commitGraphLayout.test.ts` を確認

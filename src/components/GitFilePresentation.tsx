@@ -2,6 +2,8 @@ import { Circle, Minus, Pencil, Plus } from 'lucide-react';
 
 import type { WorkingFile } from '../types';
 
+import type { JSX } from "react";
+
 export type WorkingFileStatusTone = 'modified' | 'added' | 'deleted' | 'changed';
 
 function splitGitFilePath(filePath: string): { directory: string | null; fileName: string } {

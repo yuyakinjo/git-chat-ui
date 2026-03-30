@@ -3,6 +3,8 @@ import { FolderGit2, Search } from 'lucide-react';
 import { compactPath } from '../lib/format';
 import type { Repository } from '../types';
 
+import type { JSX } from "react";
+
 interface DashboardViewProps {
   repositories: Repository[];
   query: string;
@@ -60,7 +62,7 @@ export function DashboardView({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          className="w-full border-none bg-transparent text-sm text-ink outline-none"
+          className="w-full border-none bg-transparent text-sm text-ink outline-hidden"
           placeholder="リポジトリ名で検索"
         />
       </label>

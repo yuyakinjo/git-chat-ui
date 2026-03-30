@@ -1,5 +1,5 @@
-import { Cog, FolderGit2, Github, LayoutDashboard, Palette, Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Cog, ExternalLink, FolderGit2, LayoutDashboard, Palette, Plus, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 
 import { ConfigView } from './components/ConfigView';
 import { ControllerView } from './components/ControllerView';
@@ -488,7 +488,7 @@ export default function App(): JSX.Element {
                   void handleOpenGithubRepository();
                 }}
               >
-                <Github size={18} />
+                <ExternalLink size={18} />
               </button>
             ) : null}
             <button

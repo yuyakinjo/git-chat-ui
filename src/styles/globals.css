@@ -1,6 +1,39 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-canvas: rgb(var(--color-canvas));
+  --color-canvas-elevated: rgb(var(--color-canvas-elevated));
+
+  --color-ink: rgb(var(--color-ink));
+  --color-ink-soft: rgb(var(--color-ink-soft));
+  --color-ink-subtle: rgb(var(--color-ink-subtle));
+
+  --color-accent: rgb(var(--color-accent));
+  --color-accent-soft: rgb(var(--color-accent-soft));
+
+  --shadow-panel: 0 20px 48px rgba(15, 23, 42, 0.12);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  --radius-panel: 20px;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 :root {
   --window-titlebar-height: 34px;
@@ -387,8 +420,40 @@ button.app-tab {
 }
 
 .app-tab--repository {
+  position: relative;
   max-width: min(360px, 46vw);
   padding-right: 4px;
+}
+
+.app-tab--repository::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 9999px;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--color-accent) / 0) 0%,
+    rgb(var(--color-accent) / 0.82) 18%,
+    rgb(var(--color-accent) / 1) 50%,
+    rgb(var(--color-accent) / 0.82) 82%,
+    rgb(var(--color-accent) / 0) 100%
+  );
+  box-shadow:
+    0 0 10px rgb(var(--color-accent) / 0.5),
+    0 0 20px rgb(var(--color-accent) / 0.24);
+  transition: opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.app-tab--repository.is-active::after {
+  opacity: 1;
+  box-shadow:
+    0 0 12px rgb(var(--color-accent) / 0.62),
+    0 0 26px rgb(var(--color-accent) / 0.32);
 }
 
 .app-tab__trigger {
@@ -603,8 +668,9 @@ button.app-tab {
   color: var(--text-secondary);
 }
 
-.commit-detail-panel__files-header {
+.commit-detail-panel__section-header {
   color: var(--text-subtle);
+  min-height: 1rem;
 }
 
 .commit-detail-panel__file-button {
@@ -862,6 +928,91 @@ body[data-theme='default-dark'] .text-slate-700 {
 .branch-tree__hint.is-active {
   color: #004e9c;
   transform: translateX(2px);
+}
+
+.branch-tree__expand-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background 140ms ease;
+}
+
+.branch-tree__expand-button:hover {
+  background: var(--list-hover-bg);
+}
+
+.branch-tree__expand-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.branch-tree__expand-count {
+  display: inline-flex;
+  min-width: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgb(var(--color-accent) / 0.1);
+}
+
+.branch-tree__stash-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.branch-tree__stash-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+  appearance: none;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--theme-border-rgb) / 0.12);
+  background: rgb(var(--theme-elevated-rgb) / 0.6);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: context-menu;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.branch-tree__stash-item:hover {
+  background: rgb(var(--theme-elevated-rgb) / 0.82);
+  border-color: rgb(var(--color-accent) / 0.18);
+}
+
+.branch-tree__stash-item:focus-visible {
+  outline: 2px solid rgb(var(--color-accent) / 0.35);
+  outline-offset: 2px;
+}
+
+.branch-tree__stash-meta,
+.branch-tree__empty {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.branch-tree__stash-meta {
+  margin-top: 2px;
+}
+
+.branch-tree__empty {
+  padding: 0 12px 4px;
 }
 
 .branch-drag-preview {
@@ -1332,6 +1483,37 @@ body[data-theme='default-dark'] .wip-row__meta {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.git-operation-panel__stacked-buckets {
+  display: grid;
+  min-height: 0;
+  gap: 12px;
+}
+
+.git-operation-panel__stacked-buckets--split {
+  height: 100%;
+  grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);
+}
+
+.git-operation-panel__stacked-bucket {
+  min-height: 0;
+}
+
+.git-operation-panel__stacked-buckets--split .git-operation-panel__stacked-bucket {
+  overflow: hidden;
+}
+
+.git-operation-panel__stacked-buckets--split .drop-zone {
+  min-height: 0;
+}
+
+.git-operation-panel__commit-column--full {
+  grid-column: 1 / -1;
+}
+
+.git-operation-panel__commit-column--span-2 {
+  grid-column: span 2 / span 2;
+}
+
 .git-operation-panel__file-row {
   user-select: none;
   -webkit-user-select: none;
@@ -1360,13 +1542,26 @@ body[data-theme='default-dark'] .wip-row__meta {
 .git-operation-panel__title-input {
   min-height: 43px;
   max-height: 43px;
-  padding-right: 46px;
+  padding-right: 64px;
   resize: none;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: pre;
   word-break: normal;
   scrollbar-width: thin;
+}
+
+.git-operation-panel__title-action {
+  z-index: 2;
+  border: 1px solid var(--surface-border);
+  background: var(--control-bg);
+  box-shadow:
+    -18px 0 18px 8px var(--control-bg),
+    0 6px 16px rgba(15, 23, 42, 0.14);
+}
+
+.git-operation-panel__title-action:hover:not(:disabled) {
+  border-color: rgb(var(--color-accent) / 0.16);
 }
 
 .git-operation-panel__title-input.is-over-limit {

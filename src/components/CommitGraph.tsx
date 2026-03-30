@@ -1,5 +1,13 @@
 import { animate, stagger } from 'animejs';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+} from 'react';
 
 import { resolveCommitGraphColumnLayout } from '../lib/commitGraphColumns';
 import { buildLaneRows } from '../lib/commitGraphLayout';
@@ -382,7 +390,7 @@ export function CommitGraph({
         }}
       >
         <div
-          className="sticky top-0 z-10 grid gap-2 bg-white/80 px-2 py-2 text-[11px] uppercase tracking-[0.08em] text-ink-subtle backdrop-blur"
+          className="sticky top-0 z-10 grid gap-2 bg-white/80 px-2 py-2 text-[11px] uppercase tracking-[0.08em] text-ink-subtle backdrop-blur-sm"
           style={{ gridTemplateColumns }}
         >
           <span />
@@ -390,7 +398,7 @@ export function CommitGraph({
             Refs
             <button
               type="button"
-              className="absolute -right-2 top-[-6px] h-[calc(100%+12px)] w-4 cursor-col-resize rounded-sm bg-transparent hover:bg-black/5"
+              className="absolute -right-2 top-[-6px] h-[calc(100%+12px)] w-4 cursor-col-resize rounded-xs bg-transparent hover:bg-black/5"
               onPointerDown={startRefsColumnResize}
               onDoubleClick={(event) => {
                 event.preventDefault();
@@ -458,7 +466,7 @@ export function CommitGraph({
               </div>
             )}
             <div className="overflow-hidden whitespace-nowrap text-xs">
-              <span className="wip-row__badge inline-flex items-center px-2 py-[1px] text-[10px] font-semibold leading-4">
+              <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
                 WIP
               </span>
             </div>
@@ -570,7 +578,7 @@ export function CommitGraph({
                   </svg>
 
                   <span
-                    className={`absolute block commit-node border border-white/90 shadow ${isCheckedOutCommit ? 'commit-node-head-glow' : ''}`}
+                    className={`absolute block commit-node border border-white/90 shadow-sm ${isCheckedOutCommit ? 'commit-node-head-glow' : ''}`}
                     style={{
                       left: `${laneX(row.laneIndex) - 6}px`,
                       top: `${ROW_HEIGHT / 2 - 6}px`,
@@ -597,7 +605,7 @@ export function CommitGraph({
                     {commitRefLabels.map((label) => (
                       <span
                         key={`${commit.sha}-${label.type}-${label.name}`}
-                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-[1px] text-[10px] font-semibold leading-4 ${
+                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${
                           refLabelClass(label.type)
                         } ${label.type === 'tag' ? '' : 'cursor-pointer'}`}
                         style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}

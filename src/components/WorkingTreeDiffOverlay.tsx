@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type JSX } from 'react';
 
 import type { WorkingTreeDiffArea, WorkingTreeDiffDetail } from '../types';
 import { SplitDiffViewer } from './SplitDiffViewer';
@@ -37,7 +37,7 @@ export function WorkingTreeDiffOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-sm"
+      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-label={`${areaLabel.toLowerCase()} working tree diff`}
@@ -47,8 +47,8 @@ export function WorkingTreeDiffOverlay({
           <div className="min-w-0">
             <div className="diff-overlay__title truncate text-base font-semibold">{resolvedFilePath || 'Changed file'}</div>
             <div className="diff-overlay__meta mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className="badge !bg-[#fff4d6] !text-[#a15c00]">WIP</span>
-              <span className={`badge ${area === 'staged' ? '!bg-[#ecfdf3] !text-[#157347]' : '!bg-[#fff4d6] !text-[#a15c00]'}`}>
+              <span className="badge bg-[#fff4d6]! text-[#a15c00]!">WIP</span>
+              <span className={`badge ${area === 'staged' ? 'bg-[#ecfdf3]! text-[#157347]!' : 'bg-[#fff4d6]! text-[#a15c00]!'}`}>
                 {areaLabel}
               </span>
               {detail ? <span>{detail.files.length} files</span> : null}
@@ -58,7 +58,7 @@ export function WorkingTreeDiffOverlay({
 
           <button
             type="button"
-            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center !p-0"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center p-0!"
             onClick={onClose}
             title="Close"
             aria-label="Close"

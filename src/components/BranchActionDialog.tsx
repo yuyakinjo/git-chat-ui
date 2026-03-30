@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type JSX } from 'react';
 
 export type BranchActionDialogStep = 'select-action' | 'confirm-push';
 
@@ -43,7 +43,7 @@ export function BranchActionDialog({
 
   return (
     <div
-      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-sm"
+      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-label="branch action"
@@ -64,7 +64,7 @@ export function BranchActionDialog({
 
           <button
             type="button"
-            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center !p-0"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center p-0!"
             onClick={onClose}
             title="Close"
             aria-label="Close"

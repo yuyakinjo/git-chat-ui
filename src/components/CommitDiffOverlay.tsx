@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type JSX } from 'react';
 
 import { shortSha } from '../lib/format';
 import type { CommitDetail } from '../types';
@@ -28,7 +28,7 @@ export function CommitDiffOverlay({ detail, filePath, onClose }: CommitDiffOverl
   }, [onClose]);
 
   return (
-    <div className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-sm">
+    <div className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs">
       <section className="panel flex h-full min-h-0 flex-col overflow-hidden p-4 shadow-2xl">
         <div className="mb-3 flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -42,7 +42,7 @@ export function CommitDiffOverlay({ detail, filePath, onClose }: CommitDiffOverl
 
           <button
             type="button"
-            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center !p-0"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center p-0!"
             onClick={onClose}
             title="Close"
             aria-label="Close"

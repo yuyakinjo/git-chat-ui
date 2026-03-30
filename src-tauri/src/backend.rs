@@ -227,6 +227,16 @@ pub struct StashEntry {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct StashReflogEntryRecord {
+    new_oid: String,
+    committer_name: String,
+    committer_email: String,
+    timestamp: String,
+    timezone: String,
+    message: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoriesResponse {
@@ -904,12 +914,180 @@ fn run_command_owned(command: &str, args: &[String], repo_path: &str) -> Result<
     run_command(command, &refs, repo_path)
 }
 
+fn run_command_owned_with_env(
+    command: &str,
+    args: &[String],
+    repo_path: &str,
+    envs: &[(&str, String)],
+) -> Result<String, String> {
+    let mut process = Command::new(command);
+    process.args(args).current_dir(repo_path);
+
+    for (key, value) in envs {
+        process.env(key, value);
+    }
+
+    let output = process
+        .output()
+        .map_err(|error| format!("Failed to execute {command}: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        if !stderr.is_empty() {
+            return Err(stderr);
+        }
+
+        if !stdout.is_empty() {
+            return Err(stdout);
+        }
+
+        return Err(format!("Failed to execute {command} command"));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\r', '\n'])
+        .to_string())
+}
+
 fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
     run_command("git", args, repo_path)
 }
 
 fn run_git_owned(args: &[String], repo_path: &str) -> Result<String, String> {
     run_command_owned("git", args, repo_path)
+}
+
+fn run_git_owned_with_env(
+    args: &[String],
+    repo_path: &str,
+    envs: &[(&str, String)],
+) -> Result<String, String> {
+    run_command_owned_with_env("git", args, repo_path, envs)
+}
+
+fn parse_stash_index(stash_id: &str) -> Result<usize, String> {
+    let trimmed = stash_id.trim();
+    let Some(body) = trimmed
+        .strip_prefix("stash@{")
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        return Err("stashId must be in the form stash@{n}.".to_string());
+    };
+
+    body.parse::<usize>()
+        .map_err(|_| "stashId must be in the form stash@{n}.".to_string())
+}
+
+fn parse_stash_reflog_line(line: &str) -> Option<StashReflogEntryRecord> {
+    let (metadata, message) = line.split_once('\t')?;
+    let mut head_parts = metadata.splitn(3, ' ');
+    let _old_oid = head_parts.next()?.to_string();
+    let new_oid = head_parts.next()?.to_string();
+    let remainder = head_parts.next()?;
+
+    let timezone_separator = remainder.rfind(' ')?;
+    let timezone = remainder[timezone_separator + 1..].to_string();
+    let timestamp_and_ident = &remainder[..timezone_separator];
+    let timestamp_separator = timestamp_and_ident.rfind(' ')?;
+    let timestamp = timestamp_and_ident[timestamp_separator + 1..].to_string();
+    let ident = &timestamp_and_ident[..timestamp_separator];
+    let email_end = ident.rfind('>')?;
+    let email_start = ident[..email_end].rfind('<')?;
+    let committer_name = ident[..email_start].trim_end().to_string();
+    let committer_email = ident[email_start + 1..email_end].to_string();
+
+    Some(StashReflogEntryRecord {
+        new_oid,
+        committer_name,
+        committer_email,
+        timestamp,
+        timezone,
+        message: message.to_string(),
+    })
+}
+
+fn resolve_git_path(repo_path: &str, git_path: &str) -> Result<PathBuf, String> {
+    let resolved = run_git(&["rev-parse", "--git-path", git_path], repo_path)?;
+    let path = PathBuf::from(&resolved);
+
+    if path.is_absolute() {
+        return Ok(path);
+    }
+
+    Ok(Path::new(repo_path).join(path))
+}
+
+fn clear_stash_ref(
+    repo_path: &str,
+    stash_log_path: &Path,
+    current_top_oid: &str,
+) -> Result<(), String> {
+    let ref_exists = run_git(
+        &["show-ref", "--verify", "--quiet", "refs/stash"],
+        repo_path,
+    )
+    .is_ok();
+
+    if ref_exists {
+        let delete_with_old = run_git(
+            &["update-ref", "-d", "refs/stash", current_top_oid],
+            repo_path,
+        );
+        if delete_with_old.is_err() {
+            run_git(&["update-ref", "-d", "refs/stash"], repo_path)?;
+        }
+    }
+
+    match fs::remove_file(stash_log_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+
+    Ok(())
+}
+
+fn rebuild_stash_reflog(
+    repo_path: &str,
+    stash_log_path: &Path,
+    entries: &[StashReflogEntryRecord],
+) -> Result<(), String> {
+    let current_top_oid = entries
+        .last()
+        .map(|entry| entry.new_oid.as_str())
+        .unwrap_or_default();
+
+    clear_stash_ref(repo_path, stash_log_path, current_top_oid)?;
+
+    for (index, entry) in entries.iter().enumerate() {
+        let mut args = vec![
+            "update-ref".to_string(),
+            "--create-reflog".to_string(),
+            "-m".to_string(),
+            entry.message.clone(),
+            "refs/stash".to_string(),
+            entry.new_oid.clone(),
+        ];
+
+        if let Some(previous) = index.checked_sub(1).and_then(|value| entries.get(value)) {
+            args.push(previous.new_oid.clone());
+        }
+
+        let envs = vec![
+            ("GIT_COMMITTER_NAME", entry.committer_name.clone()),
+            ("GIT_COMMITTER_EMAIL", entry.committer_email.clone()),
+            (
+                "GIT_COMMITTER_DATE",
+                format!("{} {}", entry.timestamp, entry.timezone),
+            ),
+        ];
+
+        run_git_owned_with_env(&args, repo_path, &envs)?;
+    }
+
+    Ok(())
 }
 
 fn run_gh(args: &[&str], repo_path: &str) -> Result<String, String> {
@@ -993,6 +1171,37 @@ fn ensure_branch_pair(
     ensure_local_branch(repo_path, target_branch)?;
 
     Ok(())
+}
+
+fn validate_create_branch_input(
+    repo_path: &str,
+    base_branch: &str,
+    new_branch: &str,
+) -> Result<String, String> {
+    ensure_repo_path(repo_path)?;
+    ensure_local_branch(repo_path, base_branch)?;
+
+    let normalized_new_branch = new_branch.trim();
+    if normalized_new_branch.is_empty() {
+        return Err("newBranch is required.".to_string());
+    }
+
+    if normalized_new_branch == base_branch {
+        return Err("newBranch must be different from baseBranch.".to_string());
+    }
+
+    run_git(
+        &["check-ref-format", "--branch", normalized_new_branch],
+        repo_path,
+    )?;
+
+    if ensure_local_branch(repo_path, normalized_new_branch).is_ok() {
+        return Err(format!(
+            "Local branch '{normalized_new_branch}' already exists."
+        ));
+    }
+
+    Ok(normalized_new_branch.to_string())
 }
 
 fn ensure_deletable_local_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
@@ -1757,7 +1966,8 @@ fn normalize_generated_commit_message(raw_message: &str, fallback_title: &str) -
     }
 
     let raw_title_line = strip_label(
-        lines[0].trim_matches(|character| character == '"' || character == '\'' || character == '`'),
+        lines[0]
+            .trim_matches(|character| character == '"' || character == '\'' || character == '`'),
         &["title", "summary", "subject"],
     );
     let title = normalize_title(&raw_title_line, &fallback);
@@ -1767,8 +1977,10 @@ fn normalize_generated_commit_message(raw_message: &str, fallback_title: &str) -
         .iter()
         .position(|line| !line.trim().is_empty())
     {
-        description_lines[first_description_line] =
-            strip_label(&description_lines[first_description_line], &["description", "body"]);
+        description_lines[first_description_line] = strip_label(
+            &description_lines[first_description_line],
+            &["description", "body"],
+        );
     }
 
     TitleResponse {
@@ -1927,8 +2139,13 @@ fn list_openai_models_internal(token: &str) -> Result<Vec<String>, String> {
         .get("data")
         .and_then(Value::as_array)
         .map(|items| {
-            items.iter()
-                .filter_map(|item| item.get("id").and_then(Value::as_str).map(ToString::to_string))
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("id")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -2637,7 +2854,7 @@ pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String>
 pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
     ensure_repo_path(&repo_path)?;
 
-    let output = run_git(&["stash", "list", "--format=%gd%x1f%cr%x1f%s"], &repo_path)?;
+    let output = run_git(&["stash", "list", "--format=%gd%x1f%cr%x1f%gs"], &repo_path)?;
 
     let mut stashes: Vec<StashEntry> = output
         .lines()
@@ -2682,6 +2899,55 @@ pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
 }
 
 #[tauri::command]
+pub fn rename_stash(
+    repo_path: String,
+    stash_id: String,
+    message: String,
+) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let normalized_message = message.trim();
+    if normalized_message.is_empty() {
+        return Err("message is required.".to_string());
+    }
+
+    let stash_index = parse_stash_index(&stash_id)?;
+    let stash_log_path = resolve_git_path(&repo_path, "logs/refs/stash")?;
+    let stash_log =
+        fs::read_to_string(&stash_log_path).map_err(|_| format!("{stash_id} was not found."))?;
+
+    let entries: Vec<StashReflogEntryRecord> = stash_log
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(parse_stash_reflog_line)
+        .collect();
+
+    if entries.is_empty() || stash_index >= entries.len() {
+        return Err(format!("{stash_id} was not found."));
+    }
+
+    let target_log_index = entries.len() - 1 - stash_index;
+    let renamed_entries: Vec<StashReflogEntryRecord> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let mut next = entry.clone();
+            if index == target_log_index {
+                next.message = normalized_message.to_string();
+            }
+            next
+        })
+        .collect();
+
+    if let Err(error) = rebuild_stash_reflog(&repo_path, &stash_log_path, &renamed_entries) {
+        let _ = rebuild_stash_reflog(&repo_path, &stash_log_path, &entries);
+        return Err(error);
+    }
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
 pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, String> {
     if reference.trim().is_empty() {
         return Err("ref is required.".to_string());
@@ -2713,6 +2979,26 @@ pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, Stri
             .set_head_detached(object.id())
             .map_err(map_git2_error)?;
     }
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn create_branch(
+    repo_path: String,
+    base_branch: String,
+    new_branch: String,
+) -> Result<OkResponse, String> {
+    let normalized_new_branch =
+        validate_create_branch_input(&repo_path, &base_branch, &new_branch)?;
+    run_git(
+        &[
+            "branch",
+            normalized_new_branch.as_str(),
+            base_branch.as_str(),
+        ],
+        &repo_path,
+    )?;
 
     Ok(OkResponse { ok: true })
 }
@@ -3271,5 +3557,64 @@ mod tests {
         assert!(detail.diff.contains("+alpha"));
         assert!(detail.diff.contains("+beta"));
         assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn create_branch_creates_new_local_branch_without_switching_head() {
+        let fixture = create_working_tree_diff_fixture();
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/base"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch should be created");
+        run_command("git", &["checkout", "main"], &fixture.repo_path)
+            .expect("checkout main should succeed");
+
+        create_branch(
+            fixture.repo_path.clone(),
+            "feature/base".to_string(),
+            "feature/context-menu".to_string(),
+        )
+        .expect("branch creation command should succeed");
+
+        let base_sha = run_command("git", &["rev-parse", "feature/base"], &fixture.repo_path)
+            .expect("base branch sha should resolve");
+        let new_sha = run_command(
+            "git",
+            &["rev-parse", "feature/context-menu"],
+            &fixture.repo_path,
+        )
+        .expect("new branch sha should resolve");
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+
+        assert_eq!(new_sha, base_sha);
+        assert_eq!(current_branch, "main");
+    }
+
+    #[test]
+    fn create_branch_rejects_duplicate_local_branch_names() {
+        let fixture = create_working_tree_diff_fixture();
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/remote-delete"],
+            &fixture.repo_path,
+        )
+        .expect("existing feature branch should be created");
+        run_command("git", &["checkout", "main"], &fixture.repo_path)
+            .expect("checkout main should succeed");
+
+        let error = create_branch(
+            fixture.repo_path.clone(),
+            "main".to_string(),
+            "feature/remote-delete".to_string(),
+        )
+        .expect_err("duplicate branch names should be rejected");
+
+        assert_eq!(
+            error,
+            "Local branch 'feature/remote-delete' already exists."
+        );
     }
 }

@@ -1,5 +1,5 @@
 import { GitBranch, Plus, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type JSX } from 'react';
 
 interface BranchCreateDialogProps {
   baseBranchName: string;
@@ -32,7 +32,7 @@ export function BranchCreateDialog({
 
   return (
     <div
-      className="absolute inset-0 z-40 flex items-start justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-3"
+      className="absolute inset-0 z-40 flex items-start justify-center bg-slate-950/55 p-2 backdrop-blur-xs sm:p-3"
       role="dialog"
       aria-modal="true"
       aria-label="create branch from branch"
@@ -49,7 +49,7 @@ export function BranchCreateDialog({
 
           <button
             type="button"
-            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center !p-0"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center p-0!"
             onClick={onClose}
             title="Close"
             aria-label="Close"

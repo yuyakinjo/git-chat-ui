@@ -13,6 +13,7 @@ import type {
   PullRequestPreparation,
   PullRequestResponse,
   Repository,
+  RepositoryMutationSafety,
   StashEntry,
   TokenValidationResult,
   WorkingTreeDiffArea,
@@ -110,7 +111,7 @@ export const api = {
     return request(`/repositories/github-url?${params.toString()}`);
   },
 
-  getRepositoryMutationSafety(repoPath: string): Promise<{ isSelfRepository: boolean }> {
+  getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety> {
     if (isTauriRuntime()) {
       return invokeCommand('get_repository_mutation_safety', { repoPath });
     }
@@ -262,6 +263,17 @@ export const api = {
 
     const params = new URLSearchParams({ repoPath });
     return request(`/stashes?${params.toString()}`);
+  },
+
+  renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('rename_stash', { repoPath, stashId, message });
+    }
+
+    return request('/stashes/rename', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, stashId, message })
+    });
   },
 
   checkout(repoPath: string, ref: string): Promise<{ ok: boolean }> {

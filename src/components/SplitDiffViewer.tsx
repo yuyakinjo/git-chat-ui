@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, type JSX } from 'react';
 
 import { parseUnifiedDiff, type ParsedDiffCell, type ParsedDiffFile, type ParsedDiffRow } from '../lib/diff';
 import { buildIntralineSegments, type IntralineSegment } from '../lib/intralineDiff';

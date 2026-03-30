@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { CalendarClock, Expand, FileCode2, User } from 'lucide-react';
 
 import { shouldSplitCommitDetailPanel } from '../lib/controllerPanelLayout';
@@ -89,7 +89,7 @@ export function CommitDetailPanel({
             isActive ? 'text-white/80' : ''
           }`}
         >
-          <span className={`badge ${file.area === 'staged' ? '!bg-[#ecfdf3] !text-[#157347]' : '!bg-[#fff4d6] !text-[#a15c00]'}`}>
+          <span className={`badge ${file.area === 'staged' ? 'bg-[#ecfdf3]! text-[#157347]!' : 'bg-[#fff4d6]! text-[#a15c00]!'}`}>
             {file.area === 'staged' ? 'Staged' : 'Unstaged'}
           </span>
         </div>
@@ -124,7 +124,7 @@ export function CommitDetailPanel({
       <div className="commit-detail-panel__card rounded-xl p-3">
         <div className="commit-detail-panel__card-title mb-2 text-sm font-semibold">Working Tree Changes</div>
         <div className="commit-detail-panel__card-meta flex flex-wrap items-center gap-2 text-xs">
-          <span className="badge !bg-[#fff4d6] !text-[#a15c00]">WIP</span>
+          <span className="badge bg-[#fff4d6]! text-[#a15c00]!">WIP</span>
           {workingTreeSelection.stagedCount > 0 ? <span>{workingTreeSelection.stagedCount} staged</span> : null}
           {workingTreeSelection.unstagedCount > 0 ? <span>{workingTreeSelection.unstagedCount} unstaged</span> : null}
         </div>
@@ -149,11 +149,14 @@ export function CommitDetailPanel({
       {selectionMode !== 'empty' ? (
         <div className={`commit-detail-panel__content px-2 pb-2 ${isSplitLayout ? 'commit-detail-panel__content--split' : ''}`}>
           <div className="commit-detail-panel__summary">
+            <div className="commit-detail-panel__section-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
+              <span>Overview</span>
+            </div>
             {summaryCard}
           </div>
 
           <div className="commit-detail-panel__files" data-controller-panel-drag-ignore="true">
-            <div className="commit-detail-panel__files-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
+            <div className="commit-detail-panel__section-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
               <span>Changed Files</span>
               {selectionMode !== 'commit' && !canOpenWorkingTreeDiff ? (
                 <span className="commit-detail-panel__files-note text-[11px] font-medium normal-case tracking-normal">
