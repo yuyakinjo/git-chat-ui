@@ -2980,6 +2980,10 @@ pub fn generate_title(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::ErrorKind;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_REPO_ID: AtomicU64 = AtomicU64::new(0);
 
     struct TestRepoFixture {
         root_dir: PathBuf,
@@ -2993,16 +2997,32 @@ mod tests {
     }
 
     fn create_working_tree_diff_fixture() -> TestRepoFixture {
-        let root_dir = std::env::temp_dir().join(format!(
-            "git-chat-ui-tauri-working-tree-diff-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("current time should be after epoch")
-                .as_nanos()
-        ));
+        let temp_dir = std::env::temp_dir();
+        let mut root_dir = None;
+
+        for _ in 0..32 {
+            let candidate = temp_dir.join(format!(
+                "git-chat-ui-tauri-working-tree-diff-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("current time should be after epoch")
+                    .as_nanos(),
+                NEXT_TEMP_REPO_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => {
+                    root_dir = Some(candidate);
+                    break;
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("temporary root dir should be created: {error}"),
+            }
+        }
+
+        let root_dir = root_dir.expect("temporary root dir should be unique");
         let repo_path = root_dir.join("repo");
-        fs::create_dir_all(&repo_path).expect("temporary repo dir should be created");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
 
         let repo_path_str = repo_path.to_string_lossy().to_string();
         run_command("git", &["init", "-b", "main"], &repo_path_str)
