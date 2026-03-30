@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import type { NativeWindowAppearance } from './appTheme';
 import type {
   AiGenerationConfig,
   AppConfig,
@@ -23,13 +24,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4141
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
-
-type NativeWindowTheme = 'light' | 'dark';
-
-type NativeWindowAppearance = {
-  theme: NativeWindowTheme;
-  backgroundColor: [number, number, number, number];
-};
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {

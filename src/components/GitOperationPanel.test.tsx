@@ -76,6 +76,8 @@ describe('GitOperationPanel', () => {
 
     expect(html).toContain('Unstaged Files (2)');
     expect(html).toContain('Staged Files (2)');
+    expect(html).toContain('Stage all');
+    expect(html).toContain('Unstage all');
     expect(html).toContain('Stash Area');
     expect(html).toContain('Commit');
     expect(html).toContain('min-[760px]:grid-cols-2');
@@ -93,7 +95,12 @@ describe('GitOperationPanel', () => {
     expect(html).toContain('Modified');
     expect(html).toContain('Added');
     expect(html).toContain('git-file-path-label');
-    expect(html).toContain('git-file-card__handle');
+    expect(html).toContain('commit-detail-panel__file-button');
+    expect(html).toContain('git-file-card__status-icon--modified');
+    expect(html).toContain('git-file-card__status-icon--added');
+    expect(html).toContain('Open Diff');
+    expect(html).toContain('data-working-tree-no-drag="true"');
+    expect(html).not.toContain('git-file-card__handle');
   });
 
   test('hides bulk stage buttons when there are no target files', () => {
@@ -123,6 +130,7 @@ describe('GitOperationPanel', () => {
     expect(html).toContain('Staged Files (0)');
     expect(html).toContain('未ステージの変更はありません。');
     expect(html).toContain('ステージされたファイルはありません。');
+    expect(html).not.toContain('Stage all');
+    expect(html).not.toContain('Unstage all');
   });
 });
-

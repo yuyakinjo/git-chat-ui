@@ -8,6 +8,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_REPOSITORIES: usize = 300;
@@ -245,6 +246,20 @@ pub struct SaveConfigInput {
     pub claude_code_token: Option<String>,
     pub commit_graph_mode: Option<CommitGraphMode>,
     pub repository_scan_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NativeWindowTheme {
+    Light,
+    Dark,
+}
+
+fn map_native_window_theme(theme: NativeWindowTheme) -> tauri::Theme {
+    match theme {
+        NativeWindowTheme::Light => tauri::Theme::Light,
+        NativeWindowTheme::Dark => tauri::Theme::Dark,
+    }
 }
 
 fn config_dir() -> Result<PathBuf, String> {
@@ -598,10 +613,35 @@ fn restore_window_state(
     Ok(())
 }
 
-fn persist_window_state(window: &tauri::WebviewWindow) -> Result<(), String> {
+fn persist_window_state_if_changed(
+    window: &tauri::WebviewWindow,
+    last_window_state: &Arc<Mutex<Option<WindowState>>>,
+) -> Result<(), String> {
+    let next_window_state = capture_window_state(window)?;
+    let mut guard = last_window_state
+        .lock()
+        .map_err(|_| "Failed to lock window state cache.".to_string())?;
+
+    if guard.as_ref() == Some(&next_window_state) {
+        return Ok(());
+    }
+
     let mut config = read_config()?;
-    config.window_state = Some(capture_window_state(window)?);
-    write_config(&config)
+    config.window_state = Some(next_window_state.clone());
+    write_config(&config)?;
+    *guard = Some(next_window_state);
+
+    Ok(())
+}
+
+fn should_persist_window_event(event: &tauri::WindowEvent) -> bool {
+    matches!(
+        event,
+        tauri::WindowEvent::Moved(_)
+            | tauri::WindowEvent::Resized(_)
+            | tauri::WindowEvent::CloseRequested { .. }
+            | tauri::WindowEvent::Destroyed
+    )
 }
 
 pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -609,17 +649,19 @@ pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
         return Ok(());
     }
 
-    if let Some(window_state) = read_config()?.window_state {
-        restore_window_state(window, &window_state)?;
+    let initial_window_state = read_config()?.window_state;
+
+    if let Some(window_state) = initial_window_state.as_ref() {
+        restore_window_state(window, window_state)?;
     }
 
     let persisted_window = window.clone();
+    let last_window_state = Arc::new(Mutex::new(initial_window_state));
     window.on_window_event(move |event| {
-        if matches!(
-            event,
-            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-        ) {
-            if let Err(error) = persist_window_state(&persisted_window) {
+        if should_persist_window_event(event) {
+            if let Err(error) =
+                persist_window_state_if_changed(&persisted_window, &last_window_state)
+            {
                 eprintln!("failed to persist main window state: {error}");
             }
         }
@@ -1431,6 +1473,32 @@ pub fn health() -> Result<OkResponse, String> {
 #[tauri::command]
 pub fn open_external_url(url: String) -> Result<OkResponse, String> {
     open_external_url_with_system(&url)?;
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn sync_window_appearance(
+    window: tauri::WebviewWindow,
+    theme: NativeWindowTheme,
+    background_color: [u8; 4],
+) -> Result<OkResponse, String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Ok(OkResponse { ok: true });
+    }
+
+    let host_window = window.as_ref().window();
+    host_window
+        .set_theme(Some(map_native_window_theme(theme)))
+        .map_err(|error| format!("Failed to sync window theme: {error}"))?;
+    host_window
+        .set_background_color(Some(tauri::window::Color(
+            background_color[0],
+            background_color[1],
+            background_color[2],
+            background_color[3],
+        )))
+        .map_err(|error| format!("Failed to sync window background color: {error}"))?;
+
     Ok(OkResponse { ok: true })
 }
 
@@ -2273,5 +2341,19 @@ mod tests {
                 is_maximized: false,
             }
         );
+    }
+
+    #[test]
+    fn should_persist_window_event_for_bounds_changes() {
+        assert!(should_persist_window_event(&tauri::WindowEvent::Moved(
+            tauri::PhysicalPosition::new(24, 48),
+        )));
+        assert!(should_persist_window_event(&tauri::WindowEvent::Resized(
+            tauri::PhysicalSize::new(1440, 900),
+        )));
+        assert!(should_persist_window_event(&tauri::WindowEvent::Destroyed));
+        assert!(!should_persist_window_event(&tauri::WindowEvent::Focused(
+            true,
+        )));
     }
 }

@@ -1172,85 +1172,21 @@ body[data-theme='default-dark'] .commit-graph__ref-badge--tag {
   transform: translateX(2px);
 }
 
-.git-file-card {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  margin-bottom: 6px;
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: 14px;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(246, 249, 255, 0.8));
-  padding: 8px 10px;
+.git-operation-panel__file-row {
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
-  transition:
-    transform 160ms ease,
-    opacity 160ms ease,
-    background 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
 }
 
-.git-file-card:last-child {
-  margin-bottom: 0;
-}
-
-.git-file-card:hover {
-  border-color: rgba(0, 113, 227, 0.1);
-  box-shadow:
-    0 10px 24px rgba(15, 23, 42, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-}
-
-.git-file-card.is-active {
-  border-color: rgba(0, 78, 156, 0.24);
-  background:
-    linear-gradient(160deg, rgba(232, 242, 255, 0.96), rgba(244, 248, 255, 0.9));
-  box-shadow:
-    0 12px 26px rgba(0, 78, 156, 0.08),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.28);
-}
-
-.git-file-card.is-drag-source {
-  opacity: 0.56;
-  transform: translateX(8px) scale(0.985);
-  cursor: grabbing;
-  background:
-    linear-gradient(160deg, rgba(236, 245, 255, 0.9), rgba(247, 250, 255, 0.82));
-  border-color: rgba(0, 113, 227, 0.16);
-}
-
-.git-file-card__content:focus-visible {
+.git-operation-panel__file-row:focus-visible {
   outline: 2px solid rgba(0, 113, 227, 0.35);
   outline-offset: 2px;
 }
 
-.git-file-card__content {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: inherit;
-  appearance: none;
-  font: inherit;
-  text-align: left;
-  cursor: inherit;
-}
-
-.git-file-card__content:disabled {
-  cursor: default;
-}
-
-.git-file-card__file {
-  min-width: 0;
-  flex: 1 1 auto;
+.git-operation-panel__file-row.is-drag-source {
+  opacity: 0.56;
+  transform: translateX(8px) scale(0.985);
+  cursor: grabbing;
 }
 
 .git-file-card__status-icon {

@@ -1,4 +1,4 @@
-import { GripVertical, Sparkles, UploadCloud } from 'lucide-react';
+import { Expand, GripVertical, Sparkles, UploadCloud } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -11,6 +11,7 @@ import {
   type WorkingTreeDropZone
 } from '../lib/workingTreeDragDrop';
 import type { StashEntry, WorkingFile, WorkingTreeDiffArea, WorkingTreeStatus } from '../types';
+import { GitFilePathLabel, getWorkingFileStatusPresentation } from './GitFilePresentation';
 
 interface GitOperationPanelProps {
   status: WorkingTreeStatus | null;
@@ -37,32 +38,6 @@ const DRAG_THRESHOLD_PX = 6;
 
 function isWorkingTreeDropZone(value: string | undefined): value is WorkingTreeDropZone {
   return value === 'staged' || value === 'unstaged' || value === 'stash';
-}
-
-function splitGitFilePath(filePath: string): { directory: string | null; fileName: string } {
-  const lastSlashIndex = filePath.lastIndexOf('/');
-  if (lastSlashIndex < 0) {
-    return {
-      directory: null,
-      fileName: filePath
-    };
-  }
-
-  return {
-    directory: filePath.slice(0, lastSlashIndex + 1),
-    fileName: filePath.slice(lastSlashIndex + 1)
-  };
-}
-
-function GitFilePathLabel({ path }: { path: string }): JSX.Element {
-  const { directory, fileName } = splitGitFilePath(path);
-
-  return (
-    <span className="git-file-path-label" title={path}>
-      {directory ? <span className="git-file-path-label__directory">{directory}</span> : null}
-      <span className="git-file-path-label__name">{fileName}</span>
-    </span>
-  );
 }
 
 export function GitOperationPanel({
@@ -283,35 +258,65 @@ export function GitOperationPanel({
     const dragTitle = source === 'unstaged' ? 'Drag to stage or stash' : 'Drag to unstage or stash';
     const area: WorkingTreeDiffArea = source === 'unstaged' ? 'unstaged' : 'staged';
     const isActive = activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
+    const statusPresentation = getWorkingFileStatusPresentation(item);
+    const areaLabel = source === 'unstaged' ? 'Unstaged' : 'Staged';
+    const areaBadgeClass = source === 'staged' ? '!bg-[#ecfdf3] !text-[#157347]' : '!bg-[#fff4d6] !text-[#a15c00]';
 
     return (
       <div
         key={`${source}-${item.file}`}
-        className={`git-file-card ${isDragSource ? 'is-drag-source' : ''} ${isActive ? 'is-active' : ''}`}
+        role="button"
+        tabIndex={0}
+        className={`git-operation-panel__file-row commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${
+          isDragSource ? 'is-drag-source' : ''
+        } ${isActive ? 'is-active text-white' : ''}`}
         onPointerDown={(event) => handleFilePointerDown(event, { file: item.file, source })}
         onClick={() => onOpenWorkingTreeDiff(item.file, area)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) {
+            return;
+          }
+
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpenWorkingTreeDiff(item.file, area);
+          }
+        }}
         title={dragTitle}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="git-file-card__handle" aria-hidden="true">
-            <GripVertical size={12} />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={`git-file-card__status-icon git-file-card__status-icon--${statusPresentation.tone}`}
+            aria-hidden="true"
+            title={statusPresentation.label}
+          >
+            {statusPresentation.icon}
+          </span>
+          <div className={`commit-detail-panel__file-meta flex flex-none flex-wrap items-center gap-2 text-[11px] ${isActive ? 'text-white/80' : ''}`}>
+            <span className={`badge ${areaBadgeClass}`}>{areaLabel}</span>
           </div>
-          <div className="min-w-0">
-            <div className="text-ink">
-              <GitFilePathLabel path={item.file} />
-            </div>
-            <div className="text-[11px] text-ink-subtle">{item.statusLabel}</div>
+          <div className={`commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? 'text-white' : ''}`}>
+            <GitFilePathLabel path={item.file} />
           </div>
         </div>
-        <button
-          type="button"
-          data-working-tree-no-drag="true"
-          className="button button-secondary !px-2 !py-1 text-[11px]"
-          disabled={busy}
-          onClick={() => onAction(item.file)}
-        >
-          {actionLabel}
-        </button>
+        <div className="flex flex-none items-center gap-2">
+          <div className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${isActive ? 'text-white' : ''}`}>
+            <Expand size={12} />
+            Open Diff
+          </div>
+          <button
+            type="button"
+            data-working-tree-no-drag="true"
+            className="button button-secondary !px-2 !py-1 text-[11px]"
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction(item.file);
+            }}
+          >
+            {actionLabel}
+          </button>
+        </div>
       </div>
     );
   };
@@ -369,14 +374,16 @@ export function GitOperationPanel({
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
                 <span>Unstaged Files ({unstaged.length})</span>
-                <button
-                  className="button button-secondary !px-2 !py-1 text-[11px]"
-                  type="button"
-                  disabled={unstaged.length === 0 || busy}
-                  onClick={onStageAll}
-                >
-                  Stage all
-                </button>
+                {unstaged.length > 0 ? (
+                  <button
+                    className="button button-secondary !px-2 !py-1 text-[11px]"
+                    type="button"
+                    disabled={busy}
+                    onClick={onStageAll}
+                  >
+                    Stage all
+                  </button>
+                ) : null}
               </div>
               <div
                 data-working-tree-drop-zone="unstaged"
@@ -395,14 +402,16 @@ export function GitOperationPanel({
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
                 <span>Staged Files ({staged.length})</span>
-                <button
-                  className="button button-secondary !px-2 !py-1 text-[11px]"
-                  type="button"
-                  disabled={staged.length === 0 || busy}
-                  onClick={onUnstageAll}
-                >
-                  Unstage all
-                </button>
+                {staged.length > 0 ? (
+                  <button
+                    className="button button-secondary !px-2 !py-1 text-[11px]"
+                    type="button"
+                    disabled={busy}
+                    onClick={onUnstageAll}
+                  >
+                    Unstage all
+                  </button>
+                ) : null}
               </div>
               <div
                 data-working-tree-drop-zone="staged"

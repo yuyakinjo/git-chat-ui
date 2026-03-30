@@ -23,6 +23,7 @@ import { api } from './lib/api';
 import {
   APP_THEME_OPTIONS,
   getAppThemeLabel,
+  getNativeWindowAppearance,
   normalizeAppTheme,
   type AppThemeId
 } from './lib/appTheme';
@@ -126,6 +127,12 @@ export default function App(): JSX.Element {
     } catch {
       // Ignore storage failures and keep the in-memory theme.
     }
+  }, [appTheme]);
+
+  useEffect(() => {
+    void api.syncWindowAppearance(getNativeWindowAppearance(appTheme)).catch(() => {
+      // Ignore native window sync failures so the webview theme can still update.
+    });
   }, [appTheme]);
 
   useEffect(() => {
