@@ -201,6 +201,7 @@ export function ControllerView({
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [operationBusy, setOperationBusy] = useState(false);
+  const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
 
   const [commitTitle, setCommitTitle] = useState('');
   const [commitDescription, setCommitDescription] = useState('');
@@ -1215,6 +1216,7 @@ export function ControllerView({
       commitTitle={commitTitle}
       commitDescription={commitDescription}
       busy={operationBusy}
+      generatingCommitMessage={generatingCommitMessage}
       activeWorkingTreeDiff={focusedWorkingTreeDiff}
       onCommitTitleChange={setCommitTitle}
       onCommitDescriptionChange={setCommitDescription}
@@ -1269,6 +1271,7 @@ export function ControllerView({
       }}
       onGenerateCommitMessage={() => {
         void (async () => {
+          setGeneratingCommitMessage(true);
           setOperationBusy(true);
           try {
             const response = await api.generateCommitMessage(repoPath, changedFilesForAi);
@@ -1278,6 +1281,7 @@ export function ControllerView({
           } catch (error) {
             reportError(error, 'コミット文生成に失敗しました。');
           } finally {
+            setGeneratingCommitMessage(false);
             setOperationBusy(false);
           }
         })();

@@ -1,4 +1,4 @@
-import { GripVertical, Sparkles, UploadCloud } from 'lucide-react';
+import { GripVertical, LoaderCircle, Sparkles, UploadCloud } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -20,6 +20,7 @@ interface GitOperationPanelProps {
   commitTitle: string;
   commitDescription: string;
   busy: boolean;
+  generatingCommitMessage: boolean;
   activeWorkingTreeDiff: { file: string; area: WorkingTreeDiffArea } | null;
   onCommitTitleChange: (value: string) => void;
   onCommitDescriptionChange: (value: string) => void;
@@ -48,6 +49,7 @@ export function GitOperationPanel({
   commitTitle,
   commitDescription,
   busy,
+  generatingCommitMessage,
   onCommitTitleChange,
   onCommitDescriptionChange,
   onStageFile,
@@ -528,10 +530,15 @@ export function GitOperationPanel({
                     type="button"
                     className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-accent transition hover:bg-accent-soft"
                     onClick={onGenerateCommitMessage}
-                    disabled={busy}
-                    title="AIでタイトル生成"
+                    disabled={busy || generatingCommitMessage}
+                    title={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
+                    aria-label={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
                   >
-                    <Sparkles size={16} />
+                    {generatingCommitMessage ? (
+                      <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Sparkles size={16} aria-hidden="true" />
+                    )}
                   </button>
                 </div>
                 <div className={`git-operation-panel__commit-meta ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}>

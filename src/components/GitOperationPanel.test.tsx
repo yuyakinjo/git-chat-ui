@@ -60,6 +60,7 @@ describe('GitOperationPanel', () => {
         commitTitle="feat: align git buckets horizontally"
         commitDescription=""
         busy={false}
+        generatingCommitMessage={false}
         onCommitTitleChange={() => {}}
         onCommitDescriptionChange={() => {}}
         onStageFile={() => {}}
@@ -116,6 +117,7 @@ describe('GitOperationPanel', () => {
         commitTitle=""
         commitDescription=""
         busy={false}
+        generatingCommitMessage={false}
         onCommitTitleChange={() => {}}
         onCommitDescriptionChange={() => {}}
         onStageFile={() => {}}
@@ -158,6 +160,7 @@ describe('GitOperationPanel', () => {
         commitTitle={longCommitTitle}
         commitDescription=""
         busy={false}
+        generatingCommitMessage={false}
         onCommitTitleChange={() => {}}
         onCommitDescriptionChange={() => {}}
         onStageFile={() => {}}
@@ -179,5 +182,34 @@ describe('GitOperationPanel', () => {
     expect(html).toContain(`${longCommitTitleLength} / 72`);
     expect(html).toContain(`${overflowCount} chars over`);
     expect(html).toContain('git-operation-panel__commit-meta is-over-limit');
+  });
+
+  test('renders a loading icon and disables the AI button while commit message generation is running', () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={status}
+        stashes={stashes}
+        commitTitle="feat: refine ai commit button"
+        commitDescription=""
+        busy={true}
+        generatingCommitMessage={true}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />
+    );
+
+    expect(html).toContain('animate-spin');
+    expect(html).toContain('aria-label="AIでコミット文を生成中"');
+    expect(html).not.toContain('<svg aria-hidden="true"[^>]*data-lucide="sparkles"');
   });
 });
