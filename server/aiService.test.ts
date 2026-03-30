@@ -2,11 +2,14 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   DEFAULT_COMMIT_TITLE_PROMPT,
+  DEFAULT_OPENAI_MODEL,
   generateCommitTitle,
+  listOpenAiModels,
   normalizeGeneratedCommitMessage,
   resolveCommitTitlePrompt,
-  validateOpenAiToken,
-  validateClaudeCodeToken
+  resolveOpenAiModel,
+  validateClaudeCodeToken,
+  validateOpenAiToken
 } from './aiService.js';
 
 const originalFetch = globalThis.fetch;
@@ -33,6 +36,18 @@ describe('resolveCommitTitlePrompt', () => {
     expect(resolveCommitTitlePrompt('Summarize changes as a short Japanese commit title.')).toBe(
       'Summarize changes as a short Japanese commit title.'
     );
+  });
+});
+
+describe('resolveOpenAiModel', () => {
+  test('falls back to the default OpenAI model when blank', () => {
+    expect(resolveOpenAiModel('')).toBe(DEFAULT_OPENAI_MODEL);
+    expect(resolveOpenAiModel('   ')).toBe(DEFAULT_OPENAI_MODEL);
+    expect(resolveOpenAiModel(undefined)).toBe(DEFAULT_OPENAI_MODEL);
+  });
+
+  test('preserves a custom OpenAI model', () => {
+    expect(resolveOpenAiModel('gpt-4.1')).toBe('gpt-4.1');
   });
 });
 
@@ -71,6 +86,7 @@ describe('generateCommitTitle', () => {
     await expect(
       generateCommitTitle({
         openAiToken: '',
+        openAiModel: '',
         claudeCodeToken: '',
 
         commitTitlePrompt: '',
@@ -84,6 +100,7 @@ describe('generateCommitTitle', () => {
     await expect(
       generateCommitTitle({
         openAiToken: 'sk-live-token',
+        openAiModel: '',
         claudeCodeToken: '',
 
         commitTitlePrompt: '',
@@ -108,6 +125,7 @@ describe('generateCommitTitle', () => {
     await expect(
       generateCommitTitle({
         openAiToken: 'sk-live-token',
+        openAiModel: 'gpt-4.1',
         claudeCodeToken: '',
 
         commitTitlePrompt: 'Write a short Japanese commit message.',
@@ -125,6 +143,9 @@ describe('generateCommitTitle', () => {
       Authorization: 'Bearer sk-live-token',
       'Content-Type': 'application/json'
     });
+    expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({
+      model: 'gpt-4.1'
+    });
   });
 
   test('surfaces provider failures instead of silently falling back to a generic title', async () => {
@@ -137,6 +158,7 @@ describe('generateCommitTitle', () => {
     await expect(
       generateCommitTitle({
         openAiToken: 'sk-live-token',
+        openAiModel: '',
         claudeCodeToken: '',
 
         commitTitlePrompt: '',
@@ -169,6 +191,7 @@ describe('generateCommitTitle', () => {
     await expect(
       generateCommitTitle({
         openAiToken: 'sk-openai-token',
+        openAiModel: '',
         claudeCodeToken: 'cc-live-token',
         commitTitlePrompt: '',
         changedFiles: ['src/App.tsx'],
@@ -181,6 +204,23 @@ describe('generateCommitTitle', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+  });
+});
+
+describe('listOpenAiModels', () => {
+  test('returns sorted model ids with the default model first', async () => {
+    globalThis.fetch = ((async () =>
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'gpt-4.1' }, { id: 'gpt-4.1-mini' }, { id: 'o4-mini' }, { id: 'gpt-4.1' }]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )) as unknown) as typeof fetch;
+
+    await expect(listOpenAiModels('sk-openai-valid')).resolves.toEqual(['gpt-4.1-mini', 'gpt-4.1', 'o4-mini']);
   });
 });
 
