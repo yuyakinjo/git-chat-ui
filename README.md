@@ -59,6 +59,39 @@ Tauri 実行時は Rust の Tauri Command (`src-tauri/src/backend.rs`) を利用
 bun run test
 ```
 
+## Codex thread task folders
+
+Codex の thread ごとに `tasks/threads/<threadId>/todo.md` を持たせたい場合は、App Server の `thread/list` を使って現在の workspace に紐づく thread を見つけ、local task folder と同期できます。
+
+前提:
+
+- `codex` CLI が入っていること
+- Codex thread の `cwd` がこの repo root になっていること
+
+主要コマンド:
+
+```bash
+bun run codex:tasks:list
+bun run codex:tasks:attach-latest
+bun run codex:tasks:attach -- --thread-id thr_123
+bun run codex:tasks:sync
+bun run codex:tasks:watch -- --interval 15
+```
+
+運用:
+
+- 新しい Codex thread を作ったら `bun run codex:tasks:attach-latest` で `tasks/threads/<threadId>/todo.md` を作成する
+- `attach` / `attach-latest` は repo 専用の background watcher も起動し、以後は Codex app 側の archive / unarchive を local task folder へ自動反映する
+- どの thread を紐付けるか明示したい場合は `bun run codex:tasks:list` で id を確認してから `attach` する
+- thread をアーカイブした後は watcher が対応する folder を `tasks/archived/<threadId>/` へ移し、手動確認したい場合だけ `bun run codex:tasks:sync` を使う
+- thread が active / archived のどちらの一覧にも出なくなった場合も、次回 `sync` / `watch` で `tasks/archived/<threadId>/` へ退避する
+- background watcher を使わずに foreground で確認したい場合は `bun run codex:tasks:watch` を別ターミナルで常駐させる
+
+注意:
+
+- watcher は Codex app-server の thread lifecycle 通知を使って即時同期し、取りこぼしに備えて interval ごとの `thread/list` 再同期も併用する
+- `tasks/` は `.gitignore` 済みなので、thread task folder はローカル運用専用です
+
 ## 注意
 
 - リポジトリ検出の深さは Config で変更できます（デフォルトは `$HOME` 深さ4）。

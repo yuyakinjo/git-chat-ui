@@ -6,17 +6,17 @@ const config: Config = {
     extend: {
       colors: {
         canvas: {
-          DEFAULT: '#f3f4f8',
-          elevated: '#ffffff'
+          DEFAULT: 'rgb(var(--color-canvas) / <alpha-value>)',
+          elevated: 'rgb(var(--color-canvas-elevated) / <alpha-value>)'
         },
         ink: {
-          DEFAULT: '#1d1d1f',
-          soft: '#3c3c43',
-          subtle: '#6e6e73'
+          DEFAULT: 'rgb(var(--color-ink) / <alpha-value>)',
+          soft: 'rgb(var(--color-ink-soft) / <alpha-value>)',
+          subtle: 'rgb(var(--color-ink-subtle) / <alpha-value>)'
         },
         accent: {
-          DEFAULT: '#0071e3',
-          soft: '#e8f2ff'
+          DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
+          soft: 'rgb(var(--color-accent-soft) / <alpha-value>)'
         }
       },
       boxShadow: {

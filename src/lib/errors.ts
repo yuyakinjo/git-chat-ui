@@ -65,6 +65,20 @@ export function describeGitError(error: unknown, fallbackTitle: string): UiError
     };
   }
 
+  if (/a branch named .* already exists|local branch .* already exists/i.test(message)) {
+    return {
+      title: '同名の branch は既に存在します',
+      detail: `${message} 別の名前で作成してください。`
+    };
+  }
+
+  if (/not a valid branch name|newbranch must be different from basebranch/i.test(message)) {
+    return {
+      title: 'branch 名が不正です',
+      detail: `${message} 別の branch 名を指定してください。`
+    };
+  }
+
   if (/default branch .* cannot be deleted/i.test(message)) {
     return {
       title: 'デフォルト branch は削除できません',
@@ -83,6 +97,27 @@ export function describeGitError(error: unknown, fallbackTitle: string): UiError
     return {
       title: 'コミット対象がありません',
       detail: message
+    };
+  }
+
+  if (/no staged changes are available for commit message generation/i.test(message)) {
+    return {
+      title: 'ステージ済みの変更がありません',
+      detail: 'コミット文生成は stage 済みの変更だけを対象にします。先に stage してから再実行してください。'
+    };
+  }
+
+  if (/no ai provider is configured for commit message generation/i.test(message)) {
+    return {
+      title: 'AI token が未設定です',
+      detail: 'Config で OpenAI か Claude Code token を設定してから再実行してください。'
+    };
+  }
+
+  if (/commit message generation failed for /i.test(message)) {
+    return {
+      title: 'AI でコミット文を生成できませんでした',
+      detail: `${message} token とネットワーク状態を確認して再実行してください。`
     };
   }
 

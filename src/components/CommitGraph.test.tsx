@@ -52,5 +52,11 @@ describe('CommitGraph', () => {
     expect(html).toContain('class="wip-node-ring"');
     expect(html).toContain('stroke-dasharray="2 3"');
     expect(html).toContain('class="wip-node-core"');
+    expect(html).toContain('commit-graph__header');
+    expect(html).toContain('commit-graph__cell--primary');
+    expect(html).toContain('commit-graph__ref-badge--head');
+    expect(html).toContain('data-controller-panel-drag-ignore="true"');
+    expect(html).not.toContain('Detailed lane mode (branch / merge)');
   });
 });
+

@@ -42,8 +42,6 @@ describe('CommitDetailPanel', () => {
     );
 
     expect(html).toContain('Changed Files');
-    expect(html).toContain('クリックすると diff dialog を開きます');
     expect(html).toContain('Open Diff');
-    expect(html).not.toContain('Split View');
   });
 });

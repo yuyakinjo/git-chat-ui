@@ -1,4 +1,5 @@
 export type CommitGraphMode = 'simple' | 'detailed';
+export type AiProvider = 'openAi' | 'claudeCode';
 
 export interface Repository {
   name: string;
@@ -11,6 +12,7 @@ export interface Branch {
   fullRef: string;
   type: 'local' | 'remote';
   commit: string;
+  isRemoteDefault?: boolean;
 }
 
 export interface BranchResponse {
@@ -61,6 +63,20 @@ export interface BranchDiffDetail {
   isDiffTruncated: boolean;
 }
 
+export type WorkingTreeDiffArea = 'staged' | 'unstaged';
+
+export interface WorkingTreeDiffDetail {
+  file: string;
+  area: WorkingTreeDiffArea;
+  files: Array<{
+    file: string;
+    additions: number;
+    deletions: number;
+  }>;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
 export interface PullRequestPreparation {
   pushRequired: boolean;
 }
@@ -88,13 +104,35 @@ export interface StashEntry {
   files: string[];
 }
 
+export interface WindowState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
 export interface AppConfig {
   openAiToken: string;
   claudeCodeToken: string;
+  selectedAiProvider: AiProvider;
+  commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   repositoryScanDepth: number;
   recentlyUsed: Array<{
     path: string;
     usedAt: string;
   }>;
+  windowState?: WindowState | null;
+}
+
+export type AiGenerationConfig = Pick<AppConfig, 'openAiToken' | 'claudeCodeToken' | 'selectedAiProvider' | 'commitTitlePrompt'>;
+
+export interface GeneratedCommitMessage {
+  title: string;
+  description: string;
+}
+
+export interface TokenValidationResult {
+  valid: boolean;
 }

@@ -12,6 +12,12 @@ const status: WorkingTreeStatus = {
       x: 'M',
       y: ' ',
       statusLabel: 'Modified'
+    },
+    {
+      file: 'src/lib/workingTreeDragDrop.ts',
+      x: '?',
+      y: '?',
+      statusLabel: 'Untracked'
     }
   ],
   staged: [
@@ -20,6 +26,12 @@ const status: WorkingTreeStatus = {
       x: 'M',
       y: ' ',
       statusLabel: 'Modified'
+    },
+    {
+      file: 'src/lib/workingTreeDragDrop.test.ts',
+      x: 'A',
+      y: ' ',
+      statusLabel: 'Added'
     }
   ]
 };
@@ -32,6 +44,11 @@ const stashes: StashEntry[] = [
     files: ['src/styles/globals.css']
   }
 ];
+
+const emptyStatus: WorkingTreeStatus = {
+  unstaged: [],
+  staged: []
+};
 
 describe('GitOperationPanel', () => {
   test('renders change buckets and commit controls in a shared responsive grid', () => {
@@ -49,18 +66,63 @@ describe('GitOperationPanel', () => {
         onStageAll={() => {}}
         onUnstageAll={() => {}}
         onStashFile={() => {}}
-        onGenerateTitle={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
         onPush={() => {}}
       />
     );
 
-    expect(html).toContain('Unstaged Files (1)');
-    expect(html).toContain('Staged Files (1)');
+    expect(html).toContain('Unstaged Files (2)');
+    expect(html).toContain('Staged Files (2)');
     expect(html).toContain('Stash Area');
     expect(html).toContain('Commit');
     expect(html).toContain('min-[760px]:grid-cols-2');
     expect(html).toContain('min-[1280px]:grid-cols-4');
     expect(html).toContain('rounded-2xl border border-black/10 bg-white/65 p-3');
+    expect(html).toContain('data-controller-panel-drag-ignore="true"');
+    expect(html).not.toContain('ファイルをドラッグして移動');
+    expect(html).toContain('data-working-tree-drop-zone="unstaged"');
+    expect(html).toContain('data-working-tree-drop-zone="staged"');
+    expect(html).toContain('data-working-tree-drop-zone="stash"');
+    expect(html).toContain('git-file-path-label__directory">src/components/');
+    expect(html).toContain('git-file-path-label__name">GitOperationPanel.tsx');
+    expect(html).toContain('git-file-path-label__name">ControllerView.tsx');
+    expect(html).toContain('git-file-path-label__name">workingTreeDragDrop.ts');
+    expect(html).toContain('Modified');
+    expect(html).toContain('Added');
+    expect(html).toContain('git-file-path-label');
+    expect(html).toContain('git-file-card__handle');
+  });
+
+  test('hides bulk stage buttons when there are no target files', () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={emptyStatus}
+        stashes={[]}
+        commitTitle=""
+        commitDescription=""
+        busy={false}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />
+    );
+
+    expect(html).toContain('Unstaged Files (0)');
+    expect(html).toContain('Staged Files (0)');
+    expect(html).toContain('未ステージの変更はありません。');
+    expect(html).toContain('ステージされたファイルはありません。');
   });
 });
+

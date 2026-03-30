@@ -13,6 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_REPOSITORIES: usize = 300;
 const MIN_SCAN_DEPTH: usize = 1;
 const MAX_SCAN_DEPTH: usize = 8;
+const MAIN_WINDOW_LABEL: &str = "main";
+const MIN_WINDOW_WIDTH: u32 = 1200;
+const MIN_WINDOW_HEIGHT: u32 = 760;
 #[cfg(target_os = "macos")]
 const KEYCHAIN_ACCOUNT: &str = "git-chat-ui";
 #[cfg(target_os = "macos")]
@@ -48,6 +51,18 @@ pub struct AppConfig {
     pub commit_graph_mode: CommitGraphMode,
     pub repository_scan_depth: usize,
     pub recently_used: Vec<RecentRepository>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_state: Option<WindowState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub is_maximized: bool,
 }
 
 impl Default for AppConfig {
@@ -58,6 +73,7 @@ impl Default for AppConfig {
             commit_graph_mode: CommitGraphMode::Detailed,
             repository_scan_depth: 4,
             recently_used: Vec::new(),
+            window_state: None,
         }
     }
 }
@@ -329,6 +345,41 @@ fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
         .collect()
 }
 
+fn normalize_window_state(value: Option<&Value>) -> Option<WindowState> {
+    let Some(Value::Object(map)) = value else {
+        return None;
+    };
+
+    let x = map
+        .get("x")
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())?;
+    let y = map
+        .get("y")
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())?;
+    let width = map
+        .get("width")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())?;
+    let height = map
+        .get("height")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())?;
+    let is_maximized = map
+        .get("isMaximized")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    Some(WindowState {
+        x,
+        y,
+        width: width.max(MIN_WINDOW_WIDTH),
+        height: height.max(MIN_WINDOW_HEIGHT),
+        is_maximized,
+    })
+}
+
 fn normalize_config_value(value: Value) -> AppConfig {
     let default = AppConfig::default();
 
@@ -362,6 +413,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
     };
 
     let recently_used = normalize_recently_used(value.get("recentlyUsed"));
+    let window_state = normalize_window_state(value.get("windowState"));
 
     AppConfig {
         open_ai_token,
@@ -369,6 +421,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         commit_graph_mode,
         repository_scan_depth,
         recently_used,
+        window_state,
     }
 }
 
@@ -410,6 +463,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         commit_graph_mode: config.commit_graph_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         recently_used: config.recently_used.clone(),
+        window_state: config.window_state.clone(),
     };
 
     let mut persisted = normalized.clone();
@@ -457,6 +511,121 @@ fn set_recently_used_repository(repo_path: &str) -> Result<(), String> {
     config.recently_used.truncate(30);
 
     write_config(&config)
+}
+
+fn capture_window_state(window: &tauri::WebviewWindow) -> Result<WindowState, String> {
+    let position = window
+        .outer_position()
+        .map_err(|error| format!("Failed to read window position: {error}"))?;
+    let size = window
+        .inner_size()
+        .map_err(|error| format!("Failed to read window size: {error}"))?;
+    let is_maximized = window
+        .is_maximized()
+        .map_err(|error| format!("Failed to read window maximize state: {error}"))?;
+
+    Ok(WindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width.max(MIN_WINDOW_WIDTH),
+        height: size.height.max(MIN_WINDOW_HEIGHT),
+        is_maximized,
+    })
+}
+
+fn clamp_window_state_to_area(
+    window_state: &WindowState,
+    area: &tauri::PhysicalRect<i32, u32>,
+) -> WindowState {
+    let width = window_state
+        .width
+        .max(MIN_WINDOW_WIDTH)
+        .min(area.size.width.max(MIN_WINDOW_WIDTH));
+    let height = window_state
+        .height
+        .max(MIN_WINDOW_HEIGHT)
+        .min(area.size.height.max(MIN_WINDOW_HEIGHT));
+    let max_x = area.position.x.saturating_add(
+        i32::try_from(area.size.width.saturating_sub(width)).unwrap_or(i32::MAX),
+    );
+    let max_y = area.position.y.saturating_add(
+        i32::try_from(area.size.height.saturating_sub(height)).unwrap_or(i32::MAX),
+    );
+
+    WindowState {
+        x: window_state.x.clamp(area.position.x, max_x.max(area.position.x)),
+        y: window_state.y.clamp(area.position.y, max_y.max(area.position.y)),
+        width,
+        height,
+        is_maximized: window_state.is_maximized,
+    }
+}
+
+fn restore_window_state(
+    window: &tauri::WebviewWindow,
+    window_state: &WindowState,
+) -> Result<(), String> {
+    let center_x = f64::from(window_state.x) + (f64::from(window_state.width) / 2.0);
+    let center_y = f64::from(window_state.y) + (f64::from(window_state.height) / 2.0);
+    let restored = window
+        .monitor_from_point(center_x, center_y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .map(|monitor| clamp_window_state_to_area(window_state, monitor.work_area()))
+        .unwrap_or_else(|| WindowState {
+            x: window_state.x,
+            y: window_state.y,
+            width: window_state.width.max(MIN_WINDOW_WIDTH),
+            height: window_state.height.max(MIN_WINDOW_HEIGHT),
+            is_maximized: window_state.is_maximized,
+        });
+
+    window
+        .set_size(tauri::PhysicalSize::new(restored.width, restored.height))
+        .map_err(|error| format!("Failed to restore window size: {error}"))?;
+    window
+        .set_position(tauri::PhysicalPosition::new(restored.x, restored.y))
+        .map_err(|error| format!("Failed to restore window position: {error}"))?;
+
+    if restored.is_maximized {
+        window
+            .maximize()
+            .map_err(|error| format!("Failed to restore maximized state: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn persist_window_state(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let mut config = read_config()?;
+    config.window_state = Some(capture_window_state(window)?);
+    write_config(&config)
+}
+
+pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Ok(());
+    }
+
+    if let Some(window_state) = read_config()?.window_state {
+        restore_window_state(window, &window_state)?;
+    }
+
+    let persisted_window = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+        ) {
+            if let Err(error) = persist_window_state(&persisted_window) {
+                eprintln!("failed to persist main window state: {error}");
+            }
+        }
+    });
+
+    Ok(())
 }
 
 fn map_git2_error(error: git2::Error) -> String {
@@ -2024,6 +2193,7 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
                 .unwrap_or(current.repository_scan_depth),
         ),
         recently_used: current.recently_used,
+        window_state: current.window_state,
     };
 
     write_config(&next_config)?;
@@ -2046,4 +2216,62 @@ pub fn generate_title(
     let title = generate_commit_title_internal(&config, &changed_files, &diff_snippet);
 
     Ok(TitleResponse { title })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn normalize_window_state_clamps_small_dimensions() {
+        let value = json!({
+            "x": 32,
+            "y": 48,
+            "width": 640,
+            "height": 320,
+            "isMaximized": true
+        });
+
+        let window_state = normalize_window_state(Some(&value)).expect("window state should parse");
+
+        assert_eq!(
+            window_state,
+            WindowState {
+                x: 32,
+                y: 48,
+                width: MIN_WINDOW_WIDTH,
+                height: MIN_WINDOW_HEIGHT,
+                is_maximized: true,
+            }
+        );
+    }
+
+    #[test]
+    fn clamp_window_state_to_area_keeps_top_left_visible() {
+        let area = tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new(100, 200),
+            size: tauri::PhysicalSize::new(1440, 900),
+        };
+        let window_state = WindowState {
+            x: -400,
+            y: 1400,
+            width: 1480,
+            height: 920,
+            is_maximized: false,
+        };
+
+        let clamped = clamp_window_state_to_area(&window_state, &area);
+
+        assert_eq!(
+            clamped,
+            WindowState {
+                x: 100,
+                y: 200,
+                width: 1440,
+                height: 900,
+                is_maximized: false,
+            }
+        );
+    }
 }

@@ -13,15 +13,13 @@ const localBranch: Branch = {
 
 describe('branchDelete', () => {
   test('allows deleting a non-current local branch', () => {
-    expect(canDeleteBranch(localBranch, 'main', 'main')).toBe(true);
-    expect(getBranchDeleteDisabledReason(localBranch, 'main', 'main')).toBeNull();
+    expect(canDeleteBranch(localBranch, 'main')).toBe(true);
+    expect(getBranchDeleteDisabledReason(localBranch, 'main')).toBeNull();
   });
 
   test('blocks deleting the checked out branch', () => {
-    expect(canDeleteBranch(localBranch, 'feature/delete-me', 'main')).toBe(false);
-    expect(getBranchDeleteDisabledReason(localBranch, 'feature/delete-me', 'main')).toBe(
-      '現在 checkout 中の branch は削除できません。'
-    );
+    expect(canDeleteBranch(localBranch, 'feature/delete-me')).toBe(false);
+    expect(getBranchDeleteDisabledReason(localBranch, 'feature/delete-me')).toBe('現在 checkout 中の branch は削除できません。');
   });
 
   test('allows deleting non-default remote branches', () => {
@@ -41,7 +39,8 @@ describe('branchDelete', () => {
       ...localBranch,
       name: 'origin/main',
       fullRef: 'refs/remotes/origin/main',
-      type: 'remote'
+      type: 'remote',
+      isRemoteDefault: true
     };
 
     expect(canDeleteBranch(remoteDefaultBranch, 'feature/delete-me', 'main')).toBe(false);

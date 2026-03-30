@@ -19,6 +19,8 @@ interface SplitDiffViewerProps {
   fileFilterPlaceholder?: string;
 }
 
+type DiffDisplayMode = 'split' | 'after-only';
+
 const fileKindLabel: Record<ParsedDiffFile['kind'], string> = {
   modified: 'Modified',
   added: 'Added',
@@ -126,14 +128,19 @@ function renderCell(
   );
 }
 
-function renderRow(row: ParsedDiffRow, index: number): JSX.Element {
+function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMode): JSX.Element {
   const segments =
     row.kind === 'change' && row.left && row.right ? buildIntralineSegments(row.left.content, row.right.content) : null;
 
   return (
-    <div key={`${row.kind}-${index}`} className={`diff-row diff-row--${row.kind} ${row.kind === 'context' ? 'is-context' : ''}`}>
-      {renderCell(row.left, 'left', segments?.left ?? null)}
-      {renderCell(row.right, 'right', segments?.right ?? null)}
+    <div
+      key={`${row.kind}-${index}`}
+      className={`diff-row diff-row--${row.kind} ${row.kind === 'context' ? 'is-context' : ''} ${
+        displayMode === 'after-only' ? 'diff-row--after-only' : ''
+      }`}
+    >
+      {displayMode === 'after-only' ? renderCell(row.right, 'right', segments?.right ?? null) : renderCell(row.left, 'left', segments?.left ?? null)}
+      {displayMode === 'split' ? renderCell(row.right, 'right', segments?.right ?? null) : null}
     </div>
   );
 }
@@ -210,6 +217,7 @@ export function SplitDiffViewer({
 
   const activeFile = visibleFiles.find((file) => file.key === activeFileKey) ?? visibleFiles[0] ?? null;
   const fileCountLabel = isFiltering ? `${visibleFiles.length}/${files.length}` : String(files.length);
+  const activeFileDisplayMode: DiffDisplayMode = activeFile?.kind === 'added' ? 'after-only' : 'split';
 
   return (
     <div className="diff-workbench">
@@ -271,7 +279,9 @@ export function SplitDiffViewer({
                 <span className="diff-file__path">{activeFile.displayPath}</span>
               </div>
               <div className="diff-workbench__header-side">
-                <span className="diff-workbench__split-badge">Split View</span>
+                <span className="diff-workbench__split-badge">
+                  {activeFileDisplayMode === 'after-only' ? 'After Only' : 'Split View'}
+                </span>
                 <span className="diff-workbench__header-add">+{activeFile.additions}</span>
                 <span className="diff-workbench__header-del">-{activeFile.deletions}</span>
                 {isDiffTruncated ? <span className="diff-workbench__header-chip">Truncated</span> : null}
@@ -279,8 +289,11 @@ export function SplitDiffViewer({
               {renderFileMeta(activeFile)}
             </header>
 
-            <div className="diff-file__columns" aria-hidden="true">
-              <span>Before</span>
+            <div
+              className={`diff-file__columns ${activeFileDisplayMode === 'after-only' ? 'diff-file__columns--after-only' : ''}`}
+              aria-hidden="true"
+            >
+              {activeFileDisplayMode === 'split' ? <span>Before</span> : null}
               <span>After</span>
             </div>
 
@@ -291,7 +304,7 @@ export function SplitDiffViewer({
                 activeFile.hunks.map((hunk) => (
                   <section key={`${activeFile.key}:${hunk.header}`} className="diff-hunk">
                     <div className="diff-hunk__header">{hunk.header}</div>
-                    <div className="diff-hunk__body">{hunk.rows.map(renderRow)}</div>
+                    <div className="diff-hunk__body">{hunk.rows.map((row, index) => renderRow(row, index, activeFileDisplayMode))}</div>
                   </section>
                 ))
               )}

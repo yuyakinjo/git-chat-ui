@@ -11,6 +11,7 @@ export interface Branch {
   fullRef: string;
   type: 'local' | 'remote';
   commit: string;
+  isRemoteDefault?: boolean;
 }
 
 export interface CommitListItem {
@@ -70,15 +71,42 @@ export interface WorkingTreeStatus {
   unstaged: WorkingFile[];
 }
 
+export interface WindowState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
+export type AiProvider = 'openAi' | 'claudeCode';
+
 export interface AppConfig {
   openAiToken: string;
   claudeCodeToken: string;
+  selectedAiProvider: AiProvider;
+  commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   repositoryScanDepth: number;
   recentlyUsed: Array<{
     path: string;
     usedAt: string;
   }>;
+  windowState?: WindowState | null;
+}
+
+export type WorkingTreeDiffArea = 'staged' | 'unstaged';
+
+export interface WorkingTreeDiffDetail {
+  file: string;
+  area: WorkingTreeDiffArea;
+  files: Array<{
+    file: string;
+    additions: number;
+    deletions: number;
+  }>;
+  diff: string;
+  isDiffTruncated: boolean;
 }
 
 export interface StashEntry {

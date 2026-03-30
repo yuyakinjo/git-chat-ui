@@ -14,6 +14,8 @@ import type {
   Repository,
   StashEntry,
   WorkingFile,
+  WorkingTreeDiffArea,
+  WorkingTreeDiffDetail,
   WorkingTreeStatus
 } from './types.js';
 
@@ -48,6 +50,131 @@ function statusLabel(code: string): string {
     default:
       return 'Changed';
   }
+}
+
+function parseCommitFileStats(output: string): Array<{ file: string; additions: number; deletions: number }> {
+  return output
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [additionsRaw, deletionsRaw, file] = line.split('\t');
+
+      return {
+        file,
+        additions: Number.isNaN(Number(additionsRaw)) ? 0 : Number(additionsRaw),
+        deletions: Number.isNaN(Number(deletionsRaw)) ? 0 : Number(deletionsRaw)
+      };
+    })
+    .filter((entry) => Boolean(entry.file));
+}
+
+function workingTreeDiffArgs(area: WorkingTreeDiffArea, subcommand: '--numstat' | ''): string[] {
+  if (area === 'staged') {
+    return subcommand ? ['diff', '--cached', subcommand] : ['diff', '--cached'];
+  }
+
+  return subcommand ? ['diff', subcommand] : ['diff'];
+}
+
+function resolveWorkingTreeFilePath(repoPath: string, file: string): string {
+  const resolved = path.resolve(repoPath, file);
+  const relative = path.relative(repoPath, resolved);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('file must stay within repository.');
+  }
+
+  return resolved;
+}
+
+function resolveNewFileMode(mode: number): string {
+  return mode & 0o111 ? '100755' : '100644';
+}
+
+function normalizeTextFileContent(content: string): string {
+  return content.replace(/\r\n?/g, '\n');
+}
+
+function splitTextLines(content: string): { lines: string[]; hasTrailingNewline: boolean } {
+  if (!content) {
+    return { lines: [], hasTrailingNewline: false };
+  }
+
+  const normalized = normalizeTextFileContent(content);
+  const hasTrailingNewline = normalized.endsWith('\n');
+  const lines = normalized.split('\n');
+
+  if (hasTrailingNewline) {
+    lines.pop();
+  }
+
+  return {
+    lines,
+    hasTrailingNewline
+  };
+}
+
+function buildUntrackedTextDiff(file: string, content: string, mode: string): string {
+  const { lines, hasTrailingNewline } = splitTextLines(content);
+  const output = [`diff --git a/${file} b/${file}`, `new file mode ${mode}`, '--- /dev/null', `+++ b/${file}`];
+
+  if (lines.length > 0) {
+    output.push(`@@ -0,0 +1,${lines.length} @@`);
+    for (const line of lines) {
+      output.push(`+${line}`);
+    }
+
+    if (!hasTrailingNewline) {
+      output.push('\\ No newline at end of file');
+    }
+  }
+
+  return output.join('\n');
+}
+
+async function listUntrackedFiles(repoPath: string, files: string[]): Promise<Set<string>> {
+  const normalizedFiles = [...new Set(files.map((value) => value.trim()).filter((value) => value.length > 0))];
+  if (normalizedFiles.length === 0) {
+    return new Set();
+  }
+
+  const output = await runGit(['ls-files', '--others', '--exclude-standard', '--', ...normalizedFiles], repoPath);
+  return new Set(output.split('\n').map((line) => line.trim()).filter((line) => line.length > 0));
+}
+
+async function buildUntrackedFileDiffSnapshot(
+  repoPath: string,
+  file: string
+): Promise<{ fileStat: { file: string; additions: number; deletions: number }; diff: string }> {
+  const absolutePath = resolveWorkingTreeFilePath(repoPath, file);
+  const [metadata, buffer] = await Promise.all([fs.stat(absolutePath), fs.readFile(absolutePath)]);
+  const mode = resolveNewFileMode(metadata.mode);
+
+  if (buffer.includes(0)) {
+    return {
+      fileStat: { file, additions: 0, deletions: 0 },
+      diff: [
+        `diff --git a/${file} b/${file}`,
+        `new file mode ${mode}`,
+        '--- /dev/null',
+        `+++ b/${file}`,
+        `Binary files /dev/null and b/${file} differ`
+      ].join('\n')
+    };
+  }
+
+  const content = buffer.toString('utf8');
+  const normalizedContent = normalizeTextFileContent(content);
+  const { lines } = splitTextLines(normalizedContent);
+
+  return {
+    fileStat: {
+      file,
+      additions: lines.length,
+      deletions: 0
+    },
+    diff: buildUntrackedTextDiff(file, normalizedContent, mode)
+  };
 }
 
 async function runCommand(command: string, args: string[], cwd: string): Promise<string> {
@@ -185,6 +312,41 @@ export async function discoverRepositories(options: {
   return sortRepositoriesByRecency(discovered, options.recentMap);
 }
 
+export async function resolveRepositories(repoPaths: string[]): Promise<Repository[]> {
+  const resolved: Repository[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of repoPaths) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+
+    const inputPath = candidate.trim();
+    if (!inputPath) {
+      continue;
+    }
+
+    const repoPath = await fs.realpath(inputPath).catch(() => path.resolve(inputPath));
+    if (seen.has(repoPath)) {
+      continue;
+    }
+
+    try {
+      await ensureRepoPath(repoPath);
+    } catch {
+      continue;
+    }
+
+    seen.add(repoPath);
+    resolved.push({
+      name: path.basename(repoPath),
+      path: repoPath
+    });
+  }
+
+  return resolved;
+}
+
 export async function getCurrentBranch(repoPath: string): Promise<string> {
   await ensureRepoPath(repoPath);
   return runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
@@ -200,7 +362,7 @@ export async function getBranches(repoPath: string): Promise<{
   const refs = await runGit(
     [
       'for-each-ref',
-      '--format=%(refname)|%(refname:short)|%(objectname)',
+      '--format=%(refname)|%(refname:short)|%(objectname)|%(symref:short)',
       'refs/heads',
       'refs/remotes'
     ],
@@ -208,14 +370,21 @@ export async function getBranches(repoPath: string): Promise<{
   );
 
   const local: Branch[] = [];
-  const remote: Branch[] = [];
+  const remoteEntries: Array<{
+    name: string;
+    fullRef: string;
+    commit: string;
+    remoteName: string;
+    remoteBranchName: string;
+  }> = [];
+  const remoteDefaultBranchNames = new Map<string, string>();
 
   for (const line of refs.split('\n')) {
     if (!line.trim()) {
       continue;
     }
 
-    const [fullRef, name, commit] = line.split('|');
+    const [fullRef, name, commit, symref = ''] = line.split('|');
     if (!fullRef || !name || !commit) {
       continue;
     }
@@ -230,17 +399,50 @@ export async function getBranches(repoPath: string): Promise<{
       continue;
     }
 
-    if (name.endsWith('/HEAD')) {
+    if (fullRef.endsWith('/HEAD') || name.endsWith('/HEAD')) {
+      if (symref) {
+        try {
+          const { remoteName, remoteBranchName } = parseRemoteBranchName(symref);
+          remoteDefaultBranchNames.set(remoteName, remoteBranchName);
+        } catch {
+          // ignore malformed symbolic refs
+        }
+      }
       continue;
     }
 
-    remote.push({
-      name,
-      fullRef,
-      type: 'remote',
-      commit
-    });
+    try {
+      const { remoteName, remoteBranchName } = parseRemoteBranchName(name);
+      remoteEntries.push({
+        name,
+        fullRef,
+        commit,
+        remoteName,
+        remoteBranchName
+      });
+    } catch {
+      // ignore malformed remote refs
+    }
   }
+
+  for (const remoteName of new Set(remoteEntries.map((entry) => entry.remoteName))) {
+    if (remoteDefaultBranchNames.has(remoteName)) {
+      continue;
+    }
+
+    const defaultBranchName = await getRemoteDefaultBranchName(repoPath, remoteName);
+    if (defaultBranchName) {
+      remoteDefaultBranchNames.set(remoteName, defaultBranchName);
+    }
+  }
+
+  const remote: Branch[] = remoteEntries.map(({ name, fullRef, commit, remoteName, remoteBranchName }) => ({
+    name,
+    fullRef,
+    type: 'remote',
+    commit,
+    isRemoteDefault: remoteDefaultBranchNames.get(remoteName) === remoteBranchName || undefined
+  }));
 
   const current = await getCurrentBranch(repoPath);
 
@@ -337,18 +539,7 @@ export async function getCommitDetail(repoPath: string, sha: string): Promise<Co
   const [fullSha, parents, author, email, date, body] = meta.split('\x1f');
 
   const fileStatsOutput = await runGit(['show', '--pretty=format:', '--numstat', sha], repoPath);
-  const files = fileStatsOutput
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [additionsRaw, deletionsRaw, file] = line.split('\t');
-
-      return {
-        file,
-        additions: Number.isNaN(Number(additionsRaw)) ? 0 : Number(additionsRaw),
-        deletions: Number.isNaN(Number(deletionsRaw)) ? 0 : Number(deletionsRaw)
-      };
-    });
+  const files = parseCommitFileStats(fileStatsOutput);
 
   const diff = await runGit(['show', '--pretty=format:', sha], repoPath);
 
@@ -385,18 +576,7 @@ export async function getBranchDiffDetail(options: {
   const mergeBaseSha = await runGit(['merge-base', baseRef, targetRef], options.repoPath);
   const range = `${mergeBaseSha}..${targetRef}`;
   const fileStatsOutput = await runGit(['diff', '--numstat', range], options.repoPath);
-  const files = fileStatsOutput
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [additionsRaw, deletionsRaw, file] = line.split('\t');
-
-      return {
-        file,
-        additions: Number.isNaN(Number(additionsRaw)) ? 0 : Number(additionsRaw),
-        deletions: Number.isNaN(Number(deletionsRaw)) ? 0 : Number(deletionsRaw)
-      };
-    });
+  const files = parseCommitFileStats(fileStatsOutput);
 
   const diff = await runGit(['diff', range], options.repoPath);
   const isDiffTruncated = diff.length > 25000;
@@ -405,6 +585,49 @@ export async function getBranchDiffDetail(options: {
     baseRef,
     targetRef,
     mergeBaseSha,
+    files,
+    diff: diff.slice(0, 25000),
+    isDiffTruncated
+  };
+}
+
+export async function getWorkingTreeDiffDetail(options: {
+  repoPath: string;
+  file: string;
+  area: WorkingTreeDiffArea;
+}): Promise<WorkingTreeDiffDetail> {
+  await ensureRepoPath(options.repoPath);
+
+  const file = options.file.trim();
+  if (!file) {
+    throw new Error('file is required.');
+  }
+
+  if (options.area !== 'staged' && options.area !== 'unstaged') {
+    throw new Error('area must be staged or unstaged.');
+  }
+
+  const numstatArgs = [...workingTreeDiffArgs(options.area, '--numstat'), '--', file];
+  const fileStatsOutput = await runGit(numstatArgs, options.repoPath);
+  let files = parseCommitFileStats(fileStatsOutput);
+
+  const diffArgs = [...workingTreeDiffArgs(options.area, ''), '--', file];
+  let diff = await runGit(diffArgs, options.repoPath);
+
+  if (options.area === 'unstaged' && !diff.trim()) {
+    const untrackedFiles = await listUntrackedFiles(options.repoPath, [file]);
+    if (untrackedFiles.has(file)) {
+      const fallback = await buildUntrackedFileDiffSnapshot(options.repoPath, file);
+      files = [fallback.fileStat];
+      diff = fallback.diff;
+    }
+  }
+
+  const isDiffTruncated = diff.length > 25000;
+
+  return {
+    file,
+    area: options.area,
     files,
     diff: diff.slice(0, 25000),
     isDiffTruncated
@@ -511,6 +734,41 @@ export async function getStashes(repoPath: string): Promise<StashEntry[]> {
 export async function checkoutRef(repoPath: string, ref: string): Promise<void> {
   await ensureRepoPath(repoPath);
   await runGit(['checkout', ref], repoPath);
+}
+
+async function localBranchExists(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    await runGit(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], repoPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function validateCreateBranchInput(
+  repoPath: string,
+  baseBranch: string,
+  newBranch: string
+): Promise<string> {
+  await ensureRepoPath(repoPath);
+  await ensureLocalBranch(repoPath, baseBranch);
+
+  const normalizedNewBranch = newBranch.trim();
+  if (!normalizedNewBranch) {
+    throw new Error('newBranch is required.');
+  }
+
+  if (normalizedNewBranch === baseBranch) {
+    throw new Error('newBranch must be different from baseBranch.');
+  }
+
+  await runGit(['check-ref-format', '--branch', normalizedNewBranch], repoPath);
+
+  if (await localBranchExists(repoPath, normalizedNewBranch)) {
+    throw new Error(`Local branch '${normalizedNewBranch}' already exists.`);
+  }
+
+  return normalizedNewBranch;
 }
 
 async function ensureLocalBranch(repoPath: string, branchName: string): Promise<void> {
@@ -646,15 +904,19 @@ function parseRemoteBranchName(branchName: string): { remoteName: string; remote
 }
 
 async function getLocalDefaultBranchName(repoPath: string): Promise<string | null> {
-  const branches = await getBranches(repoPath);
-  const localBranches = branches.local;
+  const refs = await runGit(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], repoPath);
+  const localBranches = refs
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const currentBranch = await getCurrentBranch(repoPath);
   const candidate =
-    localBranches.find((branch) => branch.name === 'main') ??
-    localBranches.find((branch) => branch.name === 'master') ??
-    localBranches.find((branch) => branch.name === branches.current) ??
+    localBranches.find((branch) => branch === 'main') ??
+    localBranches.find((branch) => branch === 'master') ??
+    localBranches.find((branch) => branch === currentBranch) ??
     localBranches[0];
 
-  return candidate?.name ?? null;
+  return candidate ?? null;
 }
 
 async function getRemoteDefaultBranchName(repoPath: string, remoteName: string): Promise<string | null> {
@@ -700,6 +962,11 @@ export async function mergeBranches(repoPath: string, sourceBranch: string, targ
   }
 
   await runGit(['merge', sourceBranch], repoPath);
+}
+
+export async function createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<void> {
+  const normalizedNewBranch = await validateCreateBranchInput(repoPath, baseBranch, newBranch);
+  await runGit(['branch', normalizedNewBranch, baseBranch], repoPath);
 }
 
 export async function deleteBranch(repoPath: string, branchName: string, branchType: 'local' | 'remote'): Promise<void> {
@@ -801,14 +1068,27 @@ export async function pushChanges(repoPath: string): Promise<void> {
 export async function getDiffSnippet(repoPath: string, files: string[]): Promise<string> {
   await ensureRepoPath(repoPath);
 
-  if (files.length === 0) {
+  const normalizedFiles = [...new Set(files.map((value) => value.trim()).filter((value) => value.length > 0))];
+  if (normalizedFiles.length === 0) {
     return '';
   }
 
-  const unstagedDiff = await runGit(['diff', '--', ...files], repoPath);
-  const stagedDiff = await runGit(['diff', '--cached', '--', ...files], repoPath);
+  const [unstagedDiff, stagedDiff, untrackedFiles] = await Promise.all([
+    runGit(['diff', '--', ...normalizedFiles], repoPath),
+    runGit(['diff', '--cached', '--', ...normalizedFiles], repoPath),
+    listUntrackedFiles(repoPath, normalizedFiles)
+  ]);
 
-  return `${unstagedDiff}\n${stagedDiff}`.slice(0, 4000);
+  const untrackedDiffs = await Promise.all(
+    normalizedFiles
+      .filter((file) => untrackedFiles.has(file))
+      .map(async (file) => (await buildUntrackedFileDiffSnapshot(repoPath, file)).diff)
+  );
+
+  return [unstagedDiff, stagedDiff, ...untrackedDiffs]
+    .filter((section) => section.trim().length > 0)
+    .join('\n')
+    .slice(0, 4000);
 }
 
 export async function getRepositoryFingerprint(repoPath: string): Promise<string> {

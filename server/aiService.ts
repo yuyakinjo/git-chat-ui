@@ -1,16 +1,62 @@
 interface GenerateTitleInput {
   openAiToken: string;
   claudeCodeToken: string;
+  commitTitlePrompt: string;
   changedFiles: string[];
   diffSnippet: string;
 }
 
-const TITLE_SYSTEM_PROMPT =
-  'You are a Git assistant. Return only a concise commit title in imperative mood, max 72 chars.';
+export interface GeneratedCommitMessage {
+  title: string;
+  description: string;
+}
+
+interface ProviderAttemptResult {
+  attempted: boolean;
+  provider: 'OpenAI' | 'Claude Code';
+  error: string | null;
+  message: string | null;
+}
+
+const ANTHROPIC_API_VERSION = '2023-06-01';
+const NO_STAGED_CHANGES_ERROR = 'No staged changes are available for commit message generation.';
+const NO_AI_PROVIDER_ERROR = 'No AI provider is configured for commit message generation.';
+
+function isAnthropicApiKey(token: string): boolean {
+  return token.startsWith('sk-ant');
+}
+
+function getClaudeAuthHeaderVariants(token: string): Array<Record<string, string>> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return [];
+  }
+
+  const apiKeyHeaders = { 'x-api-key': normalizedToken };
+  const bearerHeaders = { Authorization: `Bearer ${normalizedToken}` };
+
+  return isAnthropicApiKey(normalizedToken) ? [apiKeyHeaders, bearerHeaders] : [bearerHeaders, apiKeyHeaders];
+}
+
+export const DEFAULT_COMMIT_TITLE_PROMPT =
+  [
+    'You are a Git assistant. Write a Git commit message from the provided staged changes.',
+    'Requirements:',
+    '- The first line must be an Angular-style conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.',
+    '- Keep the title in imperative mood and at most 72 characters including the prefix.',
+    '- Put any extra context after a blank line. The first line becomes the title and the rest becomes the description.',
+    '- Do not add labels like Title: or Description:, and do not wrap the response in quotes or code fences.',
+    '- If no description is needed, return only the title line.'
+  ].join('\n');
+
+export function resolveCommitTitlePrompt(prompt: string | null | undefined): string {
+  const normalized = typeof prompt === 'string' ? prompt.trim() : '';
+  return normalized.length > 0 ? normalized : DEFAULT_COMMIT_TITLE_PROMPT;
+}
 
 function buildHeuristicTitle(changedFiles: string[]): string {
   if (changedFiles.length === 0) {
-    return 'Update repository state';
+    return 'chore: update repository state';
   }
 
   const uniqueRoots = new Set(
@@ -22,14 +68,14 @@ function buildHeuristicTitle(changedFiles: string[]): string {
 
   if (uniqueRoots.size === 1) {
     const [onlyRoot] = [...uniqueRoots];
-    return `Update ${onlyRoot}`;
+    return `chore: update ${onlyRoot}`;
   }
 
   if (changedFiles.length === 1) {
-    return `Update ${changedFiles[0]}`;
+    return `chore: update ${changedFiles[0]}`;
   }
 
-  return `Refine ${changedFiles.length} files`;
+  return `chore: refine ${changedFiles.length} files`;
 }
 
 function normalizeTitle(rawTitle: string, fallback: string): string {
@@ -45,13 +91,100 @@ function normalizeTitle(rawTitle: string, fallback: string): string {
   return trimmed.slice(0, 72);
 }
 
+function stripLabel(value: string, labels: string[]): string {
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+
+  for (const label of labels) {
+    const prefix = `${label}:`;
+    if (lower.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trimStart();
+    }
+  }
+
+  return trimmed;
+}
+
+function trimBlankLines(lines: string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+
+  while (start < end && lines[start].trim().length === 0) {
+    start += 1;
+  }
+
+  while (end > start && lines[end - 1].trim().length === 0) {
+    end -= 1;
+  }
+
+  return lines.slice(start, end);
+}
+
+export function normalizeGeneratedCommitMessage(
+  rawMessage: string | null | undefined,
+  fallbackTitle: string
+): GeneratedCommitMessage {
+  const normalized = typeof rawMessage === 'string' ? rawMessage.replace(/\r\n?/g, '\n').trim() : '';
+  const fallback = normalizeTitle(fallbackTitle, 'chore: update repository state');
+
+  if (!normalized) {
+    return {
+      title: fallback,
+      description: ''
+    };
+  }
+
+  const fencedLines = normalized.split('\n');
+  if (fencedLines[0]?.trimStart().startsWith('```')) {
+    fencedLines.shift();
+  }
+  if (fencedLines.at(-1)?.trimStart().startsWith('```')) {
+    fencedLines.pop();
+  }
+
+  const lines = trimBlankLines(fencedLines);
+  if (lines.length === 0) {
+    return {
+      title: fallback,
+      description: ''
+    };
+  }
+
+  const rawTitleLine = stripLabel(lines[0].replace(/^["'`]+|["'`]+$/g, ''), ['title', 'summary', 'subject']);
+  const title = normalizeTitle(rawTitleLine, fallback);
+  const titleChars = Array.from(rawTitleLine);
+  const overflow = titleChars.length > 72 ? titleChars.slice(72).join('').trim() : '';
+  const descriptionLines = [...lines.slice(1)];
+
+  if (overflow) {
+    descriptionLines.unshift(overflow);
+  }
+
+  const firstDescriptionLine = descriptionLines.findIndex((line) => line.trim().length > 0);
+  if (firstDescriptionLine >= 0) {
+    descriptionLines[firstDescriptionLine] = stripLabel(descriptionLines[firstDescriptionLine], ['description', 'body']);
+  }
+
+  return {
+    title,
+    description: trimBlankLines(descriptionLines).join('\n')
+  };
+}
+
 async function generateWithOpenAI(
   token: string,
+  prompt: string,
   changedFiles: string[],
   diffSnippet: string
-): Promise<string | null> {
-  if (!token) {
-    return null;
+): Promise<ProviderAttemptResult> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return {
+      attempted: false,
+      provider: 'OpenAI',
+      error: null,
+      message: null
+    };
   }
 
   const controller = new AbortController();
@@ -61,14 +194,14 @@ async function generateWithOpenAI(
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${normalizedToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
         temperature: 0.2,
         input: [
-          { role: 'system', content: TITLE_SYSTEM_PROMPT },
+          { role: 'system', content: prompt },
           {
             role: 'user',
             content: `Changed files:\n${changedFiles.join('\n')}\n\nDiff snippet:\n${diffSnippet}`
@@ -79,7 +212,12 @@ async function generateWithOpenAI(
     });
 
     if (!response.ok) {
-      return null;
+      return {
+        attempted: true,
+        provider: 'OpenAI',
+        error: `OpenAI API returned status ${response.status}.`,
+        message: null
+      };
     }
 
     const json = (await response.json()) as {
@@ -88,13 +226,28 @@ async function generateWithOpenAI(
     };
 
     if (json.output_text && json.output_text.trim()) {
-      return json.output_text;
+      return {
+        attempted: true,
+        provider: 'OpenAI',
+        error: null,
+        message: json.output_text
+      };
     }
 
     const firstText = json.output?.[0]?.content?.[0]?.text;
-    return firstText ?? null;
-  } catch {
-    return null;
+    return {
+      attempted: true,
+      provider: 'OpenAI',
+      error: firstText?.trim() ? null : 'OpenAI API returned no text.',
+      message: firstText ?? null
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      provider: 'OpenAI',
+      error: error instanceof Error ? error.message : 'OpenAI request failed.',
+      message: null
+    };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -102,71 +255,159 @@ async function generateWithOpenAI(
 
 async function generateWithClaude(
   token: string,
+  prompt: string,
   changedFiles: string[],
   diffSnippet: string
-): Promise<string | null> {
-  if (!token) {
-    return null;
+): Promise<ProviderAttemptResult> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return {
+      attempted: false,
+      provider: 'Claude Code',
+      error: null,
+      message: null
+    };
   }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 9000);
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': token,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-haiku-latest',
-        max_tokens: 80,
-        system: TITLE_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `Changed files:\n${changedFiles.join('\n')}\n\nDiff snippet:\n${diffSnippet}`
-          }
-        ]
-      }),
-      signal: controller.signal
-    });
+    let failureMessage = 'Claude Code request failed.';
 
-    if (!response.ok) {
-      return null;
+    for (const authHeaders of getClaudeAuthHeaderVariants(normalizedToken)) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          'anthropic-version': ANTHROPIC_API_VERSION,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-haiku-latest',
+          max_tokens: 200,
+          system: prompt,
+          messages: [
+            {
+              role: 'user',
+              content: `Changed files:\n${changedFiles.join('\n')}\n\nDiff snippet:\n${diffSnippet}`
+            }
+          ]
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        failureMessage = `Claude Code API returned status ${response.status}.`;
+        continue;
+      }
+
+      const json = (await response.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+      };
+
+      const text = json.content?.find((item) => item.type === 'text')?.text ?? null;
+      if (text?.trim()) {
+        return {
+          attempted: true,
+          provider: 'Claude Code',
+          error: null,
+          message: text
+        };
+      }
+
+      failureMessage = 'Claude Code API returned no text.';
     }
 
-    const json = (await response.json()) as {
-      content?: Array<{ type: string; text?: string }>;
+    return {
+      attempted: true,
+      provider: 'Claude Code',
+      error: failureMessage,
+      message: null
     };
-
-    return json.content?.find((item) => item.type === 'text')?.text ?? null;
-  } catch {
-    return null;
+  } catch (error) {
+    return {
+      attempted: true,
+      provider: 'Claude Code',
+      error: error instanceof Error ? error.message : 'Claude Code request failed.',
+      message: null
+    };
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-export async function generateCommitTitle(input: GenerateTitleInput): Promise<string> {
-  const fallback = buildHeuristicTitle(input.changedFiles);
-  const limitedDiff = input.diffSnippet.slice(0, 4000);
+function buildCommitGenerationFailureMessage(results: ProviderAttemptResult[]): string {
+  const providers = results.map((result) => result.provider).join(' and ');
+  const details = results
+    .map((result) => `${result.provider}: ${result.error ?? 'Unknown failure.'}`)
+    .join(' ');
 
-  const openAiTitle = await generateWithOpenAI(input.openAiToken, input.changedFiles, limitedDiff);
-  if (openAiTitle) {
-    return normalizeTitle(openAiTitle, fallback);
+  return `Commit message generation failed for ${providers}. ${details}`;
+}
+
+export async function validateClaudeCodeToken(token: string): Promise<boolean> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return false;
   }
 
-  const claudeTitle = await generateWithClaude(
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    for (const authHeaders of getClaudeAuthHeaderVariants(normalizedToken)) {
+      const response = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        headers: {
+          ...authHeaders,
+          'anthropic-version': ANTHROPIC_API_VERSION
+        },
+        signal: controller.signal
+      });
+
+      if (response.ok) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function generateCommitTitle(input: GenerateTitleInput): Promise<GeneratedCommitMessage> {
+  const changedFiles = input.changedFiles.map((file) => file.trim()).filter((file) => file.length > 0);
+  if (changedFiles.length === 0) {
+    throw new Error(NO_STAGED_CHANGES_ERROR);
+  }
+
+  const fallback = buildHeuristicTitle(changedFiles);
+  const limitedDiff = input.diffSnippet.slice(0, 4000);
+  const prompt = resolveCommitTitlePrompt(input.commitTitlePrompt);
+
+  const openAiResult = await generateWithOpenAI(input.openAiToken, prompt, changedFiles, limitedDiff);
+  if (openAiResult.message) {
+    return normalizeGeneratedCommitMessage(openAiResult.message, fallback);
+  }
+
+  const claudeResult = await generateWithClaude(
     input.claudeCodeToken,
-    input.changedFiles,
+    prompt,
+    changedFiles,
     limitedDiff
   );
-  if (claudeTitle) {
-    return normalizeTitle(claudeTitle, fallback);
+  if (claudeResult.message) {
+    return normalizeGeneratedCommitMessage(claudeResult.message, fallback);
   }
 
-  return normalizeTitle(fallback, 'Update repository state');
+  const attemptedProviders = [openAiResult, claudeResult].filter((result) => result.attempted);
+  if (attemptedProviders.length === 0) {
+    throw new Error(NO_AI_PROVIDER_ERROR);
+  }
+
+  throw new Error(buildCommitGenerationFailureMessage(attemptedProviders));
 }

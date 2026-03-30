@@ -32,10 +32,9 @@ export function CommitDiffOverlay({ detail, filePath, onClose }: CommitDiffOverl
       <section className="panel flex h-full min-h-0 flex-col overflow-hidden p-4 shadow-2xl">
         <div className="mb-3 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="section-title">Focused Diff View</div>
-            <div className="truncate text-base font-semibold text-ink">{title}</div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
-              <span className="badge !bg-black/5 !text-ink-soft">{shortSha(detail.sha)}</span>
+            <div className="diff-overlay__title truncate text-base font-semibold">{title}</div>
+            <div className="diff-overlay__meta mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <span className="badge diff-overlay__meta-badge">{shortSha(detail.sha)}</span>
               <span className="truncate">{filePath}</span>
               <span>{detail.files.length} files</span>
             </div>

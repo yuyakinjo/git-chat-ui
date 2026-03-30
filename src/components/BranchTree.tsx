@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, GitBranch, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, GitBranch, Plus, Trash2 } from 'lucide-react';
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -16,11 +16,11 @@ import type { Branch, BranchResponse } from '../types';
 interface BranchTreeProps {
   branches: BranchResponse | null;
   selectedBranchName: string | null;
-  defaultBranchName: string | null;
   busy: boolean;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
   onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
+  onRequestCreateBranch: (branch: Branch) => void;
   onRequestDeleteBranch: (branch: Branch) => void;
 }
 
@@ -31,18 +31,35 @@ interface TreeNode {
 
 const SINGLE_CLICK_DELAY_MS = 400;
 const DRAG_THRESHOLD_PX = 6;
-const CONTEXT_MENU_WIDTH_PX = 216;
-const CONTEXT_MENU_HEIGHT_PX = 112;
+const CONTEXT_MENU_WIDTH_PX = 232;
+const REMOTE_CONTEXT_MENU_HEIGHT_PX = 112;
+const LOCAL_CONTEXT_MENU_HEIGHT_PX = 156;
 
-function clampContextMenuPosition(x: number, y: number): { x: number; y: number } {
+function clampContextMenuPosition(x: number, y: number, height: number): { x: number; y: number } {
   if (typeof window === 'undefined') {
     return { x, y };
   }
 
   return {
     x: Math.min(Math.max(12, x), Math.max(12, window.innerWidth - CONTEXT_MENU_WIDTH_PX - 12)),
-    y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - CONTEXT_MENU_HEIGHT_PX - 12))
+    y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - height - 12))
   };
+}
+
+function getContextMenuHeight(branch: Branch): number {
+  return branch.type === 'local' ? LOCAL_CONTEXT_MENU_HEIGHT_PX : REMOTE_CONTEXT_MENU_HEIGHT_PX;
+}
+
+function getContextMenuHint(branch: Branch, deleteDisabledReason: string | null): string {
+  if (branch.type === 'local') {
+    if (deleteDisabledReason) {
+      return `${deleteDisabledReason} この branch を起点に新しい local branch を作成できます。`;
+    }
+
+    return 'この branch を起点に新しい local branch を作成できます。削除は確認ダイアログを開いてから実行します。';
+  }
+
+  return deleteDisabledReason ?? '確認ダイアログを開いてから削除します。';
 }
 
 function getBranchDisplayName(branchName: string): string {
@@ -104,11 +121,11 @@ function SectionTitle({ children }: { children: string }): JSX.Element {
 export function BranchTree({
   branches,
   selectedBranchName,
-  defaultBranchName,
   busy,
   onSelectBranch,
   onCheckoutBranch,
   onBranchDrop,
+  onRequestCreateBranch,
   onRequestDeleteBranch
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -400,18 +417,23 @@ export function BranchTree({
       pendingClickRef.current = null;
     }
 
-    const position = clampContextMenuPosition(event.clientX, event.clientY);
+    const position = clampContextMenuPosition(event.clientX, event.clientY, getContextMenuHeight(branch));
     setContextMenu({
       branch,
       x: position.x,
       y: position.y,
-      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName, defaultBranchName)
+      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName)
     });
   };
 
   const handleDeleteRequestFromTree = (branch: Branch): void => {
     setContextMenu(null);
     onRequestDeleteBranch(branch);
+  };
+
+  const handleCreateRequestFromTree = (branch: Branch): void => {
+    setContextMenu(null);
+    onRequestCreateBranch(branch);
   };
 
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
@@ -516,7 +538,7 @@ export function BranchTree({
     ? dropTargetBranchName
       ? `${dropTargetBranchName} にドロップして Merge / PR を開く`
       : '別の local branch にドロップ'
-    : '右クリックで削除。local branch は別の local branch にドロップできます。';
+    : null;
 
   const contextMenuPortal =
     contextMenu && typeof document !== 'undefined'
@@ -531,6 +553,18 @@ export function BranchTree({
               top: `${contextMenu.y}px`
             }}
           >
+            {contextMenu.branch.type === 'local' ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                disabled={busy}
+                onClick={() => handleCreateRequestFromTree(contextMenu.branch)}
+              >
+                <Plus size={14} />
+                <span>このブランチから作成</span>
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -541,9 +575,7 @@ export function BranchTree({
               <Trash2 size={14} />
               <span>ブランチを削除</span>
             </button>
-            <div className="branch-context-menu__hint">
-              {contextMenu.disabledReason ?? '確認ダイアログを開いてから削除します。'}
-            </div>
+            <div className="branch-context-menu__hint">{getContextMenuHint(contextMenu.branch, contextMenu.disabledReason)}</div>
           </div>,
           document.body
         )
@@ -554,7 +586,7 @@ export function BranchTree({
       <section className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? 'is-dragging' : ''}`}>
         <div className="px-2 pb-2">
           <div className="section-title">Branch List</div>
-          <div className={`branch-tree__hint ${draggedBranchName ? 'is-active' : ''}`}>{dragHint}</div>
+          {dragHint ? <div className={`branch-tree__hint ${draggedBranchName ? 'is-active' : ''}`}>{dragHint}</div> : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <SectionTitle>Local</SectionTitle>

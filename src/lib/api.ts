@@ -1,15 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type {
+  AiGenerationConfig,
   AppConfig,
   BranchDiffDetail,
   BranchResponse,
   CommitDetail,
   CommitResponse,
+  GeneratedCommitMessage,
   PullRequestPreparation,
   PullRequestResponse,
   Repository,
   StashEntry,
+  TokenValidationResult,
+  WorkingTreeDiffArea,
+  WorkingTreeDiffDetail,
   WorkingTreeStatus
 } from '../types';
 
@@ -18,6 +23,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4141
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
+
+type NativeWindowTheme = 'light' | 'dark';
+
+type NativeWindowAppearance = {
+  theme: NativeWindowTheme;
+  backgroundColor: [number, number, number, number];
+};
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -72,6 +84,17 @@ export const api = {
     return request(`/repositories${params.toString() ? `?${params.toString()}` : ''}`);
   },
 
+  resolveRepositories(repoPaths: string[]): Promise<{ repositories: Repository[] }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('resolve_repositories', { repoPaths });
+    }
+
+    return request('/repositories/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ repoPaths })
+    });
+  },
+
   markRecentRepository(repoPath: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
       return invokeCommand('mark_recent_repository', { repoPath });
@@ -110,6 +133,14 @@ export const api = {
     if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
+  },
+
+  async syncWindowAppearance(appearance: NativeWindowAppearance): Promise<void> {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    await invokeCommand('sync_window_appearance', appearance);
   },
 
   getBranches(repoPath: string): Promise<BranchResponse> {
@@ -187,6 +218,15 @@ export const api = {
     return request(`/status?${params.toString()}`);
   },
 
+  getWorkingTreeDiffDetail(repoPath: string, file: string, area: WorkingTreeDiffArea): Promise<WorkingTreeDiffDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_working_tree_diff_detail', { repoPath, file, area });
+    }
+
+    const params = new URLSearchParams({ repoPath, file, area });
+    return request(`/working-tree/diff?${params.toString()}`);
+  },
+
   stageFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
       return invokeCommand('stage_file', { repoPath, file });
@@ -248,6 +288,17 @@ export const api = {
     return request('/branches/merge', {
       method: 'POST',
       body: JSON.stringify({ repoPath, sourceBranch, targetBranch })
+    });
+  },
+
+  createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('create_branch', { repoPath, baseBranch, newBranch });
+    }
+
+    return request('/branches/create', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, baseBranch, newBranch })
     });
   },
 
@@ -348,14 +399,46 @@ export const api = {
     });
   },
 
-  generateTitle(repoPath: string, changedFiles: string[]): Promise<{ title: string }> {
+  validateClaudeCodeToken(token: string): Promise<TokenValidationResult> {
     if (isTauriRuntime()) {
-      return invokeCommand('generate_title', { repoPath, changedFiles });
+      return invokeCommand('validate_claude_code_token', { token });
+    }
+
+    return request('/config/validate-claude-code-token', {
+      method: 'POST',
+      body: JSON.stringify({ token })
+    });
+  },
+
+  validateOpenAiToken(token: string): Promise<TokenValidationResult> {
+    if (isTauriRuntime()) {
+      return invokeCommand('validate_open_ai_token', { token });
+    }
+
+    return request('/config/validate-openai-token', {
+      method: 'POST',
+      body: JSON.stringify({ token })
+    });
+  },
+
+  generateCommitMessage(
+    repoPath: string,
+    changedFiles: string[],
+    input?: Partial<AiGenerationConfig>
+  ): Promise<GeneratedCommitMessage> {
+    const payload = {
+      repoPath,
+      changedFiles,
+      ...(input ?? {})
+    };
+
+    if (isTauriRuntime()) {
+      return invokeCommand('generate_title', payload);
     }
 
     return request('/generate-title', {
       method: 'POST',
-      body: JSON.stringify({ repoPath, changedFiles })
+      body: JSON.stringify(payload)
     });
   }
 };

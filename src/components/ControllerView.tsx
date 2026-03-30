@@ -1,4 +1,4 @@
-import { AlertTriangle, GripVertical, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, GripVertical, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
@@ -18,6 +18,7 @@ import {
 } from '../lib/controllerPanelOrder';
 import { describeGitError, type UiError } from '../lib/errors';
 import { BranchActionDialog, type BranchActionDialogStep } from './BranchActionDialog';
+import { BranchCreateDialog } from './BranchCreateDialog';
 import { BranchDeleteDialog } from './BranchDeleteDialog';
 import { BranchDiffOverlay } from './BranchDiffOverlay';
 import { BranchTree } from './BranchTree';
@@ -25,6 +26,7 @@ import { CommitDetailPanel } from './CommitDetailPanel';
 import { CommitDiffOverlay } from './CommitDiffOverlay';
 import { CommitGraph } from './CommitGraph';
 import { GitOperationPanel } from './GitOperationPanel';
+import { WorkingTreeDiffOverlay } from './WorkingTreeDiffOverlay';
 import type {
   AppConfig,
   Branch,
@@ -35,6 +37,8 @@ import type {
   CommitListItem,
   Repository,
   StashEntry,
+  WorkingTreeDiffArea,
+  WorkingTreeDiffDetail,
   WorkingTreeStatus
 } from '../types';
 
@@ -42,6 +46,7 @@ interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
   onNotify: (message: string) => void;
+  onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
 }
 
 function resolveDefaultBranch(branches: BranchResponse | null): Branch | undefined {
@@ -120,7 +125,12 @@ const controllerPanelLabels: Record<ControllerPanelId, string> = {
   commitDetail: 'Commit Detail'
 };
 
-export function ControllerView({ repository, appConfig, onNotify }: ControllerViewProps): JSX.Element {
+export function ControllerView({
+  repository,
+  appConfig,
+  onNotify,
+  onCurrentBranchChange
+}: ControllerViewProps): JSX.Element {
   const [branches, setBranches] = useState<BranchResponse | null>(null);
   const [selectedBranchForHover, setSelectedBranchForHover] = useState<Branch | null>(null);
   const [activeLogRef, setActiveLogRef] = useState<string>('HEAD');
@@ -132,17 +142,25 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const [loadingCommits, setLoadingCommits] = useState(false);
   const [loadingMoreCommits, setLoadingMoreCommits] = useState(false);
   const [activeCommit, setActiveCommit] = useState<CommitListItem | null>(null);
+  const [isWipSelected, setIsWipSelected] = useState(false);
   const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
   const [loadingCommitDetail, setLoadingCommitDetail] = useState(false);
   const [branchDiffDetail, setBranchDiffDetail] = useState<BranchDiffDetail | null>(null);
   const [loadingBranchDiffDetail, setLoadingBranchDiffDetail] = useState(false);
   const [showBranchDiff, setShowBranchDiff] = useState(false);
   const [focusedCommitDiffFile, setFocusedCommitDiffFile] = useState<string | null>(null);
+  const [focusedWorkingTreeDiff, setFocusedWorkingTreeDiff] = useState<{
+    file: string;
+    area: WorkingTreeDiffArea;
+  } | null>(null);
+  const [workingTreeDiffDetail, setWorkingTreeDiffDetail] = useState<WorkingTreeDiffDetail | null>(null);
+  const [loadingWorkingTreeDiffDetail, setLoadingWorkingTreeDiffDetail] = useState(false);
   const [branchAction, setBranchAction] = useState<{
     source: Branch;
     target: Branch;
     step: BranchActionDialogStep;
   } | null>(null);
+  const [branchCreateSource, setBranchCreateSource] = useState<Branch | null>(null);
   const [branchDeleteTarget, setBranchDeleteTarget] = useState<Branch | null>(null);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
@@ -189,6 +207,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   } | null>(null);
   const draggedPanelIdRef = useRef<ControllerPanelId | null>(null);
   const dropTargetPanelIdRef = useRef<ControllerPanelId | null>(null);
+  const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
 
   const repoPath = repository.path;
   const currentBranchName = branches?.current ?? null;
@@ -197,7 +216,6 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     [branches]
   );
   const defaultBranch = useMemo(() => resolveDefaultBranch(branches) ?? null, [branches]);
-  const defaultBranchName = defaultBranch?.name ?? null;
   const showBranchDiffButton = canCompareCurrentBranch(currentLocalBranch, defaultBranch);
   const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(branchDiffDetail, defaultBranch, currentLocalBranch);
   const branchDiffButtonLabel = getBranchDiffButtonLabel(defaultBranch?.name ?? null);
@@ -291,6 +309,49 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     }
   }, [currentLocalBranch, defaultBranch, repoPath, reportError]);
 
+  const closeWorkingTreeDiffOverlay = useCallback((): void => {
+    workingTreeDiffRequestKeyRef.current = null;
+    setFocusedWorkingTreeDiff(null);
+    setWorkingTreeDiffDetail(null);
+    setLoadingWorkingTreeDiffDetail(false);
+  }, []);
+
+  const loadWorkingTreeDiffDetail = useCallback(
+    async (file: string, area: WorkingTreeDiffArea): Promise<void> => {
+      const normalizedFile = file.trim();
+      if (!normalizedFile) {
+        return;
+      }
+
+      const requestKey = `${area}:${normalizedFile}`;
+      workingTreeDiffRequestKeyRef.current = requestKey;
+      setFocusedWorkingTreeDiff({ file: normalizedFile, area });
+      setWorkingTreeDiffDetail(null);
+      setLoadingWorkingTreeDiffDetail(true);
+
+      try {
+        const detail = await api.getWorkingTreeDiffDetail(repoPath, normalizedFile, area);
+        if (workingTreeDiffRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setWorkingTreeDiffDetail(detail);
+      } catch (error) {
+        if (workingTreeDiffRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setWorkingTreeDiffDetail(null);
+        reportError(error, '作業ツリー差分の取得に失敗しました。');
+      } finally {
+        if (workingTreeDiffRequestKeyRef.current === requestKey) {
+          setLoadingWorkingTreeDiffDetail(false);
+        }
+      }
+    },
+    [repoPath, reportError]
+  );
+
   const loadCommits = useCallback(
     async (options: {
       append: boolean;
@@ -343,6 +404,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
             : null;
           const nextActiveCommit = focusedCommit ?? nextCommits[0];
 
+          setIsWipSelected(false);
           setActiveCommit(nextActiveCommit);
           await loadCommitDetail(nextActiveCommit.sha);
         }
@@ -431,21 +493,30 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   );
 
   useEffect(() => {
+    onCurrentBranchChange(repoPath, currentBranchName);
+  }, [currentBranchName, onCurrentBranchChange, repoPath]);
+
+  useEffect(() => {
     const defaultRef = 'HEAD';
     setActiveLogRef(defaultRef);
     setActiveCompareRefs([]);
     setSelectedBranchForHover(null);
     setPendingScrollCommitSha(null);
+    setActiveCommit(null);
+    setIsWipSelected(false);
+    setCommitDetail(null);
     setCommitTitle('');
     setCommitDescription('');
     setBranchDiffDetail(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
+    closeWorkingTreeDiffOverlay();
     setBranchAction(null);
+    setBranchCreateSource(null);
     setBranchDeleteTarget(null);
     setInlineError(null);
     void refreshAll(defaultRef);
-  }, [refreshAll, repoPath]);
+  }, [closeWorkingTreeDiffOverlay, refreshAll, repoPath]);
 
   useEffect(() => {
     let active = true;
@@ -471,6 +542,31 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   useEffect(() => {
     setFocusedCommitDiffFile(null);
   }, [activeCommit?.sha]);
+
+  useEffect(() => {
+    if (!isWipSelected) {
+      closeWorkingTreeDiffOverlay();
+      return;
+    }
+
+    const changedFileCount = (workingStatus?.staged.length ?? 0) + (workingStatus?.unstaged.length ?? 0);
+    if (changedFileCount === 0) {
+      setIsWipSelected(false);
+    }
+  }, [closeWorkingTreeDiffOverlay, isWipSelected, workingStatus]);
+
+  useEffect(() => {
+    if (!focusedWorkingTreeDiff) {
+      return;
+    }
+
+    const visibleFiles =
+      focusedWorkingTreeDiff.area === 'staged' ? workingStatus?.staged ?? [] : workingStatus?.unstaged ?? [];
+
+    if (!visibleFiles.some((item) => item.file === focusedWorkingTreeDiff.file)) {
+      closeWorkingTreeDiffOverlay();
+    }
+  }, [closeWorkingTreeDiffOverlay, focusedWorkingTreeDiff, workingStatus]);
 
   useEffect(() => {
     if (!showBranchDiffButton) {
@@ -743,6 +839,32 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     ],
     [workingStatus]
   );
+  const workingTreeSelection = useMemo(() => {
+    if (!isWipSelected) {
+      return null;
+    }
+
+    return {
+      stagedCount: workingStatus?.staged.length ?? 0,
+      unstagedCount: workingStatus?.unstaged.length ?? 0,
+      files: [
+        ...(workingStatus?.staged.map((item) => ({
+          file: item.file,
+          area: 'staged' as const,
+          x: item.x,
+          y: item.y,
+          statusLabel: item.statusLabel
+        })) ?? []),
+        ...(workingStatus?.unstaged.map((item) => ({
+          file: item.file,
+          area: 'unstaged' as const,
+          x: item.x,
+          y: item.y,
+          statusLabel: item.statusLabel
+        })) ?? [])
+      ]
+    };
+  }, [isWipSelected, workingStatus]);
   const selectedCommitDetail = useMemo(
     () => (commitDetail && activeCommit && commitDetail.sha === activeCommit.sha ? commitDetail : null),
     [activeCommit, commitDetail]
@@ -778,6 +900,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       return;
     }
 
+    setBranchCreateSource(null);
     setBranchDeleteTarget(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
@@ -789,7 +912,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   };
 
   const handleRequestDeleteBranch = (branch: Branch): void => {
-    const disabledReason = getBranchDeleteDisabledReason(branch, branches?.current ?? null, defaultBranchName);
+    const disabledReason = getBranchDeleteDisabledReason(branch, branches?.current ?? null);
     if (disabledReason) {
       const nextError: UiError = {
         title: 'このブランチは削除できません',
@@ -801,9 +924,49 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     }
 
     setBranchAction(null);
+    setBranchCreateSource(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
     setBranchDeleteTarget(branch);
+  };
+
+  const handleRequestCreateBranch = (branch: Branch): void => {
+    if (branch.type !== 'local') {
+      return;
+    }
+
+    setBranchAction(null);
+    setBranchDeleteTarget(null);
+    setShowBranchDiff(false);
+    setFocusedCommitDiffFile(null);
+    setBranchCreateSource(branch);
+  };
+
+  const handleCreateBranch = async (newBranchName: string): Promise<void> => {
+    const currentSource = branchCreateSource;
+    if (!currentSource) {
+      return;
+    }
+
+    setOperationBusy(true);
+
+    try {
+      await api.createBranch(repoPath, currentSource.name, newBranchName);
+      setBranchCreateSource(null);
+      setBranchAction(null);
+      setBranchDeleteTarget(null);
+      setSelectedBranchForHover(null);
+      setPendingScrollCommitSha(null);
+      setShowBranchDiff(false);
+      setFocusedCommitDiffFile(null);
+      setInlineError(null);
+      onNotify(`${newBranchName} を ${currentSource.name} から作成しました。`);
+      await reloadAfterBranchMutation(newBranchName);
+    } catch (error) {
+      reportError(error, 'ブランチ作成に失敗しました。');
+    } finally {
+      setOperationBusy(false);
+    }
   };
 
   const handleMergeBranchAction = async (): Promise<void> => {
@@ -846,7 +1009,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       return;
     }
 
-    const disabledReason = getBranchDeleteDisabledReason(currentTarget, branches?.current ?? null, defaultBranchName);
+    const disabledReason = getBranchDeleteDisabledReason(currentTarget, branches?.current ?? null);
     if (disabledReason) {
       const nextError: UiError = {
         title: 'このブランチは削除できません',
@@ -992,11 +1155,14 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       wipStagedCount={workingStatus?.staged.length ?? 0}
       wipUnstagedCount={workingStatus?.unstaged.length ?? 0}
       onSelectWip={() => {
+        setIsWipSelected(true);
         setActiveCommit(null);
         setCommitDetail(null);
+        setFocusedCommitDiffFile(null);
         setShowBranchDiff(false);
       }}
       onSelectCommit={(commit) => {
+        setIsWipSelected(false);
         setActiveCommit(commit);
         void loadCommitDetail(commit.sha);
       }}
@@ -1023,6 +1189,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       commitTitle={commitTitle}
       commitDescription={commitDescription}
       busy={operationBusy}
+      activeWorkingTreeDiff={focusedWorkingTreeDiff}
       onCommitTitleChange={setCommitTitle}
       onCommitDescriptionChange={setCommitDescription}
       onStageFile={(file) => {
@@ -1071,15 +1238,19 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           { reloadCommits: false }
         );
       }}
-      onGenerateTitle={() => {
+      onOpenWorkingTreeDiff={(file, area) => {
+        void loadWorkingTreeDiffDetail(file, area);
+      }}
+      onGenerateCommitMessage={() => {
         void (async () => {
           setOperationBusy(true);
           try {
-            const response = await api.generateTitle(repoPath, changedFilesForAi);
+            const response = await api.generateCommitMessage(repoPath, changedFilesForAi);
             setInlineError(null);
             setCommitTitle(response.title);
+            setCommitDescription(response.description);
           } catch (error) {
-            reportError(error, 'タイトル生成に失敗しました。');
+            reportError(error, 'コミット文生成に失敗しました。');
           } finally {
             setOperationBusy(false);
           }
@@ -1103,12 +1274,17 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
 
   const commitDetailPanel = (
     <CommitDetailPanel
-      detail={commitDetail}
-      loading={loadingCommitDetail}
+      detail={selectedCommitDetail}
+      loading={loadingCommitDetail && !isWipSelected}
       activeDiffFile={focusedCommitDiffFile}
+      activeWorkingTreeDiff={focusedWorkingTreeDiff}
       onOpenFileDiff={(file) => {
         setFocusedCommitDiffFile(file);
       }}
+      onOpenWorkingTreeDiff={(file, area) => {
+        void loadWorkingTreeDiffDetail(file, area);
+      }}
+      workingTreeSelection={workingTreeSelection}
       headerAccessory={renderPanelHandle('commitDetail')}
     />
   );
@@ -1121,38 +1297,21 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
 
   return (
     <section className="relative flex h-full flex-col gap-3">
-      <header className="panel flex items-center justify-between px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold text-ink">{repository.name}</div>
-          <div className="text-xs text-ink-subtle">{repository.path}</div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="badge">{currentBranchName ?? 'detached'}</span>
-          {showBranchDiffButton ? (
-            <button
-              type="button"
-              className={`button ${showBranchDiff ? 'button-primary' : 'button-secondary'}`}
-              disabled={loadingBranchDiffDetail}
-              onClick={() => {
-                setFocusedCommitDiffFile(null);
-                setShowBranchDiff((current) => !current);
-              }}
-            >
-              {showBranchDiff ? 'Close Diffs' : branchDiffButtonLabel}
-            </button>
-          ) : null}
+      {showBranchDiffButton ? (
+        <header className="panel flex items-center justify-end px-4 py-3">
           <button
             type="button"
-            className="button button-secondary"
-            disabled={operationBusy}
-            onClick={() => void refreshAll()}
+            className={`button ${showBranchDiff ? 'button-primary' : 'button-secondary'}`}
+            disabled={loadingBranchDiffDetail}
+            onClick={() => {
+              setFocusedCommitDiffFile(null);
+              setShowBranchDiff((current) => !current);
+            }}
           >
-            <RefreshCw size={14} />
-            Refresh
+            {showBranchDiff ? 'Close Diffs' : branchDiffButtonLabel}
           </button>
-        </div>
-      </header>
+        </header>
+      ) : null}
 
       {inlineError ? (
         <section className="panel flex items-start justify-between gap-3 border border-red-500/25 bg-red-50/70 px-4 py-3">
@@ -1178,13 +1337,13 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
-          defaultBranchName={defaultBranchName}
           busy={operationBusy}
           onSelectBranch={handleSelectBranch}
           onCheckoutBranch={(branch) => {
             void handleCheckoutBranch(branch);
           }}
           onBranchDrop={handleBranchDrop}
+          onRequestCreateBranch={handleRequestCreateBranch}
           onRequestDeleteBranch={handleRequestDeleteBranch}
         />
 
@@ -1254,6 +1413,16 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
         />
       ) : null}
 
+      {focusedWorkingTreeDiff ? (
+        <WorkingTreeDiffOverlay
+          detail={workingTreeDiffDetail}
+          loading={loadingWorkingTreeDiffDetail}
+          filePath={focusedWorkingTreeDiff.file}
+          area={focusedWorkingTreeDiff.area}
+          onClose={closeWorkingTreeDiffOverlay}
+        />
+      ) : null}
+
       {showBranchDiff ? (
         <BranchDiffOverlay
           detail={branchDiffMatchesCurrentBranch ? branchDiffDetail : null}
@@ -1283,6 +1452,17 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           }}
           onBack={() => {
             setBranchAction((current) => (current ? { ...current, step: 'select-action' } : current));
+          }}
+        />
+      ) : null}
+
+      {branchCreateSource ? (
+        <BranchCreateDialog
+          baseBranchName={branchCreateSource.name}
+          busy={operationBusy}
+          onClose={() => setBranchCreateSource(null)}
+          onCreate={(newBranchName) => {
+            void handleCreateBranch(newBranchName);
           }}
         />
       ) : null}

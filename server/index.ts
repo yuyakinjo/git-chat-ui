@@ -3,11 +3,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { generateCommitTitle } from './aiService.js';
+import { generateCommitTitle, validateClaudeCodeToken } from './aiService.js';
 import { readConfig, setRecentlyUsedRepository, writeConfig } from './configStore.js';
 import {
   checkoutRef,
   commitChanges,
+  createBranch,
   createPullRequest,
   deleteBranch,
   discoverRepositories,
@@ -15,10 +16,12 @@ import {
   getBranches,
   getCommitDetail,
   getRepositoryGithubUrl,
+  resolveRepositories,
   getCommits,
   getDiffSnippet,
   getRepositoryFingerprint,
   getStashes,
+  getWorkingTreeDiffDetail,
   getWorkingTreeStatus,
   mergeBranches,
   preparePullRequest,
@@ -70,6 +73,14 @@ function parseRepositoryScanDepth(value: unknown): number | null {
   return null;
 }
 
+function parseWorkingTreeDiffArea(value: unknown): 'staged' | 'unstaged' {
+  if (value === 'staged' || value === 'unstaged') {
+    return value;
+  }
+
+  throw new Error('area must be staged or unstaged.');
+}
+
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true });
 });
@@ -84,6 +95,18 @@ app.get('/api/repositories', async (request, response, next) => {
       recentMap,
       maxDepth: config.repositoryScanDepth
     });
+    response.json({ repositories });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/repositories/resolve', async (request, response, next) => {
+  try {
+    const repoPaths = Array.isArray(request.body.repoPaths)
+      ? request.body.repoPaths.filter((value: unknown): value is string => typeof value === 'string')
+      : [];
+    const repositories = await resolveRepositories(repoPaths);
     response.json({ repositories });
   } catch (error) {
     next(error);
@@ -200,6 +223,22 @@ app.get('/api/status', async (request, response, next) => {
   }
 });
 
+app.get('/api/working-tree/diff', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const file = getRequiredString(request.query.file, 'file');
+    const area = parseWorkingTreeDiffArea(request.query.area);
+    const detail = await getWorkingTreeDiffDetail({
+      repoPath,
+      file,
+      area
+    });
+    response.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/stage', async (request, response, next) => {
   try {
     const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
@@ -248,6 +287,18 @@ app.post('/api/checkout', async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
     const ref = getRequiredString(request.body.ref, 'ref');
     await checkoutRef(repoPath, ref);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/branches/create', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const baseBranch = getRequiredString(request.body.baseBranch, 'baseBranch');
+    const newBranch = getRequiredString(request.body.newBranch, 'newBranch');
+    await createBranch(repoPath, baseBranch, newBranch);
     response.json({ ok: true });
   } catch (error) {
     next(error);
@@ -361,6 +412,10 @@ app.put('/api/config', async (request, response, next) => {
         typeof request.body.claudeCodeToken === 'string'
           ? request.body.claudeCodeToken
           : current.claudeCodeToken,
+      commitTitlePrompt:
+        typeof request.body.commitTitlePrompt === 'string'
+          ? request.body.commitTitlePrompt
+          : current.commitTitlePrompt,
       commitGraphMode: parsedGraphMode ?? current.commitGraphMode,
       repositoryScanDepth: parsedRepositoryScanDepth ?? current.repositoryScanDepth
     };
@@ -368,6 +423,16 @@ app.put('/api/config', async (request, response, next) => {
     await writeConfig(nextConfig);
 
     response.json({ ok: true, config: await readConfig() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/config/validate-claude-code-token', async (request, response, next) => {
+  try {
+    const token = typeof request.body.token === 'string' ? request.body.token : '';
+    const valid = await validateClaudeCodeToken(token);
+    response.json({ valid });
   } catch (error) {
     next(error);
   }
@@ -381,15 +446,23 @@ app.post('/api/generate-title', async (request, response, next) => {
       : [];
 
     const config = await readConfig();
+    const openAiToken = typeof request.body.openAiToken === 'string' ? request.body.openAiToken : config.openAiToken;
+    const claudeCodeToken =
+      typeof request.body.claudeCodeToken === 'string' ? request.body.claudeCodeToken : config.claudeCodeToken;
+    const commitTitlePrompt =
+      typeof request.body.commitTitlePrompt === 'string'
+        ? request.body.commitTitlePrompt
+        : config.commitTitlePrompt;
     const diffSnippet = await getDiffSnippet(repoPath, changedFiles);
-    const title = await generateCommitTitle({
-      openAiToken: config.openAiToken,
-      claudeCodeToken: config.claudeCodeToken,
+    const commitMessage = await generateCommitTitle({
+      openAiToken,
+      claudeCodeToken,
+      commitTitlePrompt,
       changedFiles,
       diffSnippet
     });
 
-    response.json({ title });
+    response.json(commitMessage);
   } catch (error) {
     next(error);
   }

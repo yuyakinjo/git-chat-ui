@@ -20,7 +20,7 @@ export function getBranchDeleteTargetName(branch: Branch): string {
 export function getBranchDeleteDisabledReason(
   branch: Branch,
   currentBranchName: string | null,
-  defaultBranchName: string | null
+  defaultBranchName: string | null = null
 ): string | null {
   if (branch.type === 'remote') {
     const targetName = getRemoteBranchTargetName(branch.name);
@@ -28,7 +28,7 @@ export function getBranchDeleteDisabledReason(
       return '削除できない remote branch です。';
     }
 
-    if (defaultBranchName && targetName === defaultBranchName) {
+    if (branch.isRemoteDefault) {
       return 'remote の default branch は削除できません。';
     }
 
@@ -39,9 +39,13 @@ export function getBranchDeleteDisabledReason(
     return '現在 checkout 中の branch は削除できません。';
   }
 
+  if (defaultBranchName && branch.name === defaultBranchName) {
+    return 'default branch は削除できません。';
+  }
+
   return null;
 }
 
-export function canDeleteBranch(branch: Branch, currentBranchName: string | null, defaultBranchName: string | null): boolean {
+export function canDeleteBranch(branch: Branch, currentBranchName: string | null, defaultBranchName: string | null = null): boolean {
   return getBranchDeleteDisabledReason(branch, currentBranchName, defaultBranchName) === null;
 }

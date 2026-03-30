@@ -20,9 +20,12 @@ const KEYCHAIN_SERVICE_CLAUDE = 'git-chat-ui.claudecode-token';
 const DEFAULT_CONFIG: AppConfig = {
   openAiToken: '',
   claudeCodeToken: '',
+  selectedAiProvider: 'openAi',
+  commitTitlePrompt: '',
   commitGraphMode: 'detailed',
   repositoryScanDepth: 4,
-  recentlyUsed: []
+  recentlyUsed: [],
+  windowState: null
 };
 
 function normalizeCommitGraphMode(value: unknown): CommitGraphMode {
@@ -64,14 +67,50 @@ function normalizeRecentlyUsed(
     }));
 }
 
+function normalizeWindowState(value: unknown): AppConfig['windowState'] {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const candidate = value as Partial<NonNullable<AppConfig['windowState']>>;
+  if (
+    typeof candidate.x !== 'number' ||
+    typeof candidate.y !== 'number' ||
+    typeof candidate.width !== 'number' ||
+    typeof candidate.height !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    x: Math.round(candidate.x),
+    y: Math.round(candidate.y),
+    width: Math.max(1200, Math.round(candidate.width)),
+    height: Math.max(760, Math.round(candidate.height)),
+    isMaximized: candidate.isMaximized === true
+  };
+}
+
+function normalizeSelectedAiProvider(value: unknown): AppConfig['selectedAiProvider'] {
+  if (value === 'openAi' || value === 'claudeCode') {
+    return value;
+  }
+
+  return DEFAULT_CONFIG.selectedAiProvider;
+}
+
 function normalizeConfig(value: Partial<AppConfig>): AppConfig {
   return {
     openAiToken: typeof value.openAiToken === 'string' ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
     claudeCodeToken:
       typeof value.claudeCodeToken === 'string' ? value.claudeCodeToken : DEFAULT_CONFIG.claudeCodeToken,
+    selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),
+    commitTitlePrompt:
+      typeof value.commitTitlePrompt === 'string' ? value.commitTitlePrompt : DEFAULT_CONFIG.commitTitlePrompt,
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
-    recentlyUsed: normalizeRecentlyUsed(value.recentlyUsed)
+    recentlyUsed: normalizeRecentlyUsed(value.recentlyUsed),
+    windowState: normalizeWindowState(value.windowState)
   };
 }
 

@@ -1,13 +1,24 @@
 import { CalendarClock, Expand, FileCode2, User } from 'lucide-react';
 
 import { formatRelativeDate, shortSha } from '../lib/format';
-import type { CommitDetail } from '../types';
+import type { CommitDetail, WorkingFile, WorkingTreeDiffArea } from '../types';
+
+import { GitFilePathLabel, getWorkingFileStatusPresentation } from './GitFilePresentation';
+
+interface WorkingTreeSelection {
+  stagedCount: number;
+  unstagedCount: number;
+  files: Array<Pick<WorkingFile, 'file' | 'statusLabel' | 'x' | 'y'> & { area: WorkingTreeDiffArea }>;
+}
 
 interface CommitDetailPanelProps {
   detail: CommitDetail | null;
   loading: boolean;
   activeDiffFile: string | null;
   onOpenFileDiff: (file: string) => void;
+  activeWorkingTreeDiff?: { file: string; area: WorkingTreeDiffArea } | null;
+  onOpenWorkingTreeDiff?: (file: string, area: WorkingTreeDiffArea) => void;
+  workingTreeSelection?: WorkingTreeSelection | null;
   headerAccessory?: JSX.Element | null;
 }
 
@@ -16,76 +27,180 @@ export function CommitDetailPanel({
   loading,
   activeDiffFile,
   onOpenFileDiff,
+  activeWorkingTreeDiff = null,
+  onOpenWorkingTreeDiff,
+  workingTreeSelection = null,
   headerAccessory
 }: CommitDetailPanelProps): JSX.Element {
+  const selectionMode = workingTreeSelection ? 'working-tree' : detail ? 'commit' : 'empty';
+  const canOpenWorkingTreeDiff = selectionMode === 'working-tree' && Boolean(onOpenWorkingTreeDiff);
+  const renderWorkingTreeFileSummary = (
+    file: Pick<WorkingFile, 'file' | 'statusLabel' | 'x' | 'y'> & { area: WorkingTreeDiffArea },
+    isActive: boolean
+  ): JSX.Element => {
+    const statusPresentation = getWorkingFileStatusPresentation(file);
+
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={`git-file-card__status-icon git-file-card__status-icon--${statusPresentation.tone}`}
+          aria-hidden="true"
+          title={statusPresentation.label}
+        >
+          {statusPresentation.icon}
+        </span>
+        <div
+          className={`commit-detail-panel__file-meta flex flex-none flex-wrap items-center gap-2 text-[11px] ${
+            isActive ? 'text-white/80' : ''
+          }`}
+        >
+          <span className={`badge ${file.area === 'staged' ? '!bg-[#ecfdf3] !text-[#157347]' : '!bg-[#fff4d6] !text-[#a15c00]'}`}>
+            {file.area === 'staged' ? 'Staged' : 'Unstaged'}
+          </span>
+        </div>
+        <div className={`commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? 'text-white' : ''}`}>
+          <GitFilePathLabel path={file.file} />
+        </div>
+      </div>
+    );
+  };
+  const summaryCard =
+    selectionMode === 'commit' && detail ? (
+      <div className="commit-detail-panel__card rounded-xl p-3">
+        <div className="commit-detail-panel__card-title mb-2 text-sm font-semibold">
+          {detail.body.split('\n')[0] || 'No title'}
+        </div>
+        <div className="commit-detail-panel__card-meta space-y-1 text-xs">
+          <div className="flex items-center gap-2">
+            <User size={12} />
+            {detail.author} ({detail.email})
+          </div>
+          <div className="flex items-center gap-2">
+            <CalendarClock size={12} />
+            {formatRelativeDate(detail.date)}
+          </div>
+          <div className="flex items-center gap-2">
+            <FileCode2 size={12} />
+            {shortSha(detail.sha)}
+          </div>
+        </div>
+      </div>
+    ) : selectionMode === 'working-tree' && workingTreeSelection ? (
+      <div className="commit-detail-panel__card rounded-xl p-3">
+        <div className="commit-detail-panel__card-title mb-2 text-sm font-semibold">Working Tree Changes</div>
+        <div className="commit-detail-panel__card-meta flex flex-wrap items-center gap-2 text-xs">
+          <span className="badge !bg-[#fff4d6] !text-[#a15c00]">WIP</span>
+          {workingTreeSelection.stagedCount > 0 ? <span>{workingTreeSelection.stagedCount} staged</span> : null}
+          {workingTreeSelection.unstagedCount > 0 ? <span>{workingTreeSelection.unstagedCount} unstaged</span> : null}
+        </div>
+      </div>
+    ) : null;
+
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
-      <div className="mb-2 flex items-center justify-between gap-2 px-2">
-        <div className="section-title">Commit Detail</div>
-        {headerAccessory}
-      </div>
-
-      {loading ? <div className="p-4 text-sm text-ink-subtle">詳細を読み込み中...</div> : null}
-
-      {!loading && !detail ? (
-        <div className="p-4 text-sm text-ink-subtle">コミットをクリックすると詳細が表示されます。</div>
+      {selectionMode === 'empty' ? (
+        <div className="mb-2 flex items-center justify-between gap-2 px-2">
+          <div className="section-title">Commit Detail</div>
+          {headerAccessory}
+        </div>
       ) : null}
 
-      {detail ? (
-        <div className="min-h-0 flex flex-1 flex-col gap-3 overflow-hidden px-2 pb-2">
-          <div className="rounded-xl border border-black/10 bg-white/65 p-3">
-            <div className="mb-2 text-sm font-semibold text-ink">{detail.body.split('\n')[0] || 'No title'}</div>
-            <div className="space-y-1 text-xs text-ink-soft">
-              <div className="flex items-center gap-2">
-                <User size={12} />
-                {detail.author} ({detail.email})
-              </div>
-              <div className="flex items-center gap-2">
-                <CalendarClock size={12} />
-                {formatRelativeDate(detail.date)}
-              </div>
-              <div className="flex items-center gap-2">
-                <FileCode2 size={12} />
-                {shortSha(detail.sha)}
-              </div>
+      {loading && selectionMode !== 'working-tree' ? (
+        <div className="commit-detail-panel__muted p-4 text-sm">詳細を読み込み中...</div>
+      ) : null}
+
+      {!loading && selectionMode === 'empty' ? (
+        <div className="commit-detail-panel__muted p-4 text-sm">コミットをクリックすると詳細が表示されます。</div>
+      ) : null}
+
+      {selectionMode !== 'empty' ? (
+        <div className="commit-detail-panel__content px-2 pb-2" data-controller-panel-drag-ignore="true">
+          <div className="commit-detail-panel__summary">
+            <div className="commit-detail-panel__summary-header mb-2 flex items-center justify-between gap-2">
+              <div className="section-title">Commit Detail</div>
+              {headerAccessory}
             </div>
+            {summaryCard}
           </div>
 
-          <div className="min-h-0 flex flex-1 flex-col">
-            <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+          <div className="commit-detail-panel__files">
+            <div className="commit-detail-panel__files-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
               <span>Changed Files</span>
-              <span className="text-[11px] font-medium normal-case tracking-normal text-ink-soft">
-                クリックすると diff dialog を開きます
-              </span>
+              {selectionMode !== 'commit' && !canOpenWorkingTreeDiff ? (
+                <span className="commit-detail-panel__files-note text-[11px] font-medium normal-case tracking-normal">
+                  WIP 選択中の変更ファイル一覧です
+                </span>
+              ) : null}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-black/10 bg-white/65 p-2">
-              {detail.files.length === 0 ? (
-                <div className="p-3 text-xs text-ink-subtle">ファイル差分はありません。</div>
-              ) : (
-                detail.files.map((file) => (
-                  <button
-                    key={file.file}
-                    type="button"
-                    className={`mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
-                      activeDiffFile === file.file
-                        ? 'border-[#0f172a]/40 bg-[#0f172a] text-white'
-                        : 'border-black/5 bg-white/80 text-ink hover:border-accent/25 hover:bg-accent-soft/50'
-                    }`}
-                    onClick={() => onOpenFileDiff(file.file)}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">{file.file}</div>
-                      <div className={`mt-1 flex items-center gap-2 text-[11px] ${activeDiffFile === file.file ? 'text-white/80' : 'text-ink-subtle'}`}>
-                        <span className="text-[#157347]">+{file.additions}</span>
-                        <span className="text-[#b42318]">-{file.deletions}</span>
+            <div className="commit-detail-panel__files-body min-h-0 flex-1 overflow-y-auto rounded-xl p-2">
+              {selectionMode === 'commit' && detail ? (
+                detail.files.length === 0 ? (
+                  <div className="commit-detail-panel__muted p-3 text-xs">ファイル差分はありません。</div>
+                ) : (
+                  detail.files.map((file) => (
+                    <button
+                      key={file.file}
+                      type="button"
+                      className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                        activeDiffFile === file.file ? 'is-active text-white' : ''
+                      }`}
+                      onClick={() => onOpenFileDiff(file.file)}
+                    >
+                      <div className="min-w-0">
+                        <div className="commit-detail-panel__file-name truncate text-xs font-medium">{file.file}</div>
+                        <div className={`commit-detail-panel__file-meta mt-1 flex items-center gap-2 text-[11px] ${activeDiffFile === file.file ? 'text-white/80' : ''}`}>
+                          <span className="text-[#157347]">+{file.additions}</span>
+                          <span className="text-[#b42318]">-{file.deletions}</span>
+                        </div>
                       </div>
+                      <div
+                        className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${
+                          activeDiffFile === file.file ? 'text-white' : ''
+                        }`}
+                      >
+                        <Expand size={12} />
+                        Open Diff
+                      </div>
+                    </button>
+                  ))
+                )
+              ) : workingTreeSelection && workingTreeSelection.files.length > 0 ? (
+                workingTreeSelection.files.map((file) => (
+                  onOpenWorkingTreeDiff ? (
+                    <button
+                      key={`${file.area}:${file.file}`}
+                      type="button"
+                      className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                        activeWorkingTreeDiff?.file === file.file && activeWorkingTreeDiff.area === file.area
+                          ? 'is-active text-white'
+                          : ''
+                      }`}
+                      onClick={() => onOpenWorkingTreeDiff(file.file, file.area)}
+                    >
+                      {renderWorkingTreeFileSummary(
+                        file,
+                        activeWorkingTreeDiff?.file === file.file && activeWorkingTreeDiff.area === file.area
+                      )}
+                      <div
+                        className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${
+                          activeWorkingTreeDiff?.file === file.file && activeWorkingTreeDiff.area === file.area ? 'text-white' : ''
+                        }`}
+                      >
+                        <Expand size={12} />
+                        Open Diff
+                      </div>
+                    </button>
+                  ) : (
+                    <div
+                      key={`${file.area}:${file.file}`}
+                      className="commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 last:mb-0"
+                    >
+                      {renderWorkingTreeFileSummary(file, false)}
                     </div>
-                    <div className={`flex items-center gap-1 text-[11px] font-semibold ${activeDiffFile === file.file ? 'text-white' : 'text-accent'}`}>
-                      <Expand size={12} />
-                      Open Diff
-                    </div>
-                  </button>
+                  )
                 ))
+              ) : (
+                <div className="commit-detail-panel__muted p-3 text-xs">未コミットの変更はありません。</div>
               )}
             </div>
           </div>

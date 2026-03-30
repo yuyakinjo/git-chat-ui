@@ -137,7 +137,7 @@ function clampColumnWidth(value: number): number {
 
 function refLabelClass(type: CommitRefLabel['type']): string {
   if (type === 'head') {
-    return 'border-blue-300 bg-blue-50 text-blue-700';
+    return 'commit-graph__ref-badge--head border-blue-300 bg-blue-50 text-blue-700';
   }
   if (type === 'tag') {
     return 'border-amber-300 bg-amber-50 text-amber-700';
@@ -321,12 +321,9 @@ export function CommitGraph({
 
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
-      <div className="mb-2 flex items-center justify-between px-2">
+      <div className="commit-graph__header mb-2 flex items-center justify-between px-2">
         <div>
           <div className="section-title">Commit Graph</div>
-          <div className="text-xs text-ink-subtle">
-            {isDetailedMode ? 'Detailed lane mode (branch / merge)' : 'Simple lane mode'}
-          </div>
         </div>
         {headerAccessory}
       </div>
@@ -334,6 +331,7 @@ export function CommitGraph({
       <div
         ref={rootRef}
         className="min-h-0 flex-1 overflow-auto"
+        data-controller-panel-drag-ignore="true"
         onScroll={(event) => {
           const target = event.currentTarget;
           if (!hasMore || loadingMore) {
@@ -586,7 +584,7 @@ export function CommitGraph({
               </div>
 
               <div className="truncate text-xs text-ink-soft">{formatRelativeDate(commit.date)}</div>
-              <div className="truncate text-sm text-ink">{commit.subject}</div>
+              <div className="commit-graph__cell--primary truncate text-sm text-ink">{commit.subject}</div>
               <div className="truncate text-xs text-ink-soft">{commit.author}</div>
               <div className="commit-id-column truncate text-xs text-ink-subtle">{shortSha(commit.sha)}</div>
             </div>
