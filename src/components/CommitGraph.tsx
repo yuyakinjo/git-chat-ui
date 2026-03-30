@@ -1,6 +1,7 @@
 import { animate, stagger } from 'animejs';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
+import { resolveCommitGraphColumnLayout } from '../lib/commitGraphColumns';
 import { buildLaneRows } from '../lib/commitGraphLayout';
 import { formatRelativeDate, shortSha } from '../lib/format';
 import type { CommitGraphMode, CommitListItem } from '../types';
@@ -186,6 +187,7 @@ export function CommitGraph({
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
     if (typeof window === 'undefined') {
       return REF_COLUMN_DEFAULT_WIDTH;
@@ -283,6 +285,35 @@ export function CommitGraph({
   }, []);
 
   useEffect(() => {
+    const rootNode = rootRef.current;
+    if (!rootNode) {
+      return;
+    }
+
+    const updateWidth = (): void => {
+      setContainerWidth(rootNode.clientWidth);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => {
+        window.removeEventListener('resize', updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+    observer.observe(rootNode);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!rootRef.current) {
       return;
     }
@@ -317,7 +348,14 @@ export function CommitGraph({
   const graphColumnWidth = isDetailedMode
     ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
     : 22;
-  const gridTemplateColumns = `${graphColumnWidth}px ${refsColumnWidth}px 140px minmax(0,1fr) 130px 96px`;
+  const columnLayout = resolveCommitGraphColumnLayout({
+    containerWidth,
+    graphColumnWidth,
+    refsColumnWidth
+  });
+  const isCompactLayout = columnLayout.isCompact;
+  const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
+  const gridTemplateColumns = columnLayout.templateColumns;
 
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
@@ -362,10 +400,10 @@ export function CommitGraph({
               aria-label="Resize refs column"
             />
           </span>
-          <span>Date</span>
+          {!isCompactLayout ? <span>Date</span> : null}
           <span>Message</span>
           <span>Author</span>
-          <span className="commit-id-column">SHA</span>
+          {!isCompactLayout ? <span className="commit-id-column">SHA</span> : null}
         </div>
 
         {loading ? <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div> : null}
@@ -420,21 +458,21 @@ export function CommitGraph({
               </div>
             )}
             <div className="overflow-hidden whitespace-nowrap text-xs">
-              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-[1px] text-[10px] font-semibold leading-4 text-amber-700">
+              <span className="wip-row__badge inline-flex items-center px-2 py-[1px] text-[10px] font-semibold leading-4">
                 WIP
               </span>
             </div>
-            <div className="truncate text-xs text-ink-subtle">今</div>
-            <div className="flex items-center gap-2 truncate text-sm font-medium text-amber-700">
+            {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
+            <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
               <span>// WIP</span>
-              <span className="text-xs font-normal text-ink-subtle">
+              <span className="wip-row__meta truncate text-xs font-normal">
                 {wipStagedCount > 0 ? `${wipStagedCount} staged` : ''}
                 {wipStagedCount > 0 && wipUnstagedCount > 0 ? ' · ' : ''}
                 {wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : ''}
               </span>
             </div>
-            <div className="truncate text-xs text-ink-subtle">—</div>
-            <div className="commit-id-column truncate text-xs text-ink-subtle">—</div>
+            <div className="wip-row__meta truncate text-xs">—</div>
+            {!isCompactLayout ? <div className="wip-row__meta commit-id-column truncate text-xs">—</div> : null}
           </div>
         ) : null}
 
@@ -562,7 +600,7 @@ export function CommitGraph({
                         className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-[1px] text-[10px] font-semibold leading-4 ${
                           refLabelClass(label.type)
                         } ${label.type === 'tag' ? '' : 'cursor-pointer'}`}
-                        style={{ maxWidth: `${Math.max(90, refsColumnWidth - 16)}px` }}
+                        style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
                         title={label.name}
                         onDoubleClick={(event) => {
                           if (busy || label.type === 'tag') {
@@ -583,10 +621,14 @@ export function CommitGraph({
                 )}
               </div>
 
-              <div className="truncate text-xs text-ink-soft">{formatRelativeDate(commit.date)}</div>
+              {!isCompactLayout ? (
+                <div className="truncate text-xs text-ink-soft">{formatRelativeDate(commit.date)}</div>
+              ) : null}
               <div className="commit-graph__cell--primary truncate text-sm text-ink">{commit.subject}</div>
               <div className="truncate text-xs text-ink-soft">{commit.author}</div>
-              <div className="commit-id-column truncate text-xs text-ink-subtle">{shortSha(commit.sha)}</div>
+              {!isCompactLayout ? (
+                <div className="commit-id-column truncate text-xs text-ink-subtle">{shortSha(commit.sha)}</div>
+              ) : null}
             </div>
           );
         })}

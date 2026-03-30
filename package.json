@@ -16,10 +16,10 @@
     "codex:tasks:watch": "bun server/codexThreadTasks.ts watch",
     "tauri:dev": "bunx tauri dev",
     "tauri:build": "bunx tauri build",
-    "build": "tsc -b && vite build",
+    "build": "tsgo -b && vite build",
     "test": "bun test",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsgo --noEmit -p tsconfig.app.json && tsgo --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -37,6 +37,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@typescript/native-preview": "^7.0.0-dev.20260330.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "bun-types": "^1.3.9",

@@ -27,6 +27,7 @@ fn main() {
             backend::get_commits,
             backend::get_commit_detail,
             backend::get_branch_diff_detail,
+            backend::get_working_tree_diff_detail,
             backend::get_working_tree_status,
             backend::stage_file,
             backend::unstage_file,
@@ -42,6 +43,8 @@ fn main() {
             backend::get_fingerprint,
             backend::get_config,
             backend::save_config,
+            backend::validate_open_ai_token,
+            backend::validate_claude_code_token,
             backend::generate_title
         ])
         .run(tauri::generate_context!())

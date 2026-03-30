@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { CalendarClock, Expand, FileCode2, User } from 'lucide-react';
 
+import { shouldSplitCommitDetailPanel } from '../lib/controllerPanelLayout';
 import { formatRelativeDate, shortSha } from '../lib/format';
 import type { CommitDetail, WorkingFile, WorkingTreeDiffArea } from '../types';
 
@@ -32,8 +34,41 @@ export function CommitDetailPanel({
   workingTreeSelection = null,
   headerAccessory
 }: CommitDetailPanelProps): JSX.Element {
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const selectionMode = workingTreeSelection ? 'working-tree' : detail ? 'commit' : 'empty';
   const canOpenWorkingTreeDiff = selectionMode === 'working-tree' && Boolean(onOpenWorkingTreeDiff);
+  const isSplitLayout = shouldSplitCommitDetailPanel(containerWidth);
+
+  useEffect(() => {
+    const rootNode = rootRef.current;
+    if (!rootNode) {
+      return;
+    }
+
+    const updateWidth = (): void => {
+      setContainerWidth(rootNode.clientWidth);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => {
+        window.removeEventListener('resize', updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+    observer.observe(rootNode);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   const renderWorkingTreeFileSummary = (
     file: Pick<WorkingFile, 'file' | 'statusLabel' | 'x' | 'y'> & { area: WorkingTreeDiffArea },
     isActive: boolean
@@ -97,13 +132,11 @@ export function CommitDetailPanel({
     ) : null;
 
   return (
-    <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
-      {selectionMode === 'empty' ? (
-        <div className="mb-2 flex items-center justify-between gap-2 px-2">
-          <div className="section-title">Commit Detail</div>
-          {headerAccessory}
-        </div>
-      ) : null}
+    <section ref={rootRef} className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
+      <div className="mb-2 flex items-center justify-between gap-2 px-2">
+        <div className="section-title">Commit Detail</div>
+        {headerAccessory}
+      </div>
 
       {loading && selectionMode !== 'working-tree' ? (
         <div className="commit-detail-panel__muted p-4 text-sm">詳細を読み込み中...</div>
@@ -114,16 +147,12 @@ export function CommitDetailPanel({
       ) : null}
 
       {selectionMode !== 'empty' ? (
-        <div className="commit-detail-panel__content px-2 pb-2" data-controller-panel-drag-ignore="true">
+        <div className={`commit-detail-panel__content px-2 pb-2 ${isSplitLayout ? 'commit-detail-panel__content--split' : ''}`}>
           <div className="commit-detail-panel__summary">
-            <div className="commit-detail-panel__summary-header mb-2 flex items-center justify-between gap-2">
-              <div className="section-title">Commit Detail</div>
-              {headerAccessory}
-            </div>
             {summaryCard}
           </div>
 
-          <div className="commit-detail-panel__files">
+          <div className="commit-detail-panel__files" data-controller-panel-drag-ignore="true">
             <div className="commit-detail-panel__files-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
               <span>Changed Files</span>
               {selectionMode !== 'commit' && !canOpenWorkingTreeDiff ? (

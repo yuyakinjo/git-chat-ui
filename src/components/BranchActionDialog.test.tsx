@@ -25,6 +25,9 @@ describe('BranchActionDialog', () => {
     expect(html).toContain('Merge');
     expect(html).toContain('Pull Request');
     expect(html).toContain('Cancel');
+    expect(html).toContain('title="Close"');
+    expect(html).toContain('aria-label="Close"');
+    expect(html).not.toContain('>Close<');
   });
 
   test('renders push confirmation step', () => {
@@ -46,6 +49,8 @@ describe('BranchActionDialog', () => {
     expect(html).toContain('Push Required');
     expect(html).toContain('Push and Create PR');
     expect(html).toContain('Back');
+    expect(html).toContain('title="Close"');
+    expect(html).not.toContain('>Close<');
   });
 
   test('shows a disabled merge reason when merge is blocked', () => {

@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { generateCommitTitle, validateClaudeCodeToken } from './aiService.js';
+import { generateCommitTitle, validateClaudeCodeToken, validateOpenAiToken } from './aiService.js';
 import { readConfig, setRecentlyUsedRepository, writeConfig } from './configStore.js';
 import {
   checkoutRef,
@@ -52,6 +52,14 @@ function getRepoPathFromQuery(request: Request): string {
 
 function parseCommitGraphMode(value: unknown): AppConfig['commitGraphMode'] | null {
   if (value === 'simple' || value === 'detailed') {
+    return value;
+  }
+
+  return null;
+}
+
+function parseSelectedAiProvider(value: unknown): AppConfig['selectedAiProvider'] | null {
+  if (value === 'openAi' || value === 'claudeCode') {
     return value;
   }
 
@@ -403,6 +411,7 @@ app.put('/api/config', async (request, response, next) => {
   try {
     const current = await readConfig();
     const parsedGraphMode = parseCommitGraphMode(request.body.commitGraphMode);
+    const parsedSelectedAiProvider = parseSelectedAiProvider(request.body.selectedAiProvider);
     const parsedRepositoryScanDepth = parseRepositoryScanDepth(request.body.repositoryScanDepth);
 
     const nextConfig: AppConfig = {
@@ -412,6 +421,7 @@ app.put('/api/config', async (request, response, next) => {
         typeof request.body.claudeCodeToken === 'string'
           ? request.body.claudeCodeToken
           : current.claudeCodeToken,
+      selectedAiProvider: parsedSelectedAiProvider ?? current.selectedAiProvider,
       commitTitlePrompt:
         typeof request.body.commitTitlePrompt === 'string'
           ? request.body.commitTitlePrompt
@@ -423,6 +433,16 @@ app.put('/api/config', async (request, response, next) => {
     await writeConfig(nextConfig);
 
     response.json({ ok: true, config: await readConfig() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/config/validate-openai-token', async (request, response, next) => {
+  try {
+    const token = typeof request.body.token === 'string' ? request.body.token : '';
+    const valid = await validateOpenAiToken(token);
+    response.json({ valid });
   } catch (error) {
     next(error);
   }

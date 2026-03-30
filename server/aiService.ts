@@ -43,15 +43,43 @@ export const DEFAULT_COMMIT_TITLE_PROMPT =
     'You are a Git assistant. Write a Git commit message from the provided staged changes.',
     'Requirements:',
     '- The first line must be an Angular-style conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.',
-    '- Keep the title in imperative mood and at most 72 characters including the prefix.',
-    '- Put any extra context after a blank line. The first line becomes the title and the rest becomes the description.',
+    '- Keep the title in imperative mood. The title line must be 72 characters or fewer including prefix, scope, spaces, and punctuation.',
+    '- If the title would exceed 72 characters, rewrite it shorter. Do not continue the overflow on the next line or in the description.',
+    '- After the title, insert a blank line and always include a short description of the key changes.',
+    '- Prefer 1-3 concise bullet points for the description. The first line becomes the title and the rest becomes the description.',
     '- Do not add labels like Title: or Description:, and do not wrap the response in quotes or code fences.',
-    '- If no description is needed, return only the title line.'
+    '- Do not omit the description, even for small changes.'
   ].join('\n');
 
 export function resolveCommitTitlePrompt(prompt: string | null | undefined): string {
   const normalized = typeof prompt === 'string' ? prompt.trim() : '';
   return normalized.length > 0 ? normalized : DEFAULT_COMMIT_TITLE_PROMPT;
+}
+
+export async function validateOpenAiToken(token: string): Promise<boolean> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/models', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${normalizedToken}`
+      },
+      signal: controller.signal
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function buildHeuristicTitle(changedFiles: string[]): string {
@@ -88,7 +116,7 @@ function normalizeTitle(rawTitle: string, fallback: string): string {
     return fallback;
   }
 
-  return trimmed.slice(0, 72);
+  return trimmed;
 }
 
 function stripLabel(value: string, labels: string[]): string {
@@ -152,13 +180,7 @@ export function normalizeGeneratedCommitMessage(
 
   const rawTitleLine = stripLabel(lines[0].replace(/^["'`]+|["'`]+$/g, ''), ['title', 'summary', 'subject']);
   const title = normalizeTitle(rawTitleLine, fallback);
-  const titleChars = Array.from(rawTitleLine);
-  const overflow = titleChars.length > 72 ? titleChars.slice(72).join('').trim() : '';
   const descriptionLines = [...lines.slice(1)];
-
-  if (overflow) {
-    descriptionLines.unshift(overflow);
-  }
 
   const firstDescriptionLine = descriptionLines.findIndex((line) => line.trim().length > 0);
   if (firstDescriptionLine >= 0) {

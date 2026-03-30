@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  --window-titlebar-height: 34px;
   --color-canvas: 243 244 248;
   --color-canvas-elevated: 255 255 255;
   --color-ink: 29 29 31;
@@ -156,20 +157,33 @@ body.is-working-tree-dragging {
 }
 
 .app-tabbar {
+  position: relative;
+  overflow: visible;
+  min-width: 0;
+}
+
+.app-tabbar__drag-region {
+  display: none;
+}
+
+.app-tabbar__content {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-end;
   gap: 12px;
-  padding: 10px;
+  min-width: 0;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid rgb(var(--theme-border-rgb) / 0.18);
 }
 
 .app-tabbar__lane {
   display: flex;
-  align-items: stretch;
-  gap: 8px;
-  flex: 1 1 420px;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
@@ -178,11 +192,52 @@ body.is-working-tree-dragging {
 }
 
 .app-tabbar__actions {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-end;
+  align-self: flex-end;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
+  padding: 0 0 5px 14px;
+}
+
+.app-tabbar__actions::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgb(var(--theme-border-rgb) / 0.18);
+}
+
+body[data-window-chrome='overlay-titlebar'] .app-shell {
+  padding-top: 0;
+}
+
+body[data-window-chrome='overlay-titlebar'] .app-tabbar {
+  padding-top: 0;
+}
+
+body[data-window-chrome='overlay-titlebar'] .app-tabbar__drag-region {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+body[data-window-chrome='overlay-titlebar'] .app-tabbar__content {
+  position: relative;
+  z-index: 1;
+  padding-top: 8px;
+  padding-left: 84px;
+  pointer-events: none;
+}
+
+body[data-window-chrome='overlay-titlebar'] .app-tabbar__lane,
+body[data-window-chrome='overlay-titlebar'] .app-tabbar__actions {
+  pointer-events: auto;
 }
 
 .app-theme-picker {
@@ -190,33 +245,30 @@ body.is-working-tree-dragging {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 0 14px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--tab-border);
-  border-radius: 16px;
-  background: var(--tab-bg);
+  border-radius: 10px;
+  background: rgb(var(--theme-elevated-strong-rgb) / 0.82);
   color: var(--text-secondary);
-  box-shadow: var(--tab-shadow);
+  box-shadow: none;
   cursor: pointer;
   transition:
-    transform 180ms ease,
     border-color 180ms ease,
-    box-shadow 180ms ease,
     background 180ms ease,
     color 180ms ease;
 }
 
 .app-theme-picker:hover {
-  transform: translateY(-1px);
   border-color: var(--tab-border-hover);
-  box-shadow: var(--tab-shadow-hover);
+  background: rgb(var(--theme-elevated-strong-rgb) / 0.94);
 }
 
 .app-theme-picker:focus-within {
   border-color: var(--tab-border-active);
   box-shadow:
-    var(--tab-shadow-active),
-    0 0 0 3px rgb(var(--color-accent) / 0.14);
+    0 0 0 1px rgb(var(--color-accent) / 0.26),
+    0 0 0 3px rgb(var(--color-accent) / 0.12);
   color: var(--tab-active-text);
 }
 
@@ -226,7 +278,7 @@ body.is-working-tree-dragging {
 }
 
 .app-theme-picker__select {
-  min-width: 148px;
+  min-width: 132px;
   border: none;
   background: transparent;
   color: inherit;
@@ -255,16 +307,13 @@ body.is-working-tree-dragging {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  min-height: 48px;
-  border: 1px solid var(--tab-border);
-  border-radius: 16px;
-  background: var(--tab-bg);
+  min-height: 36px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
-  box-shadow: var(--tab-shadow);
+  box-shadow: none;
   transition:
-    transform 180ms ease,
     border-color 180ms ease,
-    box-shadow 180ms ease,
     background 180ms ease,
     color 180ms ease;
 }
@@ -272,26 +321,74 @@ body.is-working-tree-dragging {
 button.app-tab {
   appearance: none;
   border-width: 1px;
-  padding: 0 14px;
+  padding: 0 12px;
   cursor: pointer;
 }
 
 .app-tab:hover {
-  transform: translateY(-1px);
   border-color: var(--tab-border-hover);
-  box-shadow: var(--tab-shadow-hover);
 }
 
 .app-tab.is-active {
   color: var(--tab-active-text);
+}
+
+.app-tab--browser {
+  min-height: 40px;
+  margin-bottom: -1px;
+  border-color: rgb(var(--theme-border-rgb) / 0.12);
+  border-bottom-color: transparent;
+  border-radius: 12px 12px 0 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--theme-elevated-strong-rgb) / 0.72),
+      rgb(var(--theme-elevated-rgb) / 0.52)
+    );
+}
+
+.app-tab--browser:hover {
+  border-color: rgb(var(--theme-border-rgb) / 0.18);
+  border-bottom-color: transparent;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--theme-elevated-strong-rgb) / 0.84),
+      rgb(var(--theme-elevated-rgb) / 0.62)
+    );
+}
+
+.app-tab--browser.is-active {
+  border-color: rgb(var(--theme-border-rgb) / 0.24);
+  border-bottom-color: transparent;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--theme-elevated-rgb) / 0.98),
+      rgb(var(--theme-elevated-strong-rgb) / 0.94)
+    );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.app-tab--utility {
+  border-color: rgb(var(--theme-border-rgb) / 0.12);
+  border-radius: 10px;
+  background: rgb(var(--theme-elevated-strong-rgb) / 0.82);
+}
+
+.app-tab--utility:hover {
+  background: rgb(var(--theme-elevated-strong-rgb) / 0.94);
+}
+
+.app-tab--utility.is-active {
   border-color: var(--tab-border-active);
   background: var(--tab-bg-active);
-  box-shadow: var(--tab-shadow-active);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 
 .app-tab--repository {
-  max-width: min(360px, 52vw);
-  padding-right: 6px;
+  max-width: min(360px, 46vw);
+  padding-right: 4px;
 }
 
 .app-tab__trigger {
@@ -300,7 +397,7 @@ button.app-tab {
   gap: 10px;
   min-width: 0;
   height: 100%;
-  padding: 0 10px 0 14px;
+  padding: 0 10px 0 12px;
   border: none;
   background: transparent;
   color: inherit;
@@ -343,11 +440,11 @@ button.app-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
-  border-radius: 9999px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   opacity: 0.72;
@@ -359,15 +456,20 @@ button.app-tab {
 }
 
 .app-tab__close:hover {
-  background: rgba(15, 23, 42, 0.08);
+  background: rgb(var(--theme-border-rgb) / 0.1);
   color: var(--text-primary);
   opacity: 1;
 }
 
-.app-tab--action,
+.app-tab--action {
+  justify-content: center;
+  width: 36px;
+  padding: 0;
+}
+
 .app-tab--icon {
   justify-content: center;
-  width: 48px;
+  width: 40px;
   padding: 0;
 }
 
@@ -552,16 +654,14 @@ button.app-tab {
   flex-direction: column;
 }
 
-@media (min-width: 1080px) {
-  .commit-detail-panel__content {
-    display: grid;
-    grid-template-columns: minmax(300px, 0.88fr) minmax(0, 1.12fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
+.commit-detail-panel__content--split {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.88fr) minmax(0, 1.12fr);
+  grid-template-rows: minmax(0, 1fr);
+}
 
-  .commit-detail-panel__summary {
-    align-self: start;
-  }
+.commit-detail-panel__content--split .commit-detail-panel__summary {
+  align-self: start;
 }
 
 body[data-theme='default-dark'] .commit-detail-panel__file-button.is-active {
@@ -960,11 +1060,12 @@ body[data-theme='default-dark'] .text-slate-700 {
   z-index: 120;
   width: 216px;
   border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(244, 247, 252, 0.95));
+  border: 1px solid var(--surface-border-strong);
+  background: linear-gradient(148deg, rgb(var(--theme-elevated-strong-rgb) / 0.94), rgb(var(--theme-elevated-rgb) / 0.9));
+  color: var(--text-primary);
   box-shadow:
-    0 20px 48px rgba(15, 23, 42, 0.2),
-    0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+    0 24px 56px rgb(var(--theme-overlay-rgb) / 0.34),
+    0 0 0 1px rgb(255 255 255 / 0.06) inset;
   padding: 8px;
   backdrop-filter: blur(18px) saturate(170%);
   -webkit-backdrop-filter: blur(18px) saturate(170%);
@@ -979,19 +1080,26 @@ body[data-theme='default-dark'] .text-slate-700 {
   border-radius: 12px;
   padding: 10px 12px;
   background: transparent;
-  color: var(--text-primary);
+  color: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
-.branch-context-menu__item:hover:not(:disabled) {
-  background: rgba(15, 23, 42, 0.06);
+.branch-context-menu__item:hover:not(:disabled),
+.branch-context-menu__item:focus-visible:not(:disabled) {
+  background: var(--list-hover-bg);
 }
 
-.branch-context-menu__item.is-danger:hover:not(:disabled) {
-  background: rgba(180, 35, 24, 0.08);
+.branch-context-menu__item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(var(--color-accent) / 0.34);
+}
+
+.branch-context-menu__item.is-danger:hover:not(:disabled),
+.branch-context-menu__item.is-danger:focus-visible:not(:disabled) {
+  background: rgba(180, 35, 24, 0.14);
 }
 
 .branch-context-menu__item.is-danger {
@@ -1004,7 +1112,9 @@ body[data-theme='default-dark'] .text-slate-700 {
 }
 
 .branch-context-menu__hint {
-  padding: 8px 12px 4px;
+  margin-top: 4px;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--surface-border);
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-subtle);
@@ -1107,6 +1217,44 @@ body[data-theme='default-dark'] .commit-graph__ref-badge--tag {
   background: rgba(254, 243, 199, 0.7) !important;
 }
 
+.wip-row__badge {
+  border-radius: 9999px;
+  border: 1px solid rgb(252 211 77 / 0.72);
+  background: rgb(255 251 235 / 0.94);
+  color: rgb(180 83 9 / 0.98);
+}
+
+.wip-row__primary {
+  color: rgb(180 83 9 / 0.98);
+}
+
+.wip-row__meta {
+  color: rgb(146 64 14 / 0.82);
+}
+
+body[data-theme='default-dark'] .wip-row {
+  border-color: rgb(251 191 36 / 0.28) !important;
+  background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;
+}
+
+body[data-theme='default-dark'] .wip-row:hover {
+  background: linear-gradient(90deg, rgb(146 64 14 / 0.44), rgb(92 71 49 / 0.5)) !important;
+}
+
+body[data-theme='default-dark'] .wip-row__badge {
+  border-color: rgb(251 191 36 / 0.38);
+  background: rgb(146 64 14 / 0.2);
+  color: rgb(254 240 138 / 0.98);
+}
+
+body[data-theme='default-dark'] .wip-row__primary {
+  color: rgb(253 230 138 / 0.98);
+}
+
+body[data-theme='default-dark'] .wip-row__meta {
+  color: rgb(254 243 199 / 0.82);
+}
+
 .wip-node {
   display: block;
   width: 18px;
@@ -1172,6 +1320,18 @@ body[data-theme='default-dark'] .commit-graph__ref-badge--tag {
   transform: translateX(2px);
 }
 
+.git-operation-panel__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.git-operation-panel__grid--2 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.git-operation-panel__grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .git-operation-panel__file-row {
   user-select: none;
   -webkit-user-select: none;
@@ -1187,6 +1347,47 @@ body[data-theme='default-dark'] .commit-graph__ref-badge--tag {
   opacity: 0.56;
   transform: translateX(8px) scale(0.985);
   cursor: grabbing;
+}
+
+.git-operation-panel__file-name .git-file-path-label {
+  justify-content: flex-start;
+}
+
+.git-operation-panel__file-name .git-file-path-label__directory {
+  flex: 0 1 auto;
+}
+
+.git-operation-panel__title-input {
+  min-height: 43px;
+  max-height: 43px;
+  padding-right: 46px;
+  resize: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;
+  word-break: normal;
+  scrollbar-width: thin;
+}
+
+.git-operation-panel__title-input.is-over-limit {
+  border-color: rgba(239, 68, 68, 0.38);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.08);
+}
+
+.git-operation-panel__commit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin-top: -2px;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.git-operation-panel__commit-meta.is-over-limit {
+  color: #b42318;
 }
 
 .git-file-card__status-icon {
@@ -1843,12 +2044,8 @@ body[data-theme='default-dark'] .commit-graph__ref-badge--tag {
     padding: 12px;
   }
 
-  .commit-row {
-    grid-template-columns: 20px 102px 1fr 96px;
-  }
-
-  .commit-row .commit-id-column {
-    display: none;
+  body[data-window-chrome='overlay-titlebar'] .app-shell {
+    padding-top: 0;
   }
 }
 

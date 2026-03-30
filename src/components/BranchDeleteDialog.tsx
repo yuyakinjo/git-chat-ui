@@ -52,13 +52,13 @@ export function BranchDeleteDialog({
 
           <button
             type="button"
-            className="button button-secondary !px-3 !py-2"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center !p-0"
             onClick={onClose}
-            aria-label="close branch delete dialog"
+            title="Close"
+            aria-label="Close"
             disabled={busy}
           >
             <X size={14} />
-            Close
           </button>
         </div>
 

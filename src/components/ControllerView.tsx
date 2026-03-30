@@ -119,11 +119,46 @@ function isHeadDecoration(decoration: string): boolean {
 
 const CONTROLLER_PANEL_ORDER_STORAGE_KEY = 'git-chat-ui.controller-panel-order';
 const PANEL_DRAG_THRESHOLD_PX = 6;
+const CONTROLLER_PANEL_DRAG_IGNORE_SELECTOR = [
+  '[data-controller-panel-drag-ignore="true"]',
+  '[data-working-tree-no-drag="true"]',
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'option',
+  'label',
+  'a',
+  '[role="button"]',
+  '[role="link"]',
+  '[contenteditable="true"]'
+].join(', ');
 const controllerPanelLabels: Record<ControllerPanelId, string> = {
   commitGraph: 'Commit Graph',
   gitOperations: 'Git Operations',
   commitDetail: 'Commit Detail'
 };
+
+function resolveControllerPanelDragTarget(target: EventTarget | null): Element | null {
+  if (target instanceof Element) {
+    return target;
+  }
+
+  if (target instanceof Node) {
+    return target.parentElement;
+  }
+
+  return null;
+}
+
+function shouldIgnoreControllerPanelPointerDown(target: EventTarget | null): boolean {
+  const element = resolveControllerPanelDragTarget(target);
+  if (!element) {
+    return false;
+  }
+
+  return Boolean(element.closest(CONTROLLER_PANEL_DRAG_IGNORE_SELECTOR));
+}
 
 export function ControllerView({
   repository,
@@ -227,7 +262,7 @@ export function ControllerView({
     ? dropTargetPanelId
       ? `${controllerPanelLabels[dropTargetPanelId]} にドロップして位置を入れ替え`
       : '別のパネルにドロップして位置を入れ替え'
-    : '右上の handle をドラッグしてパネル位置を入れ替えます。';
+    : null;
 
   const updateDraggedPanelId = useCallback((value: ControllerPanelId | null): void => {
     draggedPanelIdRef.current = value;
@@ -1105,16 +1140,21 @@ export function ControllerView({
     }
   };
 
-  const handlePanelHandlePointerDown = (
-    event: React.PointerEvent<HTMLButtonElement>,
+  const handlePanelPointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
     panelId: ControllerPanelId
   ): void => {
     if (event.button !== 0 || operationBusy) {
       return;
     }
 
+    if (shouldIgnoreControllerPanelPointerDown(event.target)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
+    window.getSelection()?.removeAllRanges();
     panelDragPointerRef.current = {
       panelId,
       pointerId: event.pointerId,
@@ -1123,19 +1163,6 @@ export function ControllerView({
     };
     updateDropTargetPanelId(null);
   };
-
-  const renderPanelHandle = (panelId: ControllerPanelId): JSX.Element => (
-    <button
-      type="button"
-      className="controller-panel-slot__handle"
-      aria-label={`${controllerPanelLabels[panelId]} をドラッグして位置を入れ替え`}
-      title={`${controllerPanelLabels[panelId]} をドラッグして位置を入れ替え`}
-      disabled={operationBusy}
-      onPointerDown={(event) => handlePanelHandlePointerDown(event, panelId)}
-    >
-      <GripVertical size={13} />
-    </button>
-  );
 
   const commitGraphPanel = (
     <CommitGraph
@@ -1178,7 +1205,6 @@ export function ControllerView({
           compareRefs: activeCompareRefs
         });
       }}
-      headerAccessory={renderPanelHandle('commitGraph')}
     />
   );
 
@@ -1268,7 +1294,6 @@ export function ControllerView({
           await api.push(repoPath);
         });
       }}
-      headerAccessory={renderPanelHandle('gitOperations')}
     />
   );
 
@@ -1285,7 +1310,6 @@ export function ControllerView({
         void loadWorkingTreeDiffDetail(file, area);
       }}
       workingTreeSelection={workingTreeSelection}
-      headerAccessory={renderPanelHandle('commitDetail')}
     />
   );
 
@@ -1333,7 +1357,7 @@ export function ControllerView({
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] gap-3 max-[1380px]:grid-cols-[250px_minmax(0,1fr)] max-[1180px]:grid-cols-1">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
@@ -1347,7 +1371,7 @@ export function ControllerView({
           onRequestDeleteBranch={handleRequestDeleteBranch}
         />
 
-        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1.35fr)_minmax(260px,1fr)_minmax(240px,0.95fr)] gap-3 max-[1180px]:grid-rows-[minmax(280px,1.2fr)_minmax(240px,1fr)_minmax(220px,0.95fr)]">
+        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1.35fr)_minmax(260px,1fr)_minmax(240px,0.95fr)] gap-3 max-[1100px]:grid-rows-[minmax(280px,1.2fr)_minmax(240px,1fr)_minmax(220px,0.95fr)]">
           {panelOrder.map((panelId) => {
             const isDragActive = draggedPanelId !== null;
             const isDropTarget = dropTargetPanelId === panelId;
@@ -1364,7 +1388,9 @@ export function ControllerView({
               <div
                 key={panelId}
                 data-controller-panel-drop-id={panelId}
+                data-controller-panel-drag-source-id={panelId}
                 className={`controller-panel-slot min-h-0 ${isDropCandidate ? 'is-drop-candidate' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragSource ? 'is-drag-source' : ''}`}
+                onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
               >
                 <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>
 

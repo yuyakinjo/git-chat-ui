@@ -176,6 +176,36 @@ export function findRepositoryForTab(repositories: Repository[], tabId: string):
   return repositories.find((repository) => repository.path === repoPath) ?? null;
 }
 
+export function resolveGithubButtonRepository(
+  repositories: Repository[],
+  activeTabId: AppTabId,
+  lastRepositoryPath: string | null
+): Repository | null {
+  const activeRepository = findRepositoryForTab(repositories, activeTabId);
+  if (activeRepository) {
+    return activeRepository;
+  }
+
+  if (activeTabId !== CONFIG_TAB_ID || !lastRepositoryPath) {
+    return null;
+  }
+
+  return repositories.find((repository) => repository.path === lastRepositoryPath) ?? null;
+}
+
+export function resolveConfigEscapeTabId(
+  repositories: Repository[],
+  lastRepositoryPath: string | null
+): AppTabId | null {
+  if (!lastRepositoryPath) {
+    return null;
+  }
+
+  return repositories.some((repository) => repository.path === lastRepositoryPath)
+    ? getRepositoryTabId(lastRepositoryPath)
+    : null;
+}
+
 export function closeRepositoryTab(
   repositories: Repository[],
   repoPath: string,

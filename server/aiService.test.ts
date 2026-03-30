@@ -5,6 +5,7 @@ import {
   generateCommitTitle,
   normalizeGeneratedCommitMessage,
   resolveCommitTitlePrompt,
+  validateOpenAiToken,
   validateClaudeCodeToken
 } from './aiService.js';
 
@@ -21,10 +22,11 @@ describe('resolveCommitTitlePrompt', () => {
     expect(resolveCommitTitlePrompt(undefined)).toBe(DEFAULT_COMMIT_TITLE_PROMPT);
   });
 
-  test('uses a default prompt that asks for an Angular-style prefix', () => {
+  test('uses a default prompt that asks for an Angular-style prefix, short title, and description', () => {
     expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('Angular-style conventional commit title');
-    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('feat:');
-    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('fix:');
+    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('72 characters or fewer');
+    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('rewrite it shorter');
+    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('always include a short description');
   });
 
   test('preserves a custom prompt', () => {
@@ -44,14 +46,16 @@ describe('normalizeGeneratedCommitMessage', () => {
     });
   });
 
-  test('moves characters beyond 72 in the first line into the description', () => {
+  test('keeps long titles intact instead of moving overflow into the description', () => {
     const result = normalizeGeneratedCommitMessage(
       'feat: add a very long summary line that keeps going past the expected seventy-two character limit',
       'Update UI'
     );
 
-    expect(result.title).toBe('feat: add a very long summary line that keeps going past the expected se');
-    expect(result.description).toBe('venty-two character limit');
+    expect(result.title).toBe(
+      'feat: add a very long summary line that keeps going past the expected seventy-two character limit'
+    );
+    expect(result.description).toBe('');
   });
 
   test('falls back to the heuristic title when the model output is blank', () => {
@@ -180,6 +184,49 @@ describe('generateCommitTitle', () => {
   });
 });
 
+describe('validateOpenAiToken', () => {
+  test('does not call OpenAI when the token is blank', async () => {
+    let called = false;
+    globalThis.fetch = ((async () => {
+      called = true;
+      return new Response(null, { status: 500 });
+    }) as unknown) as typeof fetch;
+
+    await expect(validateOpenAiToken('   ')).resolves.toBe(false);
+    expect(called).toBe(false);
+  });
+
+  test('calls the OpenAI models endpoint with bearer auth', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+
+    globalThis.fetch = ((async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([String(input), init]);
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as unknown) as typeof fetch;
+
+    await expect(validateOpenAiToken('sk-openai-valid')).resolves.toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBe('https://api.openai.com/v1/models');
+    expect(calls[0]?.[1]?.method).toBe('GET');
+    expect(calls[0]?.[1]?.headers).toEqual({
+      Authorization: 'Bearer sk-openai-valid'
+    });
+  });
+
+  test('returns false when the OpenAI models endpoint rejects the token', async () => {
+    globalThis.fetch = ((async () =>
+      new Response(JSON.stringify({ error: { message: 'unauthorized' } }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      })) as unknown) as typeof fetch;
+
+    await expect(validateOpenAiToken('sk-openai-invalid')).resolves.toBe(false);
+  });
+});
+
 describe('validateClaudeCodeToken', () => {
   test('does not call Anthropic when the token is blank', async () => {
     let called = false;
@@ -273,4 +320,3 @@ describe('validateClaudeCodeToken', () => {
     });
   });
 });
-

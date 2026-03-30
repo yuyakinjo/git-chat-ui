@@ -13,6 +13,8 @@ import {
   getRepositoryTabBranchLabel,
   getRepositoryTabId,
   parsePersistedAppSession,
+  resolveConfigEscapeTabId,
+  resolveGithubButtonRepository,
   resolveRestoredActiveTabId,
   serializeAppSession,
   type AppTabId,
@@ -100,7 +102,8 @@ export default function App(): JSX.Element {
   const [hasInitializedSession, setHasInitializedSession] = useState(false);
   const [repositoryBranchLabels, setRepositoryBranchLabels] = useState<Record<string, string | null>>({});
   const [hasVisitedConfig, setHasVisitedConfig] = useState(false);
-  const [activeRepositoryGithubUrl, setActiveRepositoryGithubUrl] = useState<string | null>(null);
+  const [lastRepositoryPath, setLastRepositoryPath] = useState<string | null>(null);
+  const [githubButtonUrl, setGithubButtonUrl] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>('');
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
@@ -111,11 +114,21 @@ export default function App(): JSX.Element {
     () => findRepositoryForTab(openRepositories, activeTabId),
     [activeTabId, openRepositories]
   );
+  const githubButtonRepository = useMemo(
+    () => resolveGithubButtonRepository(openRepositories, activeTabId, lastRepositoryPath),
+    [activeTabId, lastRepositoryPath, openRepositories]
+  );
+  const configEscapeTabId = useMemo(
+    () => resolveConfigEscapeTabId(openRepositories, lastRepositoryPath),
+    [lastRepositoryPath, openRepositories]
+  );
   const activeThemeLabel = getAppThemeLabel(appTheme);
+  const isTauriDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.body.dataset.theme = appTheme;
+      document.body.dataset.windowChrome = isTauriDesktop ? 'overlay-titlebar' : 'default';
     }
 
     if (typeof window === 'undefined') {
@@ -127,7 +140,7 @@ export default function App(): JSX.Element {
     } catch {
       // Ignore storage failures and keep the in-memory theme.
     }
-  }, [appTheme]);
+  }, [appTheme, isTauriDesktop]);
 
   useEffect(() => {
     void api.syncWindowAppearance(getNativeWindowAppearance(appTheme)).catch(() => {
@@ -217,22 +230,30 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!activeRepository) {
-      setActiveRepositoryGithubUrl(null);
+      return;
+    }
+
+    setLastRepositoryPath((current) => (current === activeRepository.path ? current : activeRepository.path));
+  }, [activeRepository]);
+
+  useEffect(() => {
+    if (!githubButtonRepository) {
+      setGithubButtonUrl(null);
       return;
     }
 
     let active = true;
-    setActiveRepositoryGithubUrl(null);
+    setGithubButtonUrl(null);
 
     void (async () => {
       try {
-        const response = await api.getRepositoryGithubUrl(activeRepository.path);
+        const response = await api.getRepositoryGithubUrl(githubButtonRepository.path);
         if (active) {
-          setActiveRepositoryGithubUrl(response.url ?? null);
+          setGithubButtonUrl(response.url ?? null);
         }
       } catch {
         if (active) {
-          setActiveRepositoryGithubUrl(null);
+          setGithubButtonUrl(null);
         }
       }
     })();
@@ -240,7 +261,28 @@ export default function App(): JSX.Element {
     return () => {
       active = false;
     };
-  }, [activeRepository]);
+  }, [githubButtonRepository]);
+
+  useEffect(() => {
+    if (!isConfigActive || !configEscapeTabId || typeof window === 'undefined') {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveTabId(configEscapeTabId);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [configEscapeTabId, isConfigActive]);
 
   useEffect(() => {
     if (!isDashboardActive) {
@@ -309,6 +351,7 @@ export default function App(): JSX.Element {
   const handleSelectRepository = (repository: Repository): void => {
     void api.markRecentRepository(repository.path);
     setOpenRepositories((current) => upsertRepositoryTab(current, repository));
+    setLastRepositoryPath(repository.path);
     setActiveTabId(getRepositoryTabId(repository.path));
   };
 
@@ -340,12 +383,12 @@ export default function App(): JSX.Element {
   }, []);
 
   const handleOpenGithubRepository = async (): Promise<void> => {
-    if (!activeRepositoryGithubUrl) {
+    if (!githubButtonUrl) {
       return;
     }
 
     try {
-      await api.openExternalUrl(activeRepositoryGithubUrl);
+      await api.openExternalUrl(githubButtonUrl);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'GitHub を開けませんでした。');
     }
@@ -353,104 +396,110 @@ export default function App(): JSX.Element {
 
   return (
     <main className="app-shell">
-      <header className="panel app-tabbar">
-        <div className="app-tabbar__lane">
-          <button
-            type="button"
-            className={`app-tab ${isDashboardActive ? 'is-active' : ''}`}
-            onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
-          >
-            <LayoutDashboard size={16} />
-            <span className="app-tab__label">Dashboard</span>
-          </button>
-
-          {openRepositories.map((repository) => {
-            const tabId = getRepositoryTabId(repository.path);
-            const isActive = activeTabId === tabId;
-            const branchLabel = repositoryBranchLabels[repository.path];
-            return (
-              <div key={repository.path} className={`app-tab app-tab--repository ${isActive ? 'is-active' : ''}`}>
-                <button
-                  type="button"
-                  className="app-tab__trigger"
-                  onClick={() => setActiveTabId(tabId)}
-                  title={repository.path}
-                >
-                  <FolderGit2 size={16} className="shrink-0" />
-                  <span className="app-tab__text">
-                    <span className="app-tab__label">{repository.name}</span>
-                    {branchLabel ? (
-                      <span className="app-tab__branch" title={`現在のチェックアウトブランチ: ${branchLabel}`}>
-                        {branchLabel}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="app-tab__close"
-                  aria-label={`${repository.name} タブを閉じる`}
-                  title={`${repository.name} タブを閉じる`}
-                  onClick={() => handleCloseRepository(repository)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            className="app-tab app-tab--action"
-            aria-label="repository を追加"
-            title="repository を追加"
-            onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-
-        <div className="app-tabbar__actions">
-          <label className="app-theme-picker" title={`Theme: ${activeThemeLabel}`}>
-            <Palette size={15} className="app-theme-picker__icon" />
-            <select
-              className="app-theme-picker__select"
-              aria-label="Application theme"
-              value={appTheme}
-              onChange={(event) => setAppTheme(normalizeAppTheme(event.target.value))}
-            >
-              {APP_THEME_OPTIONS.map((theme) => (
-                <option key={theme.id} value={theme.id}>
-                  {theme.label}
-                </option>
-              ))}
-            </select>
-            <span className="app-theme-picker__chevron" aria-hidden="true">
-              ▾
-            </span>
-          </label>
-          {activeRepositoryGithubUrl ? (
+      <header className="app-tabbar">
+        <div className="app-tabbar__drag-region" data-tauri-drag-region />
+        <div className="app-tabbar__content">
+          <div className="app-tabbar__lane">
             <button
               type="button"
-              className="app-tab app-tab--icon"
-              aria-label={`${activeRepository?.name ?? 'Repository'} を GitHub で開く`}
-              title={`${activeRepository?.name ?? 'Repository'} を GitHub で開く`}
-              onClick={() => {
-                void handleOpenGithubRepository();
-              }}
+              className={`app-tab app-tab--browser ${isDashboardActive ? 'is-active' : ''}`}
+              onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
             >
-              <Github size={16} />
+              <LayoutDashboard size={16} />
+              <span className="app-tab__label">Dashboard</span>
             </button>
-          ) : null}
-          <button
-            type="button"
-            className={`app-tab app-tab--icon ${isConfigActive ? 'is-active' : ''}`}
-            aria-label="Config"
-            title="Config"
-            onClick={() => setActiveTabId(CONFIG_TAB_ID)}
-          >
-            <Cog size={16} />
-          </button>
+
+            {openRepositories.map((repository) => {
+              const tabId = getRepositoryTabId(repository.path);
+              const isActive = activeTabId === tabId;
+              const branchLabel = repositoryBranchLabels[repository.path];
+              return (
+                <div
+                  key={repository.path}
+                  className={`app-tab app-tab--browser app-tab--repository ${isActive ? 'is-active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="app-tab__trigger"
+                    onClick={() => setActiveTabId(tabId)}
+                    title={repository.path}
+                  >
+                    <FolderGit2 size={16} className="shrink-0" />
+                    <span className="app-tab__text">
+                      <span className="app-tab__label">{repository.name}</span>
+                      {branchLabel ? (
+                        <span className="app-tab__branch" title={`現在のチェックアウトブランチ: ${branchLabel}`}>
+                          {branchLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="app-tab__close"
+                    aria-label={`${repository.name} タブを閉じる`}
+                    title={`${repository.name} タブを閉じる`}
+                    onClick={() => handleCloseRepository(repository)}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              className="app-tab app-tab--utility app-tab--action"
+              aria-label="repository を追加"
+              title="repository を追加"
+              onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+
+          <div className="app-tabbar__actions">
+            <label className="app-theme-picker app-tab--utility" title={`Theme: ${activeThemeLabel}`}>
+              <Palette size={15} className="app-theme-picker__icon" />
+              <select
+                className="app-theme-picker__select"
+                aria-label="Application theme"
+                value={appTheme}
+                onChange={(event) => setAppTheme(normalizeAppTheme(event.target.value))}
+              >
+                {APP_THEME_OPTIONS.map((theme) => (
+                  <option key={theme.id} value={theme.id}>
+                    {theme.label}
+                  </option>
+                ))}
+              </select>
+              <span className="app-theme-picker__chevron" aria-hidden="true">
+                ▾
+              </span>
+            </label>
+            {githubButtonUrl ? (
+              <button
+                type="button"
+                className="app-tab app-tab--utility app-tab--icon"
+                aria-label={`${githubButtonRepository?.name ?? 'Repository'} を GitHub で開く`}
+                title={`${githubButtonRepository?.name ?? 'Repository'} を GitHub で開く`}
+                onClick={() => {
+                  void handleOpenGithubRepository();
+                }}
+              >
+                <Github size={18} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? 'is-active' : ''}`}
+              aria-label="Config"
+              title="Config"
+              onClick={() => setActiveTabId(CONFIG_TAB_ID)}
+            >
+              <Cog size={18} />
+            </button>
+          </div>
         </div>
       </header>
 

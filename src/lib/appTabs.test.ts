@@ -12,6 +12,8 @@ import {
   getRepositoryTabId,
   getRepositoryTabPath,
   parsePersistedAppSession,
+  resolveConfigEscapeTabId,
+  resolveGithubButtonRepository,
   resolveRestoredActiveTabId,
   serializeAppSession,
   upsertRepositoryTab
@@ -46,6 +48,30 @@ describe('appTabs', () => {
     );
     expect(findRepositoryForTab([alphaRepository], DASHBOARD_TAB_ID)).toBeNull();
     expect(getRepositoryTabPath(getRepositoryTabId(alphaRepository.path))).toBe(alphaRepository.path);
+  });
+
+  test('resolveGithubButtonRepository preserves the last repository context only for config tabs', () => {
+    expect(
+      resolveGithubButtonRepository(
+        [alphaRepository, betaRepository],
+        getRepositoryTabId(betaRepository.path),
+        alphaRepository.path
+      )
+    ).toEqual(betaRepository);
+
+    expect(resolveGithubButtonRepository([alphaRepository, betaRepository], CONFIG_TAB_ID, alphaRepository.path)).toEqual(
+      alphaRepository
+    );
+    expect(resolveGithubButtonRepository([alphaRepository, betaRepository], CONFIG_TAB_ID, '/repos/missing')).toBeNull();
+    expect(resolveGithubButtonRepository([alphaRepository, betaRepository], DASHBOARD_TAB_ID, alphaRepository.path)).toBeNull();
+  });
+
+  test('resolveConfigEscapeTabId returns the last open repository tab only when it still exists', () => {
+    expect(resolveConfigEscapeTabId([alphaRepository, betaRepository], betaRepository.path)).toBe(
+      getRepositoryTabId(betaRepository.path)
+    );
+    expect(resolveConfigEscapeTabId([alphaRepository], betaRepository.path)).toBeNull();
+    expect(resolveConfigEscapeTabId([alphaRepository], null)).toBeNull();
   });
 
   test('getRepositoryTabBranchLabel normalizes missing and detached states', () => {

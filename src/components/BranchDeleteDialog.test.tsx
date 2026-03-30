@@ -20,6 +20,9 @@ describe('BranchDeleteDialog', () => {
     expect(html).toContain('feature/delete-me');
     expect(html).toContain('この操作は取り消せません');
     expect(html).toContain('Cancel');
+    expect(html).toContain('title="Close"');
+    expect(html).toContain('aria-label="Close"');
+    expect(html).not.toContain('>Close<');
   });
 
   test('renders remote delete confirmation copy', () => {

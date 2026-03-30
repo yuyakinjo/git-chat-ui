@@ -6,10 +6,13 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_REPOSITORIES: usize = 300;
 const MIN_SCAN_DEPTH: usize = 1;
@@ -17,6 +20,19 @@ const MAX_SCAN_DEPTH: usize = 8;
 const MAIN_WINDOW_LABEL: &str = "main";
 const MIN_WINDOW_WIDTH: u32 = 1200;
 const MIN_WINDOW_HEIGHT: u32 = 760;
+const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(300);
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
+    "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
+    "Requirements:\n",
+    "- The first line must be an Angular-style conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.\n",
+    "- Keep the title in imperative mood. The title line must be 72 characters or fewer including prefix, scope, spaces, and punctuation.\n",
+    "- If the title would exceed 72 characters, rewrite it shorter. Do not continue the overflow on the next line or in the description.\n",
+    "- After the title, insert a blank line and always include a short description of the key changes.\n",
+    "- Prefer 1-3 concise bullet points for the description. The first line becomes the title and the rest becomes the description.\n",
+    "- Do not add labels like Title: or Description:, and do not wrap the response in quotes or code fences.\n",
+    "- Do not omit the description, even for small changes."
+);
 #[cfg(target_os = "macos")]
 const KEYCHAIN_ACCOUNT: &str = "git-chat-ui";
 #[cfg(target_os = "macos")]
@@ -24,7 +40,7 @@ const KEYCHAIN_SERVICE_OPENAI: &str = "git-chat-ui.openai-token";
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE_CLAUDE: &str = "git-chat-ui.claudecode-token";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CommitGraphMode {
     Simple,
@@ -34,6 +50,19 @@ pub enum CommitGraphMode {
 impl Default for CommitGraphMode {
     fn default() -> Self {
         Self::Detailed
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AiProvider {
+    OpenAi,
+    ClaudeCode,
+}
+
+impl Default for AiProvider {
+    fn default() -> Self {
+        Self::OpenAi
     }
 }
 
@@ -49,6 +78,8 @@ pub struct RecentRepository {
 pub struct AppConfig {
     pub open_ai_token: String,
     pub claude_code_token: String,
+    pub selected_ai_provider: AiProvider,
+    pub commit_title_prompt: String,
     pub commit_graph_mode: CommitGraphMode,
     pub repository_scan_depth: usize,
     pub recently_used: Vec<RecentRepository>,
@@ -71,6 +102,8 @@ impl Default for AppConfig {
         Self {
             open_ai_token: String::new(),
             claude_code_token: String::new(),
+            selected_ai_provider: AiProvider::OpenAi,
+            commit_title_prompt: String::new(),
             commit_graph_mode: CommitGraphMode::Detailed,
             repository_scan_depth: 4,
             recently_used: Vec::new(),
@@ -174,6 +207,16 @@ pub struct WorkingTreeStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkingTreeDiffDetail {
+    pub file: String,
+    pub area: String,
+    pub files: Vec<CommitFileStat>,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StashEntry {
     pub id: String,
     pub relative_date: String,
@@ -210,9 +253,11 @@ pub struct RepositoryMutationSafetyResponse {
     pub is_self_repository: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct TitleResponse {
     pub title: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -239,11 +284,18 @@ pub struct SaveConfigResponse {
     pub config: Option<AppConfig>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenValidationResult {
+    pub valid: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveConfigInput {
     pub open_ai_token: Option<String>,
     pub claude_code_token: Option<String>,
+    pub selected_ai_provider: Option<AiProvider>,
+    pub commit_title_prompt: Option<String>,
     pub commit_graph_mode: Option<CommitGraphMode>,
     pub repository_scan_depth: Option<usize>,
 }
@@ -337,6 +389,14 @@ fn normalize_repository_scan_depth(value: usize) -> usize {
     value.clamp(MIN_SCAN_DEPTH, MAX_SCAN_DEPTH)
 }
 
+fn normalize_selected_ai_provider(value: Option<&Value>) -> AiProvider {
+    match value.and_then(Value::as_str) {
+        Some("claudeCode") => AiProvider::ClaudeCode,
+        Some("openAi") => AiProvider::OpenAi,
+        _ => AiProvider::default(),
+    }
+}
+
 fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -410,6 +470,13 @@ fn normalize_config_value(value: Value) -> AppConfig {
         .unwrap_or_default()
         .to_string();
 
+    let selected_ai_provider = normalize_selected_ai_provider(value.get("selectedAiProvider"));
+    let commit_title_prompt = value
+        .get("commitTitlePrompt")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
     let commit_graph_mode = match value.get("commitGraphMode").and_then(Value::as_str) {
         Some("simple") => CommitGraphMode::Simple,
         Some("detailed") => CommitGraphMode::Detailed,
@@ -433,6 +500,8 @@ fn normalize_config_value(value: Value) -> AppConfig {
     AppConfig {
         open_ai_token,
         claude_code_token,
+        selected_ai_provider,
+        commit_title_prompt,
         commit_graph_mode,
         repository_scan_depth,
         recently_used,
@@ -475,6 +544,8 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
     let normalized = AppConfig {
         open_ai_token: config.open_ai_token.clone(),
         claude_code_token: config.claude_code_token.clone(),
+        selected_ai_provider: config.selected_ai_provider,
+        commit_title_prompt: config.commit_title_prompt.clone(),
         commit_graph_mode: config.commit_graph_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         recently_used: config.recently_used.clone(),
@@ -560,16 +631,22 @@ fn clamp_window_state_to_area(
         .height
         .max(MIN_WINDOW_HEIGHT)
         .min(area.size.height.max(MIN_WINDOW_HEIGHT));
-    let max_x = area.position.x.saturating_add(
-        i32::try_from(area.size.width.saturating_sub(width)).unwrap_or(i32::MAX),
-    );
-    let max_y = area.position.y.saturating_add(
-        i32::try_from(area.size.height.saturating_sub(height)).unwrap_or(i32::MAX),
-    );
+    let max_x = area
+        .position
+        .x
+        .saturating_add(i32::try_from(area.size.width.saturating_sub(width)).unwrap_or(i32::MAX));
+    let max_y = area
+        .position
+        .y
+        .saturating_add(i32::try_from(area.size.height.saturating_sub(height)).unwrap_or(i32::MAX));
 
     WindowState {
-        x: window_state.x.clamp(area.position.x, max_x.max(area.position.x)),
-        y: window_state.y.clamp(area.position.y, max_y.max(area.position.y)),
+        x: window_state
+            .x
+            .clamp(area.position.x, max_x.max(area.position.x)),
+        y: window_state
+            .y
+            .clamp(area.position.y, max_y.max(area.position.y)),
         width,
         height,
         is_maximized: window_state.is_maximized,
@@ -634,13 +711,76 @@ fn persist_window_state_if_changed(
     Ok(())
 }
 
-fn should_persist_window_event(event: &tauri::WindowEvent) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DebouncedWindowStateCommand {
+    Persist,
+    Shutdown,
+}
+
+fn schedule_window_state_persist_on_main_thread(
+    window: &tauri::WebviewWindow,
+    last_window_state: &Arc<Mutex<Option<WindowState>>>,
+) -> Result<(), String> {
+    let persisted_window = window.clone();
+    let cached_window_state = Arc::clone(last_window_state);
+
+    window
+        .run_on_main_thread(move || {
+            if let Err(error) =
+                persist_window_state_if_changed(&persisted_window, &cached_window_state)
+            {
+                eprintln!("failed to persist main window state: {error}");
+            }
+        })
+        .map_err(|error| format!("Failed to schedule main window state persistence: {error}"))
+}
+
+fn spawn_window_state_persist_worker(
+    window: tauri::WebviewWindow,
+    last_window_state: Arc<Mutex<Option<WindowState>>>,
+) -> mpsc::Sender<DebouncedWindowStateCommand> {
+    let (sender, receiver) = mpsc::channel::<DebouncedWindowStateCommand>();
+
+    thread::spawn(move || {
+        while let Ok(command) = receiver.recv() {
+            match command {
+                DebouncedWindowStateCommand::Persist => loop {
+                    match receiver.recv_timeout(WINDOW_STATE_PERSIST_DEBOUNCE) {
+                        Ok(DebouncedWindowStateCommand::Persist) => continue,
+                        Ok(DebouncedWindowStateCommand::Shutdown) => return,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if let Err(error) = schedule_window_state_persist_on_main_thread(
+                                &window,
+                                &last_window_state,
+                            ) {
+                                eprintln!(
+                                    "failed to queue debounced main window state persistence: {error}"
+                                );
+                            }
+                            break;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                },
+                DebouncedWindowStateCommand::Shutdown => return,
+            }
+        }
+    });
+
+    sender
+}
+
+fn should_debounce_window_persist_event(event: &tauri::WindowEvent) -> bool {
     matches!(
         event,
-        tauri::WindowEvent::Moved(_)
-            | tauri::WindowEvent::Resized(_)
-            | tauri::WindowEvent::CloseRequested { .. }
-            | tauri::WindowEvent::Destroyed
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
+    )
+}
+
+fn should_immediately_persist_window_event(event: &tauri::WindowEvent) -> bool {
+    matches!(
+        event,
+        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
     )
 }
 
@@ -657,12 +797,26 @@ pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
 
     let persisted_window = window.clone();
     let last_window_state = Arc::new(Mutex::new(initial_window_state));
+    let debounced_persist_sender =
+        spawn_window_state_persist_worker(persisted_window.clone(), Arc::clone(&last_window_state));
     window.on_window_event(move |event| {
-        if should_persist_window_event(event) {
+        if should_debounce_window_persist_event(event) {
+            if let Err(error) = debounced_persist_sender.send(DebouncedWindowStateCommand::Persist)
+            {
+                eprintln!("failed to queue main window state persistence: {error}");
+            }
+            return;
+        }
+
+        if should_immediately_persist_window_event(event) {
             if let Err(error) =
                 persist_window_state_if_changed(&persisted_window, &last_window_state)
             {
                 eprintln!("failed to persist main window state: {error}");
+            }
+
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = debounced_persist_sender.send(DebouncedWindowStateCommand::Shutdown);
             }
         }
     });
@@ -797,7 +951,11 @@ fn ensure_local_branch(repo_path: &str, branch_name: &str) -> Result<(), String>
     run_git(&["rev-parse", "--verify", reference.as_str()], repo_path).map(|_| ())
 }
 
-fn ensure_branch_pair(repo_path: &str, source_branch: &str, target_branch: &str) -> Result<(), String> {
+fn ensure_branch_pair(
+    repo_path: &str,
+    source_branch: &str,
+    target_branch: &str,
+) -> Result<(), String> {
     if source_branch.trim().is_empty() || target_branch.trim().is_empty() {
         return Err("sourceBranch and targetBranch are required.".to_string());
     }
@@ -852,7 +1010,12 @@ fn get_local_default_branch_name(repo_path: &str) -> Result<Option<String>, Stri
         .iter()
         .find(|branch| branch.name == "main")
         .or_else(|| branches.local.iter().find(|branch| branch.name == "master"))
-        .or_else(|| branches.local.iter().find(|branch| branch.name == branches.current))
+        .or_else(|| {
+            branches
+                .local
+                .iter()
+                .find(|branch| branch.name == branches.current)
+        })
         .or_else(|| branches.local.first());
 
     Ok(candidate.map(|branch| branch.name.clone()))
@@ -861,7 +1024,12 @@ fn get_local_default_branch_name(repo_path: &str) -> Result<Option<String>, Stri
 fn get_remote_default_branch_name(repo_path: &str, remote_name: &str) -> Option<String> {
     let remote_head_ref = format!("refs/remotes/{remote_name}/HEAD");
     if let Ok(reference) = run_git(
-        &["symbolic-ref", "--quiet", "--short", remote_head_ref.as_str()],
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            remote_head_ref.as_str(),
+        ],
         repo_path,
     ) {
         let normalized = reference.trim();
@@ -874,7 +1042,10 @@ fn get_remote_default_branch_name(repo_path: &str, remote_name: &str) -> Option<
     get_local_default_branch_name(repo_path).ok().flatten()
 }
 
-fn ensure_deletable_remote_branch(repo_path: &str, branch_name: &str) -> Result<(String, String), String> {
+fn ensure_deletable_remote_branch(
+    repo_path: &str,
+    branch_name: &str,
+) -> Result<(String, String), String> {
     ensure_repo_path(repo_path)?;
     let (remote_name, remote_branch_name) = parse_remote_branch_name(branch_name)?;
     let reference = format!("refs/remotes/{branch_name}");
@@ -944,9 +1115,12 @@ fn ensure_github_auth(repo_path: &str) -> Result<(), String> {
 
 fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
     let upstream_ref = format!("{branch_name}@{{upstream}}");
-    run_git(&["rev-parse", "--abbrev-ref", upstream_ref.as_str()], repo_path)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    run_git(
+        &["rev-parse", "--abbrev-ref", upstream_ref.as_str()],
+        repo_path,
+    )
+    .ok()
+    .filter(|value| !value.trim().is_empty())
 }
 
 fn is_push_required(repo_path: &str, branch_name: &str) -> Result<bool, String> {
@@ -1022,6 +1196,183 @@ fn status_label(code: &str) -> String {
         _ => "Changed",
     }
     .to_string()
+}
+
+fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() != 3 {
+                return None;
+            }
+
+            let additions = parts[0].parse::<i64>().unwrap_or(0);
+            let deletions = parts[1].parse::<i64>().unwrap_or(0);
+
+            Some(CommitFileStat {
+                file: parts[2].to_string(),
+                additions,
+                deletions,
+            })
+        })
+        .collect()
+}
+
+fn working_tree_diff_args(area: &str, subcommand: Option<&str>) -> Result<Vec<String>, String> {
+    let mut args = vec!["diff".to_string()];
+
+    match area {
+        "staged" => args.push("--cached".to_string()),
+        "unstaged" => {}
+        _ => return Err("area must be staged or unstaged.".to_string()),
+    }
+
+    if let Some(value) = subcommand.filter(|value| !value.is_empty()) {
+        args.push(value.to_string());
+    }
+
+    Ok(args)
+}
+
+fn resolve_working_tree_file_path(repo_path: &str, file: &str) -> Result<PathBuf, String> {
+    let repo_root = fs::canonicalize(repo_path)
+        .map_err(|error| format!("Failed to resolve repository path: {error}"))?;
+    let resolved = fs::canonicalize(repo_root.join(file))
+        .map_err(|error| format!("Failed to resolve file path: {error}"))?;
+
+    if !resolved.starts_with(&repo_root) {
+        return Err("file must stay within repository.".to_string());
+    }
+
+    Ok(resolved)
+}
+
+fn resolve_new_file_mode(mode: u32) -> &'static str {
+    if mode & 0o111 != 0 {
+        "100755"
+    } else {
+        "100644"
+    }
+}
+
+fn normalize_text_file_content(content: &str) -> String {
+    content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn split_text_lines(content: &str) -> (Vec<String>, bool) {
+    if content.is_empty() {
+        return (Vec::new(), false);
+    }
+
+    let normalized = normalize_text_file_content(content);
+    let has_trailing_newline = normalized.ends_with('\n');
+    let mut lines: Vec<String> = normalized.split('\n').map(ToString::to_string).collect();
+
+    if has_trailing_newline {
+        lines.pop();
+    }
+
+    (lines, has_trailing_newline)
+}
+
+fn build_untracked_text_diff(file: &str, content: &str, mode: &str) -> String {
+    let (lines, has_trailing_newline) = split_text_lines(content);
+    let mut output = vec![
+        format!("diff --git a/{file} b/{file}"),
+        format!("new file mode {mode}"),
+        "--- /dev/null".to_string(),
+        format!("+++ b/{file}"),
+    ];
+
+    if !lines.is_empty() {
+        output.push(format!("@@ -0,0 +1,{} @@", lines.len()));
+        for line in lines {
+            output.push(format!("+{line}"));
+        }
+
+        if !has_trailing_newline {
+            output.push("\\ No newline at end of file".to_string());
+        }
+    }
+
+    output.join("\n")
+}
+
+fn list_untracked_files(repo_path: &str, files: &[String]) -> Result<HashSet<String>, String> {
+    let normalized: Vec<String> = files
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+
+    if normalized.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let mut args = vec![
+        "ls-files".to_string(),
+        "--others".to_string(),
+        "--exclude-standard".to_string(),
+        "--".to_string(),
+    ];
+    args.extend(normalized);
+
+    let output = run_git_owned(&args, repo_path)?;
+
+    Ok(output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn build_untracked_file_diff_snapshot(
+    repo_path: &str,
+    file: &str,
+) -> Result<(CommitFileStat, String), String> {
+    let absolute_path = resolve_working_tree_file_path(repo_path, file)?;
+    let metadata = fs::metadata(&absolute_path)
+        .map_err(|error| format!("Failed to read file metadata: {error}"))?;
+    let buffer =
+        fs::read(&absolute_path).map_err(|error| format!("Failed to read file: {error}"))?;
+    #[cfg(unix)]
+    let file_mode = metadata.permissions().mode();
+    #[cfg(not(unix))]
+    let file_mode = 0o100644;
+    let mode = resolve_new_file_mode(file_mode);
+
+    if buffer.contains(&0) {
+        return Ok((
+            CommitFileStat {
+                file: file.to_string(),
+                additions: 0,
+                deletions: 0,
+            },
+            [
+                format!("diff --git a/{file} b/{file}"),
+                format!("new file mode {mode}"),
+                "--- /dev/null".to_string(),
+                format!("+++ b/{file}"),
+                format!("Binary files /dev/null and b/{file} differ"),
+            ]
+            .join("\n"),
+        ));
+    }
+
+    let content = String::from_utf8_lossy(&buffer).to_string();
+    let (lines, _) = split_text_lines(&content);
+
+    Ok((
+        CommitFileStat {
+            file: file.to_string(),
+            additions: lines.len() as i64,
+            deletions: 0,
+        },
+        build_untracked_text_diff(file, &content, mode),
+    ))
 }
 
 fn git_status_index_code(status: Status) -> char {
@@ -1306,7 +1657,108 @@ fn normalize_title(raw_title: &str, fallback: &str) -> String {
         trimmed
     };
 
-    selected.chars().take(72).collect()
+    selected
+}
+
+fn strip_label(value: &str, labels: &[&str]) -> String {
+    let trimmed = value.trim();
+    let lower = trimmed.to_lowercase();
+
+    for label in labels {
+        let prefix = format!("{label}:");
+        if lower.starts_with(&prefix) {
+            return trimmed[prefix.len()..].trim_start().to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
+fn trim_blank_lines(lines: Vec<String>) -> Vec<String> {
+    let start = lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map(|index| index + 1)
+        .unwrap_or(start);
+
+    lines
+        .into_iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect()
+}
+
+fn normalize_generated_commit_message(raw_message: &str, fallback_title: &str) -> TitleResponse {
+    let normalized = raw_message.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = normalized.trim().to_string();
+    let fallback = normalize_title(fallback_title, "Update repository state");
+
+    if normalized.is_empty() {
+        return TitleResponse {
+            title: fallback,
+            description: String::new(),
+        };
+    }
+
+    let mut fenced_lines = normalized
+        .lines()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if fenced_lines
+        .first()
+        .map(|line| line.trim_start().starts_with("```"))
+        .unwrap_or(false)
+    {
+        fenced_lines.remove(0);
+    }
+    if fenced_lines
+        .last()
+        .map(|line| line.trim_start().starts_with("```"))
+        .unwrap_or(false)
+    {
+        fenced_lines.pop();
+    }
+
+    let lines = trim_blank_lines(fenced_lines);
+    if lines.is_empty() {
+        return TitleResponse {
+            title: fallback,
+            description: String::new(),
+        };
+    }
+
+    let raw_title_line = strip_label(
+        lines[0].trim_matches(|character| character == '"' || character == '\'' || character == '`'),
+        &["title", "summary", "subject"],
+    );
+    let title = normalize_title(&raw_title_line, &fallback);
+    let mut description_lines = lines.into_iter().skip(1).collect::<Vec<_>>();
+
+    if let Some(first_description_line) = description_lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+    {
+        description_lines[first_description_line] =
+            strip_label(&description_lines[first_description_line], &["description", "body"]);
+    }
+
+    TitleResponse {
+        title,
+        description: trim_blank_lines(description_lines).join("\n"),
+    }
+}
+
+fn resolve_commit_title_prompt(prompt: &str) -> String {
+    let normalized = prompt.trim();
+    if normalized.is_empty() {
+        DEFAULT_COMMIT_TITLE_PROMPT.to_string()
+    } else {
+        normalized.to_string()
+    }
 }
 
 fn run_curl_json(url: &str, headers: &[String], payload: Value) -> Option<Value> {
@@ -1332,25 +1784,93 @@ fn run_curl_json(url: &str, headers: &[String], payload: Value) -> Option<Value>
     serde_json::from_str::<Value>(&stdout).ok()
 }
 
-fn generate_with_openai(
-    token: &str,
-    changed_files: &[String],
-    diff_snippet: &str,
-) -> Option<String> {
-    if token.trim().is_empty() {
-        return None;
+fn run_curl_success(url: &str, headers: &[String]) -> bool {
+    let mut command = Command::new("curl");
+    command.args(["-sS", "-f", "-m", "9", "-X", "GET", url]);
+
+    for header in headers {
+        command.arg("-H");
+        command.arg(header);
     }
 
-    let prompt = format!(
+    command
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn is_anthropic_api_key(token: &str) -> bool {
+    token.starts_with("sk-ant")
+}
+
+fn get_claude_auth_header_variants(token: &str) -> Vec<Vec<String>> {
+    let normalized = token.trim();
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+
+    let api_key_headers = vec![format!("x-api-key: {normalized}")];
+    let bearer_headers = vec![format!("Authorization: Bearer {normalized}")];
+
+    if is_anthropic_api_key(normalized) {
+        vec![api_key_headers, bearer_headers]
+    } else {
+        vec![bearer_headers, api_key_headers]
+    }
+}
+
+fn validate_openai_token_internal(token: &str) -> bool {
+    let normalized = token.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    run_curl_success(
+        "https://api.openai.com/v1/models",
+        &[format!("Authorization: Bearer {normalized}")],
+    )
+}
+
+fn validate_claude_code_token_internal(token: &str) -> bool {
+    let normalized = token.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    get_claude_auth_header_variants(normalized)
+        .into_iter()
+        .any(|headers| {
+            let mut request_headers = headers;
+            request_headers.push(format!("anthropic-version: {ANTHROPIC_API_VERSION}"));
+            run_curl_success("https://api.anthropic.com/v1/models", &request_headers)
+        })
+}
+
+fn generate_ai_user_prompt(changed_files: &[String], diff_snippet: &str) -> String {
+    format!(
         "Changed files:\n{}\n\nDiff snippet:\n{}",
         changed_files.join("\n"),
         diff_snippet
-    );
+    )
+}
+
+fn generate_with_openai(
+    token: &str,
+    system_prompt: &str,
+    changed_files: &[String],
+    diff_snippet: &str,
+) -> Option<String> {
+    let normalized_token = token.trim();
+    if normalized_token.is_empty() {
+        return None;
+    }
+
+    let prompt = generate_ai_user_prompt(changed_files, diff_snippet);
 
     let json = run_curl_json(
         "https://api.openai.com/v1/responses",
         &[
-            format!("Authorization: Bearer {token}"),
+            format!("Authorization: Bearer {normalized_token}"),
             "Content-Type: application/json".to_string(),
         ],
         json!({
@@ -1359,7 +1879,7 @@ fn generate_with_openai(
             "input": [
                 {
                     "role": "system",
-                    "content": "You are a Git assistant. Return only a concise commit title in imperative mood, max 72 chars."
+                    "content": system_prompt
                 },
                 {
                     "role": "user",
@@ -1388,6 +1908,7 @@ fn generate_with_openai(
 
 fn generate_with_claude(
     token: &str,
+    system_prompt: &str,
     changed_files: &[String],
     diff_snippet: &str,
 ) -> Option<String> {
@@ -1395,74 +1916,107 @@ fn generate_with_claude(
         return None;
     }
 
-    let prompt = format!(
-        "Changed files:\n{}\n\nDiff snippet:\n{}",
-        changed_files.join("\n"),
-        diff_snippet
-    );
+    let prompt = generate_ai_user_prompt(changed_files, diff_snippet);
 
-    let json = run_curl_json(
-        "https://api.anthropic.com/v1/messages",
-        &[
-            format!("x-api-key: {token}"),
-            "anthropic-version: 2023-06-01".to_string(),
-            "content-type: application/json".to_string(),
-        ],
-        json!({
-            "model": "claude-3-5-haiku-latest",
-            "max_tokens": 80,
-            "system": "You are a Git assistant. Return only a concise commit title in imperative mood, max 72 chars.",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }),
-    )?;
+    for mut headers in get_claude_auth_header_variants(token) {
+        headers.push(format!("anthropic-version: {ANTHROPIC_API_VERSION}"));
+        headers.push("content-type: application/json".to_string());
 
-    json.get("content")
-        .and_then(Value::as_array)
-        .and_then(|content| {
-            content.iter().find_map(|item| {
-                let is_text = item
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .map(|kind| kind == "text")
-                    .unwrap_or(false);
+        let Some(json) = run_curl_json(
+            "https://api.anthropic.com/v1/messages",
+            &headers,
+            json!({
+                "model": "claude-3-5-haiku-latest",
+                "max_tokens": 80,
+                "system": system_prompt,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt.clone()
+                    }
+                ]
+            }),
+        ) else {
+            continue;
+        };
 
-                if is_text {
-                    item.get("text")
+        if let Some(message) = json
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|content| {
+                content.iter().find_map(|item| {
+                    let is_text = item
+                        .get("type")
                         .and_then(Value::as_str)
-                        .map(ToString::to_string)
-                } else {
-                    None
-                }
+                        .map(|kind| kind == "text")
+                        .unwrap_or(false);
+
+                    if is_text {
+                        item.get("text")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string)
+                    } else {
+                        None
+                    }
+                })
             })
-        })
+        {
+            return Some(message);
+        }
+    }
+
+    None
 }
 
 fn generate_commit_title_internal(
     config: &AppConfig,
     changed_files: &[String],
     diff_snippet: &str,
-) -> String {
+) -> TitleResponse {
     let fallback = build_heuristic_title(changed_files);
     let limited_diff: String = diff_snippet.chars().take(4000).collect();
+    let system_prompt = resolve_commit_title_prompt(&config.commit_title_prompt);
+    let provider_order = match config.selected_ai_provider {
+        AiProvider::OpenAi => [AiProvider::OpenAi, AiProvider::ClaudeCode],
+        AiProvider::ClaudeCode => [AiProvider::ClaudeCode, AiProvider::OpenAi],
+    };
 
-    if let Some(open_ai_title) =
-        generate_with_openai(&config.open_ai_token, changed_files, &limited_diff)
-    {
-        return normalize_title(&open_ai_title, &fallback);
+    for provider in provider_order {
+        let message = match provider {
+            AiProvider::OpenAi => generate_with_openai(
+                &config.open_ai_token,
+                &system_prompt,
+                changed_files,
+                &limited_diff,
+            ),
+            AiProvider::ClaudeCode => generate_with_claude(
+                &config.claude_code_token,
+                &system_prompt,
+                changed_files,
+                &limited_diff,
+            ),
+        };
+
+        if let Some(message) = message {
+            return normalize_generated_commit_message(&message, &fallback);
+        }
     }
 
-    if let Some(claude_title) =
-        generate_with_claude(&config.claude_code_token, changed_files, &limited_diff)
-    {
-        return normalize_title(&claude_title, &fallback);
-    }
+    normalize_generated_commit_message("", &fallback)
+}
 
-    normalize_title(&fallback, "Update repository state")
+#[tauri::command]
+pub fn validate_open_ai_token(token: String) -> Result<TokenValidationResult, String> {
+    Ok(TokenValidationResult {
+        valid: validate_openai_token_internal(&token),
+    })
+}
+
+#[tauri::command]
+pub fn validate_claude_code_token(token: String) -> Result<TokenValidationResult, String> {
+    Ok(TokenValidationResult {
+        valid: validate_claude_code_token_internal(&token),
+    })
 }
 
 #[tauri::command]
@@ -1590,9 +2144,7 @@ pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
 }
 
 #[tauri::command]
-pub fn get_repository_github_url(
-    repo_path: String,
-) -> Result<RepositoryGithubUrlResponse, String> {
+pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUrlResponse, String> {
     ensure_repo_path(&repo_path)?;
 
     let remote_url = match run_git(&["remote", "get-url", "origin"], &repo_path) {
@@ -1734,26 +2286,7 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
     }
 
     let file_stats_raw = run_git(&["show", "--pretty=format:", "--numstat", &sha], &repo_path)?;
-
-    let files: Vec<CommitFileStat> = file_stats_raw
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() != 3 {
-                return None;
-            }
-
-            let additions = parts[0].parse::<i64>().unwrap_or(0);
-            let deletions = parts[1].parse::<i64>().unwrap_or(0);
-
-            Some(CommitFileStat {
-                file: parts[2].to_string(),
-                additions,
-                deletions,
-            })
-        })
-        .collect();
+    let files = parse_commit_file_stats(&file_stats_raw);
 
     let diff = run_git(&["show", "--pretty=format:", &sha], &repo_path)?;
 
@@ -1805,25 +2338,7 @@ pub fn get_branch_diff_detail(
     let range = format!("{merge_base_sha}..{target_ref}");
 
     let file_stats_raw = run_git(&["diff", "--numstat", range.as_str()], &repo_path)?;
-    let files: Vec<CommitFileStat> = file_stats_raw
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() != 3 {
-                return None;
-            }
-
-            let additions = parts[0].parse::<i64>().unwrap_or(0);
-            let deletions = parts[1].parse::<i64>().unwrap_or(0);
-
-            Some(CommitFileStat {
-                file: parts[2].to_string(),
-                additions,
-                deletions,
-            })
-        })
-        .collect();
+    let files = parse_commit_file_stats(&file_stats_raw);
 
     let diff = run_git(&["diff", range.as_str()], &repo_path)?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -1832,6 +2347,53 @@ pub fn get_branch_diff_detail(
         base_ref,
         target_ref,
         merge_base_sha,
+        files,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
+    })
+}
+
+#[tauri::command]
+pub fn get_working_tree_diff_detail(
+    repo_path: String,
+    file: String,
+    area: String,
+) -> Result<WorkingTreeDiffDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let file = file.trim().to_string();
+    if file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let area = area.trim().to_string();
+
+    let mut numstat_args = working_tree_diff_args(&area, Some("--numstat"))?;
+    numstat_args.push("--".to_string());
+    numstat_args.push(file.clone());
+    let file_stats_output = run_git_owned(&numstat_args, &repo_path)?;
+    let mut files = parse_commit_file_stats(&file_stats_output);
+
+    let mut diff_args = working_tree_diff_args(&area, None)?;
+    diff_args.push("--".to_string());
+    diff_args.push(file.clone());
+    let mut diff = run_git_owned(&diff_args, &repo_path)?;
+
+    if area == "unstaged" && diff.trim().is_empty() {
+        let untracked_files = list_untracked_files(&repo_path, &[file.clone()])?;
+        if untracked_files.contains(&file) {
+            let (file_stat, untracked_diff) =
+                build_untracked_file_diff_snapshot(&repo_path, &file)?;
+            files = vec![file_stat];
+            diff = untracked_diff;
+        }
+    }
+
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(WorkingTreeDiffDetail {
+        file,
+        area,
         files,
         diff: diff.chars().take(25_000).collect(),
         is_diff_truncated,
@@ -2075,7 +2637,12 @@ pub fn delete_branch(
             let (remote_name, remote_branch_name) =
                 ensure_deletable_remote_branch(&repo_path, &branch_name)?;
             run_git(
-                &["push", remote_name.as_str(), "--delete", remote_branch_name.as_str()],
+                &[
+                    "push",
+                    remote_name.as_str(),
+                    "--delete",
+                    remote_branch_name.as_str(),
+                ],
                 &repo_path,
             )?;
             run_git(&["fetch", remote_name.as_str(), "--prune"], &repo_path)?;
@@ -2254,6 +2821,12 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
     let next_config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
+        selected_ai_provider: input
+            .selected_ai_provider
+            .unwrap_or(current.selected_ai_provider),
+        commit_title_prompt: input
+            .commit_title_prompt
+            .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: input.commit_graph_mode.unwrap_or(current.commit_graph_mode),
         repository_scan_depth: normalize_repository_scan_depth(
             input
@@ -2281,15 +2854,70 @@ pub fn generate_title(
 
     let config = read_config()?;
     let diff_snippet = get_diff_snippet(&repo_path, &changed_files)?;
-    let title = generate_commit_title_internal(&config, &changed_files, &diff_snippet);
-
-    Ok(TitleResponse { title })
+    Ok(generate_commit_title_internal(
+        &config,
+        &changed_files,
+        &diff_snippet,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    struct TestRepoFixture {
+        root_dir: PathBuf,
+        repo_path: String,
+    }
+
+    impl Drop for TestRepoFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root_dir);
+        }
+    }
+
+    fn create_working_tree_diff_fixture() -> TestRepoFixture {
+        let root_dir = std::env::temp_dir().join(format!(
+            "git-chat-ui-tauri-working-tree-diff-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("current time should be after epoch")
+                .as_nanos()
+        ));
+        let repo_path = root_dir.join("repo");
+        fs::create_dir_all(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        fs::write(repo_path.join("README.md"), "line 1\nline 2\n")
+            .expect("initial file should be written");
+        run_command("git", &["add", "README.md"], &repo_path_str).expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        fs::write(
+            repo_path.join("README.md"),
+            "line 1\nline changed\nline 3\n",
+        )
+        .expect("working tree change should be written");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
 
     #[test]
     fn normalize_window_state_clamps_small_dimensions() {
@@ -2313,6 +2941,75 @@ mod tests {
                 is_maximized: true,
             }
         );
+    }
+
+    #[test]
+    fn normalize_config_value_preserves_ai_provider_and_prompt() {
+        let config = normalize_config_value(json!({
+            "openAiToken": "sk-openai",
+            "claudeCodeToken": "cc-token",
+            "selectedAiProvider": "claudeCode",
+            "commitTitlePrompt": "Write a short Japanese commit message.",
+            "commitGraphMode": "simple",
+            "repositoryScanDepth": 6
+        }));
+
+        assert_eq!(config.open_ai_token, "sk-openai");
+        assert_eq!(config.claude_code_token, "cc-token");
+        assert_eq!(config.selected_ai_provider, AiProvider::ClaudeCode);
+        assert_eq!(
+            config.commit_title_prompt,
+            "Write a short Japanese commit message."
+        );
+        assert_eq!(config.commit_graph_mode, CommitGraphMode::Simple);
+        assert_eq!(config.repository_scan_depth, 6);
+    }
+
+    #[test]
+    fn resolve_commit_title_prompt_uses_default_when_blank() {
+        assert_eq!(
+            resolve_commit_title_prompt("   "),
+            DEFAULT_COMMIT_TITLE_PROMPT
+        );
+        assert_eq!(
+            resolve_commit_title_prompt("Summarize changes in Japanese."),
+            "Summarize changes in Japanese."
+        );
+    }
+
+    #[test]
+    fn default_commit_title_prompt_requests_description() {
+        assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("always include a short description"));
+        assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("72 characters or fewer"));
+        assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("rewrite it shorter"));
+    }
+
+    #[test]
+    fn normalize_generated_commit_message_uses_first_line_and_description() {
+        assert_eq!(
+            normalize_generated_commit_message(
+                "feat(ui): tighten commit prompt handling\n\n- add prefix guidance",
+                "Update UI"
+            ),
+            TitleResponse {
+                title: "feat(ui): tighten commit prompt handling".to_string(),
+                description: "- add prefix guidance".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_generated_commit_message_keeps_long_titles_intact() {
+        let result = normalize_generated_commit_message(
+            "feat: add a very long summary line that keeps going past the expected seventy-two character limit",
+            "Update UI",
+        );
+
+        assert_eq!(
+            result.title,
+            "feat: add a very long summary line that keeps going past the expected seventy-two character limit"
+        );
+        assert_eq!(result.description, "");
     }
 
     #[test]
@@ -2344,16 +3041,75 @@ mod tests {
     }
 
     #[test]
-    fn should_persist_window_event_for_bounds_changes() {
-        assert!(should_persist_window_event(&tauri::WindowEvent::Moved(
-            tauri::PhysicalPosition::new(24, 48),
-        )));
-        assert!(should_persist_window_event(&tauri::WindowEvent::Resized(
-            tauri::PhysicalSize::new(1440, 900),
-        )));
-        assert!(should_persist_window_event(&tauri::WindowEvent::Destroyed));
-        assert!(!should_persist_window_event(&tauri::WindowEvent::Focused(
-            true,
-        )));
+    fn window_persist_event_routing_matches_event_type() {
+        assert!(should_debounce_window_persist_event(
+            &tauri::WindowEvent::Moved(tauri::PhysicalPosition::new(24, 48),)
+        ));
+        assert!(should_debounce_window_persist_event(
+            &tauri::WindowEvent::Resized(tauri::PhysicalSize::new(1440, 900),)
+        ));
+        assert!(!should_immediately_persist_window_event(
+            &tauri::WindowEvent::Moved(tauri::PhysicalPosition::new(24, 48),)
+        ));
+        assert!(should_immediately_persist_window_event(
+            &tauri::WindowEvent::Destroyed
+        ));
+        assert!(!should_debounce_window_persist_event(
+            &tauri::WindowEvent::Focused(true)
+        ));
+        assert!(!should_immediately_persist_window_event(
+            &tauri::WindowEvent::Focused(true)
+        ));
+    }
+
+    #[test]
+    fn get_working_tree_diff_detail_returns_unstaged_diff_for_changed_file() {
+        let fixture = create_working_tree_diff_fixture();
+
+        let detail = get_working_tree_diff_detail(
+            fixture.repo_path.clone(),
+            "README.md".to_string(),
+            "unstaged".to_string(),
+        )
+        .expect("working tree diff detail should be returned");
+
+        assert_eq!(detail.file, "README.md");
+        assert_eq!(detail.area, "unstaged");
+        assert_eq!(detail.files.len(), 1);
+        assert_eq!(detail.files[0].file, "README.md");
+        assert_eq!(detail.files[0].additions, 2);
+        assert_eq!(detail.files[0].deletions, 1);
+        assert!(detail.diff.contains("diff --git a/README.md b/README.md"));
+        assert!(detail.diff.contains("+line changed"));
+        assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn get_working_tree_diff_detail_returns_untracked_diff_for_new_file() {
+        let fixture = create_working_tree_diff_fixture();
+        fs::write(
+            Path::new(&fixture.repo_path).join("notes.txt"),
+            "alpha\nbeta\n",
+        )
+        .expect("untracked file should be written");
+
+        let detail = get_working_tree_diff_detail(
+            fixture.repo_path.clone(),
+            "notes.txt".to_string(),
+            "unstaged".to_string(),
+        )
+        .expect("untracked working tree diff detail should be returned");
+
+        assert_eq!(detail.file, "notes.txt");
+        assert_eq!(detail.area, "unstaged");
+        assert_eq!(detail.files.len(), 1);
+        assert_eq!(detail.files[0].file, "notes.txt");
+        assert_eq!(detail.files[0].additions, 2);
+        assert_eq!(detail.files[0].deletions, 0);
+        assert!(detail.diff.contains("diff --git a/notes.txt b/notes.txt"));
+        assert!(detail.diff.contains("--- /dev/null"));
+        assert!(detail.diff.contains("+alpha"));
+        assert!(detail.diff.contains("+beta"));
+        assert!(!detail.is_diff_truncated);
     }
 }

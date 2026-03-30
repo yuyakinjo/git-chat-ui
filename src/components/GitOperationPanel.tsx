@@ -1,7 +1,8 @@
-import { Expand, GripVertical, Sparkles, UploadCloud } from 'lucide-react';
+import { GripVertical, Sparkles, UploadCloud } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { resolveGitOperationPanelColumnCount } from '../lib/controllerPanelLayout';
 import {
   canDropWorkingTreeFile,
   getWorkingTreeDropActionLabel,
@@ -35,6 +36,7 @@ interface GitOperationPanelProps {
 }
 
 const DRAG_THRESHOLD_PX = 6;
+const COMMIT_TITLE_SOFT_LIMIT = 72;
 
 function isWorkingTreeDropZone(value: string | undefined): value is WorkingTreeDropZone {
   return value === 'staged' || value === 'unstaged' || value === 'stash';
@@ -60,9 +62,11 @@ export function GitOperationPanel({
   onPush,
   headerAccessory
 }: GitOperationPanelProps): JSX.Element {
+  const rootRef = useRef<HTMLElement | null>(null);
   const [draggedFile, setDraggedFile] = useState<WorkingTreeDragPayload | null>(null);
   const [dropZone, setDropZone] = useState<WorkingTreeDropZone | null>(null);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const draggedFileRef = useRef<WorkingTreeDragPayload | null>(null);
   const dropZoneRef = useRef<WorkingTreeDropZone | null>(null);
   const dragPointerRef = useRef<{
@@ -74,6 +78,9 @@ export function GitOperationPanel({
 
   const unstaged = status?.unstaged ?? [];
   const staged = status?.staged ?? [];
+  const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, ' ');
+  const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
+  const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
 
   const updateDraggedFile = (value: WorkingTreeDragPayload | null): void => {
     draggedFileRef.current = value;
@@ -97,6 +104,35 @@ export function GitOperationPanel({
       clearDragState();
     }
   }, [busy]);
+
+  useEffect(() => {
+    const rootNode = rootRef.current;
+    if (!rootNode) {
+      return;
+    }
+
+    const updateWidth = (): void => {
+      setContainerWidth(rootNode.clientWidth);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => {
+        window.removeEventListener('resize', updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+    observer.observe(rootNode);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     clearDragState();
@@ -259,8 +295,6 @@ export function GitOperationPanel({
     const area: WorkingTreeDiffArea = source === 'unstaged' ? 'unstaged' : 'staged';
     const isActive = activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
     const statusPresentation = getWorkingFileStatusPresentation(item);
-    const areaLabel = source === 'unstaged' ? 'Unstaged' : 'Staged';
-    const areaBadgeClass = source === 'staged' ? '!bg-[#ecfdf3] !text-[#157347]' : '!bg-[#fff4d6] !text-[#a15c00]';
 
     return (
       <div
@@ -292,18 +326,11 @@ export function GitOperationPanel({
           >
             {statusPresentation.icon}
           </span>
-          <div className={`commit-detail-panel__file-meta flex flex-none flex-wrap items-center gap-2 text-[11px] ${isActive ? 'text-white/80' : ''}`}>
-            <span className={`badge ${areaBadgeClass}`}>{areaLabel}</span>
-          </div>
-          <div className={`commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? 'text-white' : ''}`}>
+          <div className={`git-operation-panel__file-name commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? 'text-white' : ''}`}>
             <GitFilePathLabel path={item.file} />
           </div>
         </div>
         <div className="flex flex-none items-center gap-2">
-          <div className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${isActive ? 'text-white' : ''}`}>
-            <Expand size={12} />
-            Open Diff
-          </div>
           <button
             type="button"
             data-working-tree-no-drag="true"
@@ -337,7 +364,7 @@ export function GitOperationPanel({
       : draggedFile.source === 'unstaged'
         ? 'Staged Files または Stash Area にドロップ'
         : 'Unstaged Files または Stash Area にドロップ'
-    : 'ファイルをドラッグして Stage / Unstage / Stash';
+    : null;
 
   const dragPreviewPortal =
     draggedFile && dragPreviewPosition && typeof document !== 'undefined'
@@ -358,19 +385,29 @@ export function GitOperationPanel({
           document.body
         )
       : null;
+  const columnCount = resolveGitOperationPanelColumnCount(containerWidth);
+  const bucketGridClass =
+    columnCount === 4
+      ? 'git-operation-panel__grid--4'
+      : columnCount === 2
+        ? 'git-operation-panel__grid--2'
+        : 'git-operation-panel__grid--1';
 
   return (
     <>
-      <section className={`panel git-operation-panel flex h-full min-h-0 flex-col p-3 ${draggedFile ? 'is-dragging' : ''}`}>
+      <section
+        ref={rootRef}
+        className={`panel git-operation-panel flex h-full min-h-0 flex-col p-3 ${draggedFile ? 'is-dragging' : ''}`}
+      >
         <div className="mb-2 flex items-center justify-between gap-2 px-2">
           <div className="section-title">Git Operations</div>
           {headerAccessory}
         </div>
 
-        <div className={`git-operation-panel__hint px-2 ${draggedFile ? 'is-active' : ''}`}>{dragHint}</div>
+        {dragHint ? <div className={`git-operation-panel__hint px-2 ${draggedFile ? 'is-active' : ''}`}>{dragHint}</div> : null}
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2" data-controller-panel-drag-ignore="true">
-          <div className="grid min-h-0 gap-3 min-[760px]:grid-cols-2 min-[1280px]:grid-cols-4">
+          <div className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass}`}>
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="mb-1 flex items-center justify-between px-1 text-xs text-ink-subtle">
                 <span>Unstaged Files ({unstaged.length})</span>
@@ -477,21 +514,31 @@ export function GitOperationPanel({
               <div className="mb-1 px-1 text-xs text-ink-subtle">Commit</div>
               <div className="flex min-h-[148px] flex-1 flex-col gap-2 rounded-2xl border border-black/10 bg-white/65 p-3">
                 <div className="relative">
-                  <input
-                    className="input pr-10"
+                  <textarea
+                    className={`git-operation-panel__title-input input ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
                     placeholder="Commit summary"
                     value={commitTitle}
-                    onChange={(event) => onCommitTitleChange(event.target.value)}
+                    rows={1}
+                    wrap="off"
+                    spellCheck={false}
+                    aria-invalid={commitTitleOverflowCount > 0}
+                    onChange={(event) => onCommitTitleChange(event.target.value.replace(/\r?\n/g, ' '))}
                   />
                   <button
                     type="button"
-                    className="absolute right-1 top-1 rounded-lg p-2 text-accent transition hover:bg-accent-soft"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-accent transition hover:bg-accent-soft"
                     onClick={onGenerateCommitMessage}
                     disabled={busy}
                     title="AIでタイトル生成"
                   >
                     <Sparkles size={16} />
                   </button>
+                </div>
+                <div className={`git-operation-panel__commit-meta ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}>
+                  <span>
+                    {commitTitleLength} / {COMMIT_TITLE_SOFT_LIMIT}
+                  </span>
+                  <span>{commitTitleOverflowCount > 0 ? `${commitTitleOverflowCount} chars over` : '72-char target'}</span>
                 </div>
                 <textarea
                   className="input min-h-20 flex-1 resize-y"
