@@ -16,9 +16,11 @@ const MAX_REPOSITORY_SCAN_DEPTH = 8;
 const KEYCHAIN_ACCOUNT = 'git-chat-ui';
 const KEYCHAIN_SERVICE_OPENAI = 'git-chat-ui.openai-token';
 const KEYCHAIN_SERVICE_CLAUDE = 'git-chat-ui.claudecode-token';
+const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
 
 const DEFAULT_CONFIG: AppConfig = {
   openAiToken: '',
+  openAiModel: DEFAULT_OPENAI_MODEL,
   claudeCodeToken: '',
   selectedAiProvider: 'openAi',
   commitTitlePrompt: '',
@@ -99,9 +101,19 @@ function normalizeSelectedAiProvider(value: unknown): AppConfig['selectedAiProvi
   return DEFAULT_CONFIG.selectedAiProvider;
 }
 
+function normalizeOpenAiModel(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_CONFIG.openAiModel;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : DEFAULT_CONFIG.openAiModel;
+}
+
 function normalizeConfig(value: Partial<AppConfig>): AppConfig {
   return {
     openAiToken: typeof value.openAiToken === 'string' ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
+    openAiModel: normalizeOpenAiModel(value.openAiModel),
     claudeCodeToken:
       typeof value.claudeCodeToken === 'string' ? value.claudeCodeToken : DEFAULT_CONFIG.claudeCodeToken,
     selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),

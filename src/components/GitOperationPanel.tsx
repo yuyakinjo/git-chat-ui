@@ -528,7 +528,7 @@ export function GitOperationPanel({
                   />
                   <button
                     type="button"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-accent transition hover:bg-accent-soft"
+                    className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-accent transition hover:bg-accent-soft"
                     onClick={onGenerateCommitMessage}
                     disabled={busy || generatingCommitMessage}
                     title={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}

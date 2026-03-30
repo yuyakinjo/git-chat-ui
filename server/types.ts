@@ -83,6 +83,7 @@ export type AiProvider = 'openAi' | 'claudeCode';
 
 export interface AppConfig {
   openAiToken: string;
+  openAiModel: string;
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;

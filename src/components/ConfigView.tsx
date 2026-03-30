@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
 import type { AiGenerationConfig, AiProvider, AppConfig, CommitGraphMode, TokenValidationResult } from '../types';
@@ -15,6 +15,7 @@ export type TokenValidationState = 'idle' | 'checking' | 'valid' | 'invalid';
 
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
+const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
 
 function normalizeDepth(value: number): number {
   if (!Number.isFinite(value)) {
@@ -26,6 +27,7 @@ function normalizeDepth(value: number): number {
 
 function applyConfigToState(config: AppConfig): {
   openAiToken: string;
+  openAiModel: string;
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
@@ -34,6 +36,7 @@ function applyConfigToState(config: AppConfig): {
 } {
   return {
     openAiToken: config.openAiToken,
+    openAiModel: config.openAiModel,
     claudeCodeToken: config.claudeCodeToken,
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
@@ -44,6 +47,44 @@ function applyConfigToState(config: AppConfig): {
 
 function hasConfiguredToken(token: string): boolean {
   return token.trim().length > 0;
+}
+
+export function buildOpenAiModelOptions(availableModels: string[], selectedModel: string): string[] {
+  const merged = new Set<string>();
+  const normalizedSelectedModel = selectedModel.trim();
+
+  if (normalizedSelectedModel) {
+    merged.add(normalizedSelectedModel);
+  }
+
+  merged.add(DEFAULT_OPENAI_MODEL);
+
+  for (const availableModel of availableModels) {
+    const normalizedModel = availableModel.trim();
+    if (normalizedModel) {
+      merged.add(normalizedModel);
+    }
+  }
+
+  return [...merged].sort((left, right) => {
+    if (left === normalizedSelectedModel && right !== normalizedSelectedModel) {
+      return -1;
+    }
+
+    if (right === normalizedSelectedModel && left !== normalizedSelectedModel) {
+      return 1;
+    }
+
+    if (left === DEFAULT_OPENAI_MODEL && right !== DEFAULT_OPENAI_MODEL) {
+      return -1;
+    }
+
+    if (right === DEFAULT_OPENAI_MODEL && left !== DEFAULT_OPENAI_MODEL) {
+      return 1;
+    }
+
+    return left.localeCompare(right);
+  });
 }
 
 export function resolveSelectedAiProvider(
@@ -169,6 +210,7 @@ export function ConfigView({
   onAiGenerationConfigChange
 }: ConfigViewProps): JSX.Element {
   const [openAiToken, setOpenAiToken] = useState('');
+  const [openAiModel, setOpenAiModel] = useState(DEFAULT_OPENAI_MODEL);
   const [claudeCodeToken, setClaudeCodeToken] = useState('');
   const [selectedAiProvider, setSelectedAiProvider] = useState<AiProvider>('openAi');
   const [commitTitlePrompt, setCommitTitlePrompt] = useState('');
@@ -176,8 +218,16 @@ export function ConfigView({
   const [repositoryScanDepth, setRepositoryScanDepth] = useState(4);
   const [loading, setLoading] = useState(config === null);
   const [saving, setSaving] = useState(false);
+  const [openAiModels, setOpenAiModels] = useState<string[]>([]);
+  const [loadingOpenAiModels, setLoadingOpenAiModels] = useState(false);
+  const [openAiModelsError, setOpenAiModelsError] = useState<string | null>(null);
   const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
   const claudeCodeTokenValidation = useTokenValidation(claudeCodeToken, api.validateClaudeCodeToken);
+  const openAiModelsRequestIdRef = useRef(0);
+  const openAiModelOptions = useMemo(
+    () => buildOpenAiModelOptions(openAiModels, openAiModel),
+    [openAiModel, openAiModels]
+  );
 
   useEffect(() => {
     if (!config) {
@@ -186,6 +236,7 @@ export function ConfigView({
 
     const next = applyConfigToState(config);
     setOpenAiToken(next.openAiToken);
+    setOpenAiModel(next.openAiModel);
     setClaudeCodeToken(next.claudeCodeToken);
     setSelectedAiProvider(resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken));
     setCommitTitlePrompt(next.commitTitlePrompt);
@@ -210,6 +261,7 @@ export function ConfigView({
 
         const next = applyConfigToState(loadedConfig);
         setOpenAiToken(next.openAiToken);
+        setOpenAiModel(next.openAiModel);
         setClaudeCodeToken(next.claudeCodeToken);
         setSelectedAiProvider(resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken));
         setCommitTitlePrompt(next.commitTitlePrompt);
@@ -237,17 +289,61 @@ export function ConfigView({
   }, [claudeCodeToken, openAiToken]);
 
   useEffect(() => {
+    const normalizedToken = openAiToken.trim();
+    openAiModelsRequestIdRef.current += 1;
+    const requestId = openAiModelsRequestIdRef.current;
+
+    if (!normalizedToken || openAiTokenValidation !== 'valid') {
+      setLoadingOpenAiModels(false);
+      setOpenAiModels([]);
+      setOpenAiModelsError(null);
+      return;
+    }
+
+    let active = true;
+    setLoadingOpenAiModels(true);
+    setOpenAiModelsError(null);
+
+    void (async () => {
+      try {
+        const response = await api.getOpenAiModels(normalizedToken);
+        if (!active || openAiModelsRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setOpenAiModels(response.models);
+      } catch (error) {
+        if (!active || openAiModelsRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setOpenAiModels([]);
+        setOpenAiModelsError(error instanceof Error ? error.message : 'OpenAI モデル一覧を取得できませんでした。');
+      } finally {
+        if (active && openAiModelsRequestIdRef.current === requestId) {
+          setLoadingOpenAiModels(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [openAiToken, openAiTokenValidation]);
+
+  useEffect(() => {
     if (loading) {
       return;
     }
 
     onAiGenerationConfigChange({
       openAiToken,
+      openAiModel,
       claudeCodeToken,
       selectedAiProvider,
       commitTitlePrompt
     });
-  }, [claudeCodeToken, commitTitlePrompt, loading, onAiGenerationConfigChange, openAiToken, selectedAiProvider]);
+  }, [claudeCodeToken, commitTitlePrompt, loading, onAiGenerationConfigChange, openAiModel, openAiToken, selectedAiProvider]);
 
   const handleProviderCheckboxChange = (provider: AiProvider, checked: boolean): void => {
     if (checked) {
@@ -279,6 +375,7 @@ export function ConfigView({
 
       const response = await api.saveConfig({
         openAiToken,
+        openAiModel,
         claudeCodeToken,
         selectedAiProvider,
         commitTitlePrompt,
@@ -288,6 +385,7 @@ export function ConfigView({
 
       const nextConfig = response.config ?? (await api.getConfig());
       setOpenAiToken(nextConfig.openAiToken);
+      setOpenAiModel(nextConfig.openAiModel);
       setClaudeCodeToken(nextConfig.claudeCodeToken);
       setSelectedAiProvider(
         resolveSelectedAiProvider(nextConfig.selectedAiProvider, nextConfig.openAiToken, nextConfig.claudeCodeToken)
@@ -379,6 +477,32 @@ export function ConfigView({
                   value={openAiToken}
                   onChange={(event) => setOpenAiToken(event.target.value)}
                 />
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  OpenAI Model
+                </label>
+                <select
+                  className="input"
+                  value={openAiModel}
+                  disabled={openAiTokenValidation !== 'valid' || loadingOpenAiModels}
+                  onChange={(event) => setOpenAiModel(event.target.value)}
+                >
+                  {openAiModelOptions.map((modelId) => (
+                    <option key={modelId} value={modelId}>
+                      {modelId}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-ink-subtle">
+                  {openAiTokenValidation !== 'valid'
+                    ? '有効な OpenAI token を入力すると利用可能モデルを取得します。'
+                    : loadingOpenAiModels
+                      ? 'OpenAI の利用可能モデルを取得中です。'
+                      : openAiModelsError
+                        ? openAiModelsError
+                        : '取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。'}
+                </p>
               </div>
             </div>
 

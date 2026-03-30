@@ -9,6 +9,7 @@ import type {
   CommitDetail,
   CommitResponse,
   GeneratedCommitMessage,
+  OpenAiModelsResponse,
   PullRequestPreparation,
   PullRequestResponse,
   Repository,
@@ -410,6 +411,17 @@ export const api = {
     }
 
     return request('/config/validate-openai-token', {
+      method: 'POST',
+      body: JSON.stringify({ token })
+    });
+  },
+
+  getOpenAiModels(token: string): Promise<OpenAiModelsResponse> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_open_ai_models', { token });
+    }
+
+    return request('/config/openai-models', {
       method: 'POST',
       body: JSON.stringify({ token })
     });

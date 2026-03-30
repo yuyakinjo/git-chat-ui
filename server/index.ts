@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { generateCommitTitle, validateClaudeCodeToken, validateOpenAiToken } from './aiService.js';
+import { generateCommitTitle, listOpenAiModels, validateClaudeCodeToken, validateOpenAiToken } from './aiService.js';
 import { readConfig, setRecentlyUsedRepository, writeConfig } from './configStore.js';
 import {
   checkoutRef,
@@ -417,6 +417,7 @@ app.put('/api/config', async (request, response, next) => {
     const nextConfig: AppConfig = {
       ...current,
       openAiToken: typeof request.body.openAiToken === 'string' ? request.body.openAiToken : current.openAiToken,
+      openAiModel: typeof request.body.openAiModel === 'string' ? request.body.openAiModel : current.openAiModel,
       claudeCodeToken:
         typeof request.body.claudeCodeToken === 'string'
           ? request.body.claudeCodeToken
@@ -448,6 +449,17 @@ app.post('/api/config/validate-openai-token', async (request, response, next) =>
   }
 });
 
+app.post('/api/config/openai-models', async (request, response, next) => {
+  try {
+    const config = await readConfig();
+    const token = typeof request.body.token === 'string' ? request.body.token : config.openAiToken;
+    const models = await listOpenAiModels(token);
+    response.json({ models });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/config/validate-claude-code-token', async (request, response, next) => {
   try {
     const token = typeof request.body.token === 'string' ? request.body.token : '';
@@ -467,6 +479,7 @@ app.post('/api/generate-title', async (request, response, next) => {
 
     const config = await readConfig();
     const openAiToken = typeof request.body.openAiToken === 'string' ? request.body.openAiToken : config.openAiToken;
+    const openAiModel = typeof request.body.openAiModel === 'string' ? request.body.openAiModel : config.openAiModel;
     const claudeCodeToken =
       typeof request.body.claudeCodeToken === 'string' ? request.body.claudeCodeToken : config.claudeCodeToken;
     const commitTitlePrompt =
@@ -476,6 +489,7 @@ app.post('/api/generate-title', async (request, response, next) => {
     const diffSnippet = await getDiffSnippet(repoPath, changedFiles);
     const commitMessage = await generateCommitTitle({
       openAiToken,
+      openAiModel,
       claudeCodeToken,
       commitTitlePrompt,
       changedFiles,

@@ -210,6 +210,7 @@ describe('GitOperationPanel', () => {
 
     expect(html).toContain('animate-spin');
     expect(html).toContain('aria-label="AIでコミット文を生成中"');
+    expect(html).toContain('flex h-8 w-8 -translate-y-1/2 items-center justify-center');
     expect(html).not.toContain('<svg aria-hidden="true"[^>]*data-lucide="sparkles"');
   });
 });

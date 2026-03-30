@@ -26,6 +26,7 @@ describe('api.generateCommitMessage', () => {
 
     await api.generateCommitMessage('/tmp/repo', ['src/App.tsx'], {
       openAiToken: '',
+      openAiModel: 'gpt-4.1-mini',
       claudeCodeToken: 'cc-live-token',
       selectedAiProvider: 'claudeCode',
       commitTitlePrompt: 'Write a short Japanese commit message.'
@@ -37,6 +38,7 @@ describe('api.generateCommitMessage', () => {
       repoPath: '/tmp/repo',
       changedFiles: ['src/App.tsx'],
       openAiToken: '',
+      openAiModel: 'gpt-4.1-mini',
       claudeCodeToken: 'cc-live-token',
       selectedAiProvider: 'claudeCode',
       commitTitlePrompt: 'Write a short Japanese commit message.'
@@ -64,6 +66,32 @@ describe('api.validateOpenAiToken', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('http://localhost:4141/api/config/validate-openai-token');
+    expect(requests[0]?.body).toEqual({ token: 'sk-openai-valid' });
+  });
+});
+
+describe('api.getOpenAiModels', () => {
+  test('posts the token to the OpenAI models endpoint', async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = ((async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null
+      });
+
+      return new Response(JSON.stringify({ models: ['gpt-4.1-mini', 'gpt-4.1'] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as unknown) as typeof fetch;
+
+    await expect(api.getOpenAiModels('sk-openai-valid')).resolves.toEqual({
+      models: ['gpt-4.1-mini', 'gpt-4.1']
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('http://localhost:4141/api/config/openai-models');
     expect(requests[0]?.body).toEqual({ token: 'sk-openai-valid' });
   });
 });

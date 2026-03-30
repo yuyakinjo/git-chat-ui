@@ -1,5 +1,6 @@
 interface GenerateTitleInput {
   openAiToken: string;
+  openAiModel: string;
   claudeCodeToken: string;
   commitTitlePrompt: string;
   changedFiles: string[];
@@ -21,6 +22,7 @@ interface ProviderAttemptResult {
 const ANTHROPIC_API_VERSION = '2023-06-01';
 const NO_STAGED_CHANGES_ERROR = 'No staged changes are available for commit message generation.';
 const NO_AI_PROVIDER_ERROR = 'No AI provider is configured for commit message generation.';
+export const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
 
 function isAnthropicApiKey(token: string): boolean {
   return token.startsWith('sk-ant');
@@ -54,6 +56,61 @@ export const DEFAULT_COMMIT_TITLE_PROMPT =
 export function resolveCommitTitlePrompt(prompt: string | null | undefined): string {
   const normalized = typeof prompt === 'string' ? prompt.trim() : '';
   return normalized.length > 0 ? normalized : DEFAULT_COMMIT_TITLE_PROMPT;
+}
+
+export function resolveOpenAiModel(model: string | null | undefined): string {
+  const normalized = typeof model === 'string' ? model.trim() : '';
+  return normalized.length > 0 ? normalized : DEFAULT_OPENAI_MODEL;
+}
+
+function sortOpenAiModelIds(modelIds: string[]): string[] {
+  const deduped = [...new Set(modelIds.map((modelId) => modelId.trim()).filter((modelId) => modelId.length > 0))];
+
+  deduped.sort((left, right) => {
+    if (left === DEFAULT_OPENAI_MODEL && right !== DEFAULT_OPENAI_MODEL) {
+      return -1;
+    }
+
+    if (right === DEFAULT_OPENAI_MODEL && left !== DEFAULT_OPENAI_MODEL) {
+      return 1;
+    }
+
+    return left.localeCompare(right);
+  });
+
+  return deduped;
+}
+
+export async function listOpenAiModels(token: string): Promise<string[]> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/models', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${normalizedToken}`
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI models endpoint returned status ${response.status}.`);
+    }
+
+    const json = (await response.json()) as {
+      data?: Array<{ id?: string }>;
+    };
+
+    return sortOpenAiModelIds(json.data?.map((entry) => entry.id ?? '') ?? []);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function validateOpenAiToken(token: string): Promise<boolean> {
@@ -195,6 +252,7 @@ export function normalizeGeneratedCommitMessage(
 
 async function generateWithOpenAI(
   token: string,
+  model: string,
   prompt: string,
   changedFiles: string[],
   diffSnippet: string
@@ -220,7 +278,7 @@ async function generateWithOpenAI(
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: resolveOpenAiModel(model),
         temperature: 0.2,
         input: [
           { role: 'system', content: prompt },
@@ -411,7 +469,13 @@ export async function generateCommitTitle(input: GenerateTitleInput): Promise<Ge
   const limitedDiff = input.diffSnippet.slice(0, 4000);
   const prompt = resolveCommitTitlePrompt(input.commitTitlePrompt);
 
-  const openAiResult = await generateWithOpenAI(input.openAiToken, prompt, changedFiles, limitedDiff);
+  const openAiResult = await generateWithOpenAI(
+    input.openAiToken,
+    input.openAiModel,
+    prompt,
+    changedFiles,
+    limitedDiff
+  );
   if (openAiResult.message) {
     return normalizeGeneratedCommitMessage(openAiResult.message, fallback);
   }

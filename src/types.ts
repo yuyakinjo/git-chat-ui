@@ -114,6 +114,7 @@ export interface WindowState {
 
 export interface AppConfig {
   openAiToken: string;
+  openAiModel: string;
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
@@ -126,7 +127,10 @@ export interface AppConfig {
   windowState?: WindowState | null;
 }
 
-export type AiGenerationConfig = Pick<AppConfig, 'openAiToken' | 'claudeCodeToken' | 'selectedAiProvider' | 'commitTitlePrompt'>;
+export type AiGenerationConfig = Pick<
+  AppConfig,
+  'openAiToken' | 'openAiModel' | 'claudeCodeToken' | 'selectedAiProvider' | 'commitTitlePrompt'
+>;
 
 export interface GeneratedCommitMessage {
   title: string;
@@ -135,4 +139,8 @@ export interface GeneratedCommitMessage {
 
 export interface TokenValidationResult {
   valid: boolean;
+}
+
+export interface OpenAiModelsResponse {
+  models: string[];
 }

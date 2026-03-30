@@ -17,6 +17,7 @@ import {
   type ControllerPanelId
 } from '../lib/controllerPanelOrder';
 import { describeGitError, type UiError } from '../lib/errors';
+import { waitForNextPaint } from '../lib/waitForNextPaint';
 import { BranchActionDialog, type BranchActionDialogStep } from './BranchActionDialog';
 import { BranchCreateDialog } from './BranchCreateDialog';
 import { BranchDeleteDialog } from './BranchDeleteDialog';
@@ -1273,6 +1274,9 @@ export function ControllerView({
         void (async () => {
           setGeneratingCommitMessage(true);
           setOperationBusy(true);
+
+          await waitForNextPaint();
+
           try {
             const response = await api.generateCommitMessage(repoPath, changedFilesForAi);
             setInlineError(null);

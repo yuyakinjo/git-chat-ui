@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { resolveSelectedAiProvider, TokenValidationIndicator } from './ConfigView';
+import { buildOpenAiModelOptions, resolveSelectedAiProvider, TokenValidationIndicator } from './ConfigView';
 
 describe('TokenValidationIndicator', () => {
   test('renders the done icon when the token is valid', () => {
@@ -37,5 +37,19 @@ describe('resolveSelectedAiProvider', () => {
 
   test('keeps the current provider when both tokens are present', () => {
     expect(resolveSelectedAiProvider('claudeCode', 'sk-openai', 'cc-token')).toBe('claudeCode');
+  });
+});
+
+describe('buildOpenAiModelOptions', () => {
+  test('keeps the selected model even when it is missing from the fetched list', () => {
+    expect(buildOpenAiModelOptions(['gpt-4.1', 'gpt-4.1-mini'], 'gpt-4.1-nano')).toEqual([
+      'gpt-4.1-nano',
+      'gpt-4.1-mini',
+      'gpt-4.1'
+    ]);
+  });
+
+  test('falls back to the default model when no fetched model exists', () => {
+    expect(buildOpenAiModelOptions([], '')).toEqual(['gpt-4.1-mini']);
   });
 });

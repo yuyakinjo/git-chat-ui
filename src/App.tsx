@@ -85,6 +85,7 @@ function getInitialLaunchState(search: string): {
 function pickAiGenerationConfig(config: AppConfig): AiGenerationConfig {
   return {
     openAiToken: config.openAiToken,
+    openAiModel: config.openAiModel,
     claudeCodeToken: config.claudeCodeToken,
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt

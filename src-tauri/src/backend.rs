@@ -22,6 +22,7 @@ const MIN_WINDOW_WIDTH: u32 = 1200;
 const MIN_WINDOW_HEIGHT: u32 = 760;
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(300);
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
@@ -77,6 +78,7 @@ pub struct RecentRepository {
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub open_ai_token: String,
+    pub open_ai_model: String,
     pub claude_code_token: String,
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
@@ -101,6 +103,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             open_ai_token: String::new(),
+            open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
             claude_code_token: String::new(),
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: String::new(),
@@ -289,10 +292,16 @@ pub struct TokenValidationResult {
     pub valid: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAiModelsResponse {
+    pub models: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveConfigInput {
     pub open_ai_token: Option<String>,
+    pub open_ai_model: Option<String>,
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
@@ -397,6 +406,19 @@ fn normalize_selected_ai_provider(value: Option<&Value>) -> AiProvider {
     }
 }
 
+fn normalize_open_ai_model(value: Option<&Value>) -> String {
+    let normalized = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    if normalized.is_empty() {
+        DEFAULT_OPENAI_MODEL.to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
 fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -463,6 +485,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let open_ai_model = normalize_open_ai_model(value.get("openAiModel"));
 
     let claude_code_token = value
         .get("claudeCodeToken")
@@ -499,6 +522,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
 
     AppConfig {
         open_ai_token,
+        open_ai_model,
         claude_code_token,
         selected_ai_provider,
         commit_title_prompt,
@@ -543,6 +567,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
 
     let normalized = AppConfig {
         open_ai_token: config.open_ai_token.clone(),
+        open_ai_model: normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone()))),
         claude_code_token: config.claude_code_token.clone(),
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: config.commit_title_prompt.clone(),
@@ -1784,6 +1809,24 @@ fn run_curl_json(url: &str, headers: &[String], payload: Value) -> Option<Value>
     serde_json::from_str::<Value>(&stdout).ok()
 }
 
+fn run_curl_get_json(url: &str, headers: &[String]) -> Option<Value> {
+    let mut command = Command::new("curl");
+    command.args(["-sS", "-f", "-m", "9", "-X", "GET", url]);
+
+    for header in headers {
+        command.arg("-H");
+        command.arg(header);
+    }
+
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    serde_json::from_str::<Value>(&stdout).ok()
+}
+
 fn run_curl_success(url: &str, headers: &[String]) -> bool {
     let mut command = Command::new("curl");
     command.args(["-sS", "-f", "-m", "9", "-X", "GET", url]);
@@ -1831,6 +1874,68 @@ fn validate_openai_token_internal(token: &str) -> bool {
     )
 }
 
+fn resolve_open_ai_model(model: &str) -> String {
+    let normalized = model.trim();
+    if normalized.is_empty() {
+        DEFAULT_OPENAI_MODEL.to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn sort_open_ai_model_ids(model_ids: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::<String>::new();
+
+    for model_id in model_ids {
+        let normalized = model_id.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+
+        if !deduped.iter().any(|existing| existing == normalized) {
+            deduped.push(normalized.to_string());
+        }
+    }
+
+    deduped.sort_by(|left, right| {
+        if left == DEFAULT_OPENAI_MODEL && right != DEFAULT_OPENAI_MODEL {
+            std::cmp::Ordering::Less
+        } else if right == DEFAULT_OPENAI_MODEL && left != DEFAULT_OPENAI_MODEL {
+            std::cmp::Ordering::Greater
+        } else {
+            left.cmp(right)
+        }
+    });
+
+    deduped
+}
+
+fn list_openai_models_internal(token: &str) -> Result<Vec<String>, String> {
+    let normalized = token.trim();
+    if normalized.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let Some(json) = run_curl_get_json(
+        "https://api.openai.com/v1/models",
+        &[format!("Authorization: Bearer {normalized}")],
+    ) else {
+        return Err("Failed to load OpenAI models.".to_string());
+    };
+
+    let model_ids = json
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(ToString::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(sort_open_ai_model_ids(model_ids))
+}
+
 fn validate_claude_code_token_internal(token: &str) -> bool {
     let normalized = token.trim();
     if normalized.is_empty() {
@@ -1856,6 +1961,7 @@ fn generate_ai_user_prompt(changed_files: &[String], diff_snippet: &str) -> Stri
 
 fn generate_with_openai(
     token: &str,
+    model: &str,
     system_prompt: &str,
     changed_files: &[String],
     diff_snippet: &str,
@@ -1874,7 +1980,7 @@ fn generate_with_openai(
             "Content-Type: application/json".to_string(),
         ],
         json!({
-            "model": "gpt-4.1-mini",
+            "model": resolve_open_ai_model(model),
             "temperature": 0.2,
             "input": [
                 {
@@ -1985,6 +2091,7 @@ fn generate_commit_title_internal(
         let message = match provider {
             AiProvider::OpenAi => generate_with_openai(
                 &config.open_ai_token,
+                &config.open_ai_model,
                 &system_prompt,
                 changed_files,
                 &limited_diff,
@@ -2009,6 +2116,13 @@ fn generate_commit_title_internal(
 pub fn validate_open_ai_token(token: String) -> Result<TokenValidationResult, String> {
     Ok(TokenValidationResult {
         valid: validate_openai_token_internal(&token),
+    })
+}
+
+#[tauri::command]
+pub fn get_open_ai_models(token: String) -> Result<OpenAiModelsResponse, String> {
+    Ok(OpenAiModelsResponse {
+        models: list_openai_models_internal(&token)?,
     })
 }
 
@@ -2820,6 +2934,7 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
 
     let next_config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
+        open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
         selected_ai_provider: input
             .selected_ai_provider
@@ -2947,6 +3062,7 @@ mod tests {
     fn normalize_config_value_preserves_ai_provider_and_prompt() {
         let config = normalize_config_value(json!({
             "openAiToken": "sk-openai",
+            "openAiModel": "gpt-4.1",
             "claudeCodeToken": "cc-token",
             "selectedAiProvider": "claudeCode",
             "commitTitlePrompt": "Write a short Japanese commit message.",
@@ -2955,6 +3071,7 @@ mod tests {
         }));
 
         assert_eq!(config.open_ai_token, "sk-openai");
+        assert_eq!(config.open_ai_model, "gpt-4.1");
         assert_eq!(config.claude_code_token, "cc-token");
         assert_eq!(config.selected_ai_provider, AiProvider::ClaudeCode);
         assert_eq!(
@@ -2974,6 +3091,29 @@ mod tests {
         assert_eq!(
             resolve_commit_title_prompt("Summarize changes in Japanese."),
             "Summarize changes in Japanese."
+        );
+    }
+
+    #[test]
+    fn resolve_open_ai_model_uses_default_when_blank() {
+        assert_eq!(resolve_open_ai_model("   "), DEFAULT_OPENAI_MODEL);
+        assert_eq!(resolve_open_ai_model("gpt-4.1"), "gpt-4.1");
+    }
+
+    #[test]
+    fn sort_open_ai_model_ids_prioritizes_default_and_dedupes() {
+        assert_eq!(
+            sort_open_ai_model_ids(vec![
+                "gpt-4.1".to_string(),
+                "gpt-4.1-mini".to_string(),
+                "o4-mini".to_string(),
+                "gpt-4.1".to_string(),
+            ]),
+            vec![
+                "gpt-4.1-mini".to_string(),
+                "gpt-4.1".to_string(),
+                "o4-mini".to_string(),
+            ]
         );
     }
 

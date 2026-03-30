@@ -44,6 +44,7 @@ fn main() {
             backend::get_config,
             backend::save_config,
             backend::validate_open_ai_token,
+            backend::get_open_ai_models,
             backend::validate_claude_code_token,
             backend::generate_title
         ])
