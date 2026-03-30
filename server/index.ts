@@ -9,6 +9,7 @@ import {
   checkoutRef,
   commitChanges,
   createPullRequest,
+  deleteLocalBranch,
   discoverRepositories,
   getBranchDiffDetail,
   getBranches,
@@ -259,6 +260,17 @@ app.post('/api/branches/merge', async (request, response, next) => {
     const sourceBranch = getRequiredString(request.body.sourceBranch, 'sourceBranch');
     const targetBranch = getRequiredString(request.body.targetBranch, 'targetBranch');
     await mergeBranches(repoPath, sourceBranch, targetBranch);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/branches/delete', async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
+    const branchName = getRequiredString(request.body.branchName, 'branchName');
+    await deleteLocalBranch(repoPath, branchName);
     response.json({ ok: true });
   } catch (error) {
     next(error);

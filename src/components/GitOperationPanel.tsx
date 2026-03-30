@@ -19,6 +19,7 @@ interface GitOperationPanelProps {
   onGenerateTitle: () => void;
   onCommit: () => void;
   onPush: () => void;
+  headerAccessory?: JSX.Element | null;
 }
 
 type DropZone = 'staged' | 'unstaged' | 'stash' | null;
@@ -38,7 +39,8 @@ export function GitOperationPanel({
   onStashFile,
   onGenerateTitle,
   onCommit,
-  onPush
+  onPush,
+  headerAccessory
 }: GitOperationPanelProps): JSX.Element {
   const [dropZone, setDropZone] = useState<DropZone>(null);
 
@@ -100,8 +102,9 @@ export function GitOperationPanel({
 
   return (
     <section className="panel flex h-full min-h-0 flex-col p-3">
-      <div className="mb-2 px-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-2">
         <div className="section-title">Git Operations</div>
+        {headerAccessory}
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 pb-2">

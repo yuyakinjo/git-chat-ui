@@ -1,14 +1,24 @@
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, GripVertical, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
+import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
 import {
   canCompareCurrentBranch,
   getBranchDiffButtonLabel,
   isCurrentBranchDiffDetail
 } from '../lib/branchDiff';
+import {
+  canSwapControllerPanel,
+  DEFAULT_CONTROLLER_PANEL_ORDER,
+  isControllerPanelId,
+  normalizeControllerPanelOrder,
+  swapControllerPanels,
+  type ControllerPanelId
+} from '../lib/controllerPanelOrder';
 import { describeGitError, type UiError } from '../lib/errors';
 import { BranchActionDialog, type BranchActionDialogStep } from './BranchActionDialog';
+import { BranchDeleteDialog } from './BranchDeleteDialog';
 import { BranchDiffOverlay } from './BranchDiffOverlay';
 import { BranchTree } from './BranchTree';
 import { CommitDetailPanel } from './CommitDetailPanel';
@@ -102,6 +112,14 @@ function isHeadDecoration(decoration: string): boolean {
     .some((entry) => entry === 'HEAD' || entry.startsWith('HEAD -> '));
 }
 
+const CONTROLLER_PANEL_ORDER_STORAGE_KEY = 'git-chat-ui.controller-panel-order';
+const PANEL_DRAG_THRESHOLD_PX = 6;
+const controllerPanelLabels: Record<ControllerPanelId, string> = {
+  commitGraph: 'Commit Graph',
+  gitOperations: 'Git Operations',
+  commitDetail: 'Commit Detail'
+};
+
 export function ControllerView({ repository, appConfig, onNotify }: ControllerViewProps): JSX.Element {
   const [branches, setBranches] = useState<BranchResponse | null>(null);
   const [selectedBranchForHover, setSelectedBranchForHover] = useState<Branch | null>(null);
@@ -125,6 +143,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     target: Branch;
     step: BranchActionDialogStep;
   } | null>(null);
+  const [branchDeleteTarget, setBranchDeleteTarget] = useState<Branch | null>(null);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
@@ -134,12 +153,42 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   const [commitDescription, setCommitDescription] = useState('');
   const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>('detailed');
   const [inlineError, setInlineError] = useState<UiError | null>(null);
+  const [panelOrder, setPanelOrder] = useState<ControllerPanelId[]>(() => {
+    if (typeof window === 'undefined') {
+      return [...DEFAULT_CONTROLLER_PANEL_ORDER];
+    }
+
+    try {
+      const raw = window.localStorage.getItem(CONTROLLER_PANEL_ORDER_STORAGE_KEY);
+      if (!raw) {
+        return [...DEFAULT_CONTROLLER_PANEL_ORDER];
+      }
+
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? normalizeControllerPanelOrder(parsed.filter((value): value is string => typeof value === 'string'))
+        : [...DEFAULT_CONTROLLER_PANEL_ORDER];
+    } catch {
+      return [...DEFAULT_CONTROLLER_PANEL_ORDER];
+    }
+  });
+  const [draggedPanelId, setDraggedPanelId] = useState<ControllerPanelId | null>(null);
+  const [dropTargetPanelId, setDropTargetPanelId] = useState<ControllerPanelId | null>(null);
+  const [panelDragPreviewPosition, setPanelDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
 
   const [fingerprint, setFingerprint] = useState<string>('');
   const [repositoryMutationSafety, setRepositoryMutationSafety] = useState<{ isSelfRepository: boolean }>({
     isSelfRepository: false
   });
   const refreshLockRef = useRef(false);
+  const panelDragPointerRef = useRef<{
+    panelId: ControllerPanelId;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const draggedPanelIdRef = useRef<ControllerPanelId | null>(null);
+  const dropTargetPanelIdRef = useRef<ControllerPanelId | null>(null);
 
   const repoPath = repository.path;
   const currentBranchName = branches?.current ?? null;
@@ -155,6 +204,28 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     import.meta.env.DEV && repositoryMutationSafety.isSelfRepository
       ? '開発モードでアプリ自身のリポジトリに checkout / merge を行うと、dev server や tauri dev が再起動して UI が落ちるため、この操作は無効です。clone した repo かビルド済みアプリで実行してください。'
       : null;
+  const panelDragHint = draggedPanelId
+    ? dropTargetPanelId
+      ? `${controllerPanelLabels[dropTargetPanelId]} にドロップして位置を入れ替え`
+      : '別のパネルにドロップして位置を入れ替え'
+    : '右上の handle をドラッグしてパネル位置を入れ替えます。';
+
+  const updateDraggedPanelId = useCallback((value: ControllerPanelId | null): void => {
+    draggedPanelIdRef.current = value;
+    setDraggedPanelId(value);
+  }, []);
+
+  const updateDropTargetPanelId = useCallback((value: ControllerPanelId | null): void => {
+    dropTargetPanelIdRef.current = value;
+    setDropTargetPanelId(value);
+  }, []);
+
+  const clearPanelDragState = useCallback((): void => {
+    panelDragPointerRef.current = null;
+    updateDraggedPanelId(null);
+    updateDropTargetPanelId(null);
+    setPanelDragPreviewPosition(null);
+  }, [updateDraggedPanelId, updateDropTargetPanelId]);
 
   const reportError = useCallback(
     (error: unknown, fallbackTitle: string): void => {
@@ -370,6 +441,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
     setBranchAction(null);
+    setBranchDeleteTarget(null);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [refreshAll, repoPath]);
@@ -414,6 +486,118 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   useEffect(() => {
     setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
   }, [appConfig?.commitGraphMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(CONTROLLER_PANEL_ORDER_STORAGE_KEY, JSON.stringify(panelOrder));
+  }, [panelOrder]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    document.body.classList.toggle('is-controller-panel-dragging', Boolean(draggedPanelId));
+    return () => {
+      document.body.classList.remove('is-controller-panel-dragging');
+    };
+  }, [draggedPanelId]);
+
+  useEffect(() => {
+    clearPanelDragState();
+  }, [clearPanelDragState, repoPath]);
+
+  useEffect(() => {
+    if (!operationBusy) {
+      return;
+    }
+
+    clearPanelDragState();
+  }, [clearPanelDragState, operationBusy]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent): void => {
+      const dragPointer = panelDragPointerRef.current;
+      if (!dragPointer || dragPointer.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const offsetX = event.clientX - dragPointer.startX;
+      const offsetY = event.clientY - dragPointer.startY;
+      const distance = Math.hypot(offsetX, offsetY);
+
+      if (!draggedPanelIdRef.current && distance < PANEL_DRAG_THRESHOLD_PX) {
+        return;
+      }
+
+      if (!draggedPanelIdRef.current) {
+        updateDraggedPanelId(dragPointer.panelId);
+      }
+
+      setPanelDragPreviewPosition({
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const targetId = element
+        ?.closest<HTMLElement>('[data-controller-panel-drop-id]')
+        ?.dataset.controllerPanelDropId;
+
+      if (
+        targetId &&
+        isControllerPanelId(targetId) &&
+        canSwapControllerPanel({
+          busy: operationBusy,
+          sourceId: dragPointer.panelId,
+          targetId
+        })
+      ) {
+        updateDropTargetPanelId(targetId);
+        return;
+      }
+
+      updateDropTargetPanelId(null);
+    };
+
+    const handlePointerUp = (event: PointerEvent): void => {
+      const dragPointer = panelDragPointerRef.current;
+      if (!dragPointer || dragPointer.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const sourceId = dragPointer.panelId;
+      const targetId = dropTargetPanelIdRef.current;
+      const didDrag = draggedPanelIdRef.current === sourceId;
+
+      if (
+        didDrag &&
+        targetId &&
+        canSwapControllerPanel({
+          busy: operationBusy,
+          sourceId,
+          targetId
+        })
+      ) {
+        setPanelOrder((current) => swapControllerPanels(current, sourceId, targetId));
+      }
+
+      clearPanelDragState();
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [clearPanelDragState, operationBusy, updateDraggedPanelId, updateDropTargetPanelId]);
 
   useEffect(() => {
     if (!focusedCommitDiffFile) {
@@ -593,6 +777,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       return;
     }
 
+    setBranchDeleteTarget(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
     setBranchAction({
@@ -600,6 +785,24 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       target: targetBranch,
       step: 'select-action'
     });
+  };
+
+  const handleRequestDeleteBranch = (branch: Branch): void => {
+    const disabledReason = getBranchDeleteDisabledReason(branch, branches?.current ?? null);
+    if (disabledReason) {
+      const nextError: UiError = {
+        title: 'このブランチは削除できません',
+        detail: disabledReason
+      };
+      setInlineError(nextError);
+      onNotify(nextError.title);
+      return;
+    }
+
+    setBranchAction(null);
+    setShowBranchDiff(false);
+    setFocusedCommitDiffFile(null);
+    setBranchDeleteTarget(branch);
   };
 
   const handleMergeBranchAction = async (): Promise<void> => {
@@ -633,6 +836,45 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       } finally {
         setOperationBusy(false);
       }
+    }
+  };
+
+  const handleDeleteBranch = async (): Promise<void> => {
+    const currentTarget = branchDeleteTarget;
+    if (!currentTarget) {
+      return;
+    }
+
+    const disabledReason = getBranchDeleteDisabledReason(currentTarget, branches?.current ?? null);
+    if (disabledReason) {
+      const nextError: UiError = {
+        title: 'このブランチは削除できません',
+        detail: disabledReason
+      };
+      setBranchDeleteTarget(null);
+      setInlineError(nextError);
+      onNotify(nextError.title);
+      return;
+    }
+
+    setOperationBusy(true);
+
+    try {
+      await api.deleteLocalBranch(repoPath, currentTarget.name);
+      setBranchDeleteTarget(null);
+      setBranchAction(null);
+      setSelectedBranchForHover(null);
+      setPendingScrollCommitSha(null);
+      setShowBranchDiff(false);
+      setFocusedCommitDiffFile(null);
+      setInlineError(null);
+      onNotify(`${currentTarget.name} を削除しました。`);
+      await reloadAfterBranchMutation();
+    } catch (error) {
+      setBranchDeleteTarget(null);
+      reportError(error, 'ブランチ削除に失敗しました。');
+    } finally {
+      setOperationBusy(false);
     }
   };
 
@@ -699,6 +941,183 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     }
   };
 
+  const handlePanelHandlePointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    panelId: ControllerPanelId
+  ): void => {
+    if (event.button !== 0 || operationBusy) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    panelDragPointerRef.current = {
+      panelId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY
+    };
+    updateDropTargetPanelId(null);
+  };
+
+  const renderPanelHandle = (panelId: ControllerPanelId): JSX.Element => (
+    <button
+      type="button"
+      className="controller-panel-slot__handle"
+      aria-label={`${controllerPanelLabels[panelId]} をドラッグして位置を入れ替え`}
+      title={`${controllerPanelLabels[panelId]} をドラッグして位置を入れ替え`}
+      disabled={operationBusy}
+      onPointerDown={(event) => handlePanelHandlePointerDown(event, panelId)}
+    >
+      <GripVertical size={13} />
+    </button>
+  );
+
+  const commitGraphPanel = (
+    <CommitGraph
+      commits={commits}
+      mode={commitGraphMode}
+      activeCommitSha={activeCommit?.sha ?? null}
+      highlightedCommitSha={highlightedCommitSha}
+      checkedOutCommitSha={checkedOutCommitSha}
+      scrollToCommitSha={pendingScrollCommitSha}
+      onScrollToCommitHandled={(sha) => {
+        setPendingScrollCommitSha((current) => (current === sha ? null : current));
+      }}
+      hasMore={hasMoreCommits}
+      loading={loadingCommits}
+      loadingMore={loadingMoreCommits}
+      busy={operationBusy}
+      wipStagedCount={workingStatus?.staged.length ?? 0}
+      wipUnstagedCount={workingStatus?.unstaged.length ?? 0}
+      onSelectWip={() => {
+        setActiveCommit(null);
+        setCommitDetail(null);
+        setShowBranchDiff(false);
+      }}
+      onSelectCommit={(commit) => {
+        setActiveCommit(commit);
+        void loadCommitDetail(commit.sha);
+      }}
+      onCheckoutCommit={(commit) => {
+        void handleCheckoutCommit(commit);
+      }}
+      onCheckoutBranchRef={handleCheckoutBranchRef}
+      onLoadMore={() => {
+        void loadCommits({
+          append: true,
+          offset: commits.length,
+          ref: activeLogRef,
+          compareRefs: activeCompareRefs
+        });
+      }}
+      headerAccessory={renderPanelHandle('commitGraph')}
+    />
+  );
+
+  const gitOperationPanel = (
+    <GitOperationPanel
+      status={workingStatus}
+      stashes={stashes}
+      commitTitle={commitTitle}
+      commitDescription={commitDescription}
+      busy={operationBusy}
+      onCommitTitleChange={setCommitTitle}
+      onCommitDescriptionChange={setCommitDescription}
+      onStageFile={(file) => {
+        void mutateAndReload(
+          async () => {
+            await api.stageFile(repoPath, file);
+          },
+          { reloadCommits: false }
+        );
+      }}
+      onUnstageFile={(file) => {
+        void mutateAndReload(
+          async () => {
+            await api.unstageFile(repoPath, file);
+          },
+          { reloadCommits: false }
+        );
+      }}
+      onStageAll={() => {
+        void mutateAndReload(
+          async () => {
+            const files = workingStatus?.unstaged.map((item) => item.file) ?? [];
+            for (const file of files) {
+              await api.stageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false }
+        );
+      }}
+      onUnstageAll={() => {
+        void mutateAndReload(
+          async () => {
+            const files = workingStatus?.staged.map((item) => item.file) ?? [];
+            for (const file of files) {
+              await api.unstageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false }
+        );
+      }}
+      onStashFile={(file) => {
+        void mutateAndReload(
+          async () => {
+            await api.stashFile(repoPath, file);
+          },
+          { reloadCommits: false }
+        );
+      }}
+      onGenerateTitle={() => {
+        void (async () => {
+          setOperationBusy(true);
+          try {
+            const response = await api.generateTitle(repoPath, changedFilesForAi);
+            setInlineError(null);
+            setCommitTitle(response.title);
+          } catch (error) {
+            reportError(error, 'タイトル生成に失敗しました。');
+          } finally {
+            setOperationBusy(false);
+          }
+        })();
+      }}
+      onCommit={() => {
+        void mutateAndReload(async () => {
+          await api.commit(repoPath, commitTitle, commitDescription);
+          setCommitTitle('');
+          setCommitDescription('');
+        });
+      }}
+      onPush={() => {
+        void mutateAndReload(async () => {
+          await api.push(repoPath);
+        });
+      }}
+      headerAccessory={renderPanelHandle('gitOperations')}
+    />
+  );
+
+  const commitDetailPanel = (
+    <CommitDetailPanel
+      detail={commitDetail}
+      loading={loadingCommitDetail}
+      activeDiffFile={focusedCommitDiffFile}
+      onOpenFileDiff={(file) => {
+        setFocusedCommitDiffFile(file);
+      }}
+      headerAccessory={renderPanelHandle('commitDetail')}
+    />
+  );
+
+  const panelContentById: Record<ControllerPanelId, JSX.Element> = {
+    commitGraph: commitGraphPanel,
+    gitOperations: gitOperationPanel,
+    commitDetail: commitDetailPanel
+  };
+
   return (
     <section className="relative flex h-full flex-col gap-3">
       <header className="panel flex items-center justify-between px-4 py-3">
@@ -754,7 +1173,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_280px] gap-3 max-[1380px]:grid-cols-[250px_minmax(0,1fr)] max-[1180px]:grid-cols-1">
+      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] gap-3 max-[1380px]:grid-cols-[250px_minmax(0,1fr)] max-[1180px]:grid-cols-1">
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
@@ -764,142 +1183,66 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
             void handleCheckoutBranch(branch);
           }}
           onBranchDrop={handleBranchDrop}
+          onRequestDeleteBranch={handleRequestDeleteBranch}
         />
 
-        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(260px,42%)] gap-3 max-[1180px]:grid-rows-[minmax(0,1fr)_minmax(220px,45%)]">
-          <CommitGraph
-            commits={commits}
-            mode={commitGraphMode}
-            activeCommitSha={activeCommit?.sha ?? null}
-            highlightedCommitSha={highlightedCommitSha}
-            checkedOutCommitSha={checkedOutCommitSha}
-            scrollToCommitSha={pendingScrollCommitSha}
-            onScrollToCommitHandled={(sha) => {
-              setPendingScrollCommitSha((current) => (current === sha ? null : current));
-            }}
-            hasMore={hasMoreCommits}
-            loading={loadingCommits}
-            loadingMore={loadingMoreCommits}
-            busy={operationBusy}
-            wipStagedCount={workingStatus?.staged.length ?? 0}
-            wipUnstagedCount={workingStatus?.unstaged.length ?? 0}
-            onSelectWip={() => {
-              setActiveCommit(null);
-              setCommitDetail(null);
-              setShowBranchDiff(false);
-            }}
-            onSelectCommit={(commit) => {
-              setActiveCommit(commit);
-              void loadCommitDetail(commit.sha);
-            }}
-            onCheckoutCommit={(commit) => {
-              void handleCheckoutCommit(commit);
-            }}
-            onCheckoutBranchRef={handleCheckoutBranchRef}
-            onLoadMore={() => {
-              void loadCommits({
-                append: true,
-                offset: commits.length,
-                ref: activeLogRef,
-                compareRefs: activeCompareRefs
+        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1.35fr)_minmax(260px,1fr)_minmax(240px,0.95fr)] gap-3 max-[1180px]:grid-rows-[minmax(280px,1.2fr)_minmax(240px,1fr)_minmax(220px,0.95fr)]">
+          {panelOrder.map((panelId) => {
+            const isDragActive = draggedPanelId !== null;
+            const isDropTarget = dropTargetPanelId === panelId;
+            const isDragSource = draggedPanelId === panelId;
+            const isDropCandidate =
+              isDragActive &&
+              canSwapControllerPanel({
+                busy: operationBusy,
+                sourceId: draggedPanelId,
+                targetId: panelId
               });
-            }}
-          />
 
-          <CommitDetailPanel
-            detail={commitDetail}
-            loading={loadingCommitDetail}
-            activeDiffFile={focusedCommitDiffFile}
-            onOpenFileDiff={(file) => {
-              setFocusedCommitDiffFile(file);
-            }}
-          />
-        </div>
+            return (
+              <div
+                key={panelId}
+                data-controller-panel-drop-id={panelId}
+                className={`controller-panel-slot min-h-0 ${isDropCandidate ? 'is-drop-candidate' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragSource ? 'is-drag-source' : ''}`}
+              >
+                <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>
 
-        <div className="min-h-0 overflow-hidden max-[1380px]:col-span-2 max-[1180px]:col-span-1">
-          <GitOperationPanel
-            status={workingStatus}
-            stashes={stashes}
-            commitTitle={commitTitle}
-            commitDescription={commitDescription}
-            busy={operationBusy}
-            onCommitTitleChange={setCommitTitle}
-            onCommitDescriptionChange={setCommitDescription}
-            onStageFile={(file) => {
-              void mutateAndReload(
-                async () => {
-                  await api.stageFile(repoPath, file);
-                },
-                { reloadCommits: false }
-              );
-            }}
-            onUnstageFile={(file) => {
-              void mutateAndReload(
-                async () => {
-                  await api.unstageFile(repoPath, file);
-                },
-                { reloadCommits: false }
-              );
-            }}
-            onStageAll={() => {
-              void mutateAndReload(
-                async () => {
-                  const files = workingStatus?.unstaged.map((item) => item.file) ?? [];
-                  for (const file of files) {
-                    await api.stageFile(repoPath, file);
-                  }
-                },
-                { reloadCommits: false }
-              );
-            }}
-            onUnstageAll={() => {
-              void mutateAndReload(
-                async () => {
-                  const files = workingStatus?.staged.map((item) => item.file) ?? [];
-                  for (const file of files) {
-                    await api.unstageFile(repoPath, file);
-                  }
-                },
-                { reloadCommits: false }
-              );
-            }}
-            onStashFile={(file) => {
-              void mutateAndReload(
-                async () => {
-                  await api.stashFile(repoPath, file);
-                },
-                { reloadCommits: false }
-              );
-            }}
-            onGenerateTitle={() => {
-              void (async () => {
-                setOperationBusy(true);
-                try {
-                  const response = await api.generateTitle(repoPath, changedFilesForAi);
-                  setInlineError(null);
-                  setCommitTitle(response.title);
-                } catch (error) {
-                  reportError(error, 'タイトル生成に失敗しました。');
-                } finally {
-                  setOperationBusy(false);
-                }
-              })();
-            }}
-            onCommit={() => {
-              void mutateAndReload(async () => {
-                await api.commit(repoPath, commitTitle, commitDescription);
-                setCommitTitle('');
-                setCommitDescription('');
-              });
-            }}
-            onPush={() => {
-              void mutateAndReload(async () => {
-                await api.push(repoPath);
-              });
-            }}
-          />
+                {isDropTarget && draggedPanelId ? (
+                  <div className="controller-panel-drop-split">
+                    <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--source">
+                      <div className="controller-panel-drop-split__eyebrow">From</div>
+                      <div className="controller-panel-drop-split__title">{controllerPanelLabels[draggedPanelId]}</div>
+                    </div>
+                    <div className="controller-panel-drop-split__flow" aria-hidden="true">
+                      <span className="controller-panel-drop-split__arrow">→</span>
+                    </div>
+                    <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--target">
+                      <div className="controller-panel-drop-split__eyebrow">Swap</div>
+                      <div className="controller-panel-drop-split__title">{controllerPanelLabels[panelId]}</div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
+
+      {draggedPanelId && panelDragPreviewPosition ? (
+        <div
+          className="controller-panel-drag-preview"
+          style={{
+            left: `${panelDragPreviewPosition.x + 18}px`,
+            top: `${panelDragPreviewPosition.y + 18}px`
+          }}
+        >
+          <div className="controller-panel-drag-preview__title">
+            <GripVertical size={13} />
+            <span>{controllerPanelLabels[draggedPanelId]}</span>
+          </div>
+          <div className="controller-panel-drag-preview__hint">{panelDragHint}</div>
+        </div>
+      ) : null}
 
       {selectedCommitDetail && focusedCommitDiffFile ? (
         <CommitDiffOverlay
@@ -938,6 +1281,17 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
           }}
           onBack={() => {
             setBranchAction((current) => (current ? { ...current, step: 'select-action' } : current));
+          }}
+        />
+      ) : null}
+
+      {branchDeleteTarget ? (
+        <BranchDeleteDialog
+          branchName={branchDeleteTarget.name}
+          busy={operationBusy}
+          onClose={() => setBranchDeleteTarget(null)}
+          onDelete={() => {
+            void handleDeleteBranch();
           }}
         />
       ) : null}

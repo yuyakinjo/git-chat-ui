@@ -620,6 +620,16 @@ function extractUrlFromText(text: string): string | null {
     ?.trim() ?? null;
 }
 
+async function ensureDeletableLocalBranch(repoPath: string, branchName: string): Promise<void> {
+  await ensureRepoPath(repoPath);
+  await ensureLocalBranch(repoPath, branchName);
+
+  const currentBranch = await getCurrentBranch(repoPath);
+  if (currentBranch === branchName) {
+    throw new Error(`Cannot delete branch '${branchName}' checked out at '${repoPath}'`);
+  }
+}
+
 export async function mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
@@ -630,6 +640,11 @@ export async function mergeBranches(repoPath: string, sourceBranch: string, targ
   }
 
   await runGit(['merge', sourceBranch], repoPath);
+}
+
+export async function deleteLocalBranch(repoPath: string, branchName: string): Promise<void> {
+  await ensureDeletableLocalBranch(repoPath, branchName);
+  await runGit(['branch', '-d', branchName], repoPath);
 }
 
 export async function preparePullRequest(
