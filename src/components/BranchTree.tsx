@@ -1,6 +1,14 @@
-import { ChevronDown, ChevronRight, Folder, GitBranch } from 'lucide-react';
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Folder, GitBranch, Trash2 } from 'lucide-react';
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 
+import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
 import { canDropBranchOnBranch } from '../lib/branchDragDrop';
 import type { Branch, BranchResponse } from '../types';
 
@@ -11,6 +19,7 @@ interface BranchTreeProps {
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
   onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
+  onRequestDeleteBranch: (branch: Branch) => void;
 }
 
 interface TreeNode {
@@ -20,6 +29,19 @@ interface TreeNode {
 
 const SINGLE_CLICK_DELAY_MS = 400;
 const DRAG_THRESHOLD_PX = 6;
+const CONTEXT_MENU_WIDTH_PX = 216;
+const CONTEXT_MENU_HEIGHT_PX = 112;
+
+function clampContextMenuPosition(x: number, y: number): { x: number; y: number } {
+  if (typeof window === 'undefined') {
+    return { x, y };
+  }
+
+  return {
+    x: Math.min(Math.max(12, x), Math.max(12, window.innerWidth - CONTEXT_MENU_WIDTH_PX - 12)),
+    y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - CONTEXT_MENU_HEIGHT_PX - 12))
+  };
+}
 
 function getBranchDisplayName(branchName: string): string {
   const parts = branchName.split('/').filter(Boolean);
@@ -83,12 +105,19 @@ export function BranchTree({
   busy,
   onSelectBranch,
   onCheckoutBranch,
-  onBranchDrop
+  onBranchDrop,
+  onRequestDeleteBranch
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [draggedBranchName, setDraggedBranchName] = useState<string | null>(null);
   const [dropTargetBranchName, setDropTargetBranchName] = useState<string | null>(null);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    branch: Branch;
+    x: number;
+    y: number;
+    disabledReason: string | null;
+  } | null>(null);
   const draggedBranchNameRef = useRef<string | null>(null);
   const dropTargetBranchNameRef = useRef<string | null>(null);
   const dragPointerRef = useRef<{
@@ -102,6 +131,7 @@ export function BranchTree({
     branchName: string;
     timeoutId: ReturnType<typeof globalThis.setTimeout>;
   } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const localTree = useMemo(() => buildTree(branches?.local ?? []), [branches]);
   const remoteTree = useMemo(() => buildTree(branches?.remote ?? []), [branches]);
@@ -109,6 +139,23 @@ export function BranchTree({
     () => new Map((branches?.local ?? []).map((branch) => [branch.name, branch])),
     [branches]
   );
+
+  const updateDraggedBranchName = (value: string | null): void => {
+    draggedBranchNameRef.current = value;
+    setDraggedBranchName(value);
+  };
+
+  const updateDropTargetBranchName = (value: string | null): void => {
+    dropTargetBranchNameRef.current = value;
+    setDropTargetBranchName(value);
+  };
+
+  const clearDragState = (): void => {
+    dragPointerRef.current = null;
+    updateDraggedBranchName(null);
+    updateDropTargetBranchName(null);
+    setDragPreviewPosition(null);
+  };
 
   useEffect(() => {
     return () => {
@@ -121,13 +168,15 @@ export function BranchTree({
   useEffect(() => {
     if (busy) {
       dragPointerRef.current = null;
-      draggedBranchNameRef.current = null;
-      dropTargetBranchNameRef.current = null;
-      setDraggedBranchName(null);
-      setDropTargetBranchName(null);
-      setDragPreviewPosition(null);
+      clearDragState();
+      setContextMenu(null);
     }
   }, [busy]);
+
+  useEffect(() => {
+    setContextMenu(null);
+    clearDragState();
+  }, [branches, selectedBranchName]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -140,22 +189,12 @@ export function BranchTree({
     };
   }, [draggedBranchName]);
 
-  const toggle = (key: string): void => {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
   const handleBranchClick = (branch: Branch): void => {
     if (Date.now() < suppressClickUntilRef.current) {
       return;
     }
+
+    setContextMenu(null);
 
     if (pendingClickRef.current) {
       globalThis.clearTimeout(pendingClickRef.current.timeoutId);
@@ -177,6 +216,8 @@ export function BranchTree({
       return;
     }
 
+    setContextMenu(null);
+
     if (pendingClickRef.current) {
       globalThis.clearTimeout(pendingClickRef.current.timeoutId);
       pendingClickRef.current = null;
@@ -185,21 +226,16 @@ export function BranchTree({
     onCheckoutBranch(branch);
   };
 
-  const updateDraggedBranchName = (value: string | null): void => {
-    draggedBranchNameRef.current = value;
-    setDraggedBranchName(value);
-  };
-
-  const updateDropTargetBranchName = (value: string | null): void => {
-    dropTargetBranchNameRef.current = value;
-    setDropTargetBranchName(value);
-  };
-
-  const clearDragState = (): void => {
-    dragPointerRef.current = null;
-    updateDraggedBranchName(null);
-    updateDropTargetBranchName(null);
-    setDragPreviewPosition(null);
+  const toggle = (key: string): void => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -222,6 +258,7 @@ export function BranchTree({
           globalThis.clearTimeout(pendingClickRef.current.timeoutId);
           pendingClickRef.current = null;
         }
+        setContextMenu(null);
         updateDraggedBranchName(dragPointer.branchName);
       }
 
@@ -292,12 +329,51 @@ export function BranchTree({
     };
   }, [busy, localBranchMap, onBranchDrop]);
 
-  const handleBranchPointerDown = (event: ReactPointerEvent<HTMLButtonElement>, branch: Branch): void => {
-    if (busy || branch.type !== 'local') {
+  useEffect(() => {
+    if (!contextMenu) {
       return;
     }
 
-    if (event.button !== 0) {
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setContextMenu(null);
+    };
+
+    const handleClose = (): void => {
+      setContextMenu(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('resize', handleClose);
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('resize', handleClose);
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu]);
+
+  const handleBranchPointerDown = (event: ReactPointerEvent<HTMLButtonElement>, branch: Branch): void => {
+    if (busy) {
+      return;
+    }
+
+    setContextMenu(null);
+
+    if (branch.type !== 'local' || event.button !== 0) {
       return;
     }
 
@@ -309,11 +385,35 @@ export function BranchTree({
     };
   };
 
+  const handleBranchContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, branch: Branch): void => {
+    event.preventDefault();
+
+    if (busy) {
+      return;
+    }
+
+    if (pendingClickRef.current?.branchName === branch.name) {
+      globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+      pendingClickRef.current = null;
+    }
+
+    const position = clampContextMenuPosition(event.clientX, event.clientY);
+    setContextMenu({
+      branch,
+      x: position.x,
+      y: position.y,
+      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName)
+    });
+  };
+
+  const handleDeleteRequestFromTree = (branch: Branch): void => {
+    setContextMenu(null);
+    onRequestDeleteBranch(branch);
+  };
+
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
     const children = [...node.children.entries()].sort(([left], [right]) => left.localeCompare(right));
-    const leaves = [...node.leaves].sort((left, right) =>
-      left.displayName.localeCompare(right.displayName)
-    );
+    const leaves = [...node.leaves].sort((left, right) => left.displayName.localeCompare(right.displayName));
 
     return (
       <div className="space-y-1">
@@ -360,6 +460,7 @@ export function BranchTree({
                 ? 'Drop target'
                 : null;
           const draggedDisplayName = draggedBranchName ? getBranchDisplayName(draggedBranchName) : '';
+
           return (
             <button
               key={`${prefix}/${leaf.branch.name}`}
@@ -370,6 +471,7 @@ export function BranchTree({
               onClick={() => handleBranchClick(leaf.branch)}
               onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
               onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
+              onContextMenu={(event) => handleBranchContextMenu(event, leaf.branch)}
             >
               {isDropTarget && draggedBranchName ? (
                 <div className="branch-drop-split">
@@ -411,7 +513,7 @@ export function BranchTree({
     ? dropTargetBranchName
       ? `${dropTargetBranchName} にドロップして Merge / PR を開く`
       : '別の local branch にドロップ'
-    : 'Drag a local branch onto another local branch';
+    : '右クリックで削除。local branch は別の local branch にドロップできます。';
 
   return (
     <section className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? 'is-dragging' : ''}`}>
@@ -440,6 +542,33 @@ export function BranchTree({
             <span>{draggedBranchName}</span>
           </div>
           <div className="branch-drag-preview__hint">{dragHint}</div>
+        </div>
+      ) : null}
+
+      {contextMenu ? (
+        <div
+          ref={contextMenuRef}
+          className="branch-context-menu"
+          role="menu"
+          aria-label="branch context menu"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
+            disabled={busy || Boolean(contextMenu.disabledReason)}
+            onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
+          >
+            <Trash2 size={14} />
+            <span>ブランチを削除</span>
+          </button>
+          <div className="branch-context-menu__hint">
+            {contextMenu.disabledReason ?? '確認ダイアログを開いてから削除します。'}
+          </div>
         </div>
       ) : null}
     </section>

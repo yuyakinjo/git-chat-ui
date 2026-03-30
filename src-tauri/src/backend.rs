@@ -601,6 +601,20 @@ fn ensure_branch_pair(repo_path: &str, source_branch: &str, target_branch: &str)
     Ok(())
 }
 
+fn ensure_deletable_local_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    ensure_repo_path(repo_path)?;
+    ensure_local_branch(repo_path, branch_name)?;
+
+    let current_branch = get_current_branch(repo_path)?;
+    if current_branch == branch_name {
+        return Err(format!(
+            "Cannot delete branch '{branch_name}' checked out at '{repo_path}'"
+        ));
+    }
+
+    Ok(())
+}
+
 fn ensure_origin_remote(repo_path: &str) -> Result<(), String> {
     run_git(&["remote", "get-url", "origin"], repo_path).map(|_| ())
 }
@@ -1740,6 +1754,14 @@ pub fn merge_branches(
     }
 
     run_git(&["merge", source_branch.as_str()], &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn delete_local_branch(repo_path: String, branch_name: String) -> Result<OkResponse, String> {
+    ensure_deletable_local_branch(&repo_path, &branch_name)?;
+    run_git(&["branch", "-d", branch_name.as_str()], &repo_path)?;
 
     Ok(OkResponse { ok: true })
 }

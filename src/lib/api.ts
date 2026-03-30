@@ -251,6 +251,17 @@ export const api = {
     });
   },
 
+  deleteLocalBranch(repoPath: string, branchName: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('delete_local_branch', { repoPath, branchName });
+    }
+
+    return request('/branches/delete', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, branchName })
+    });
+  },
+
   preparePullRequest(
     repoPath: string,
     sourceBranch: string,

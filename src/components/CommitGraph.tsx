@@ -1,5 +1,5 @@
 import { animate, stagger } from 'animejs';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { buildLaneRows } from '../lib/commitGraphLayout';
 import { formatRelativeDate, shortSha } from '../lib/format';
@@ -24,12 +24,18 @@ interface CommitGraphProps {
   onCheckoutCommit: (commit: CommitListItem) => void;
   onCheckoutBranchRef: (refName: string) => void;
   onLoadMore: () => void;
+  headerAccessory?: JSX.Element | null;
 }
 
 const LANE_GAP = 18;
 const LANE_PADDING = 10;
 const ROW_HEIGHT = 32;
 const LINE_OVERDRAW = 1;
+const WIP_NODE_SIZE = 18;
+const WIP_NODE_CENTER = WIP_NODE_SIZE / 2;
+const WIP_NODE_RING_RADIUS = 7;
+const WIP_NODE_CORE_RADIUS = 3.5;
+const WIP_LINE_TOP = ROW_HEIGHT / 2 + WIP_NODE_CENTER - 1;
 const REF_COLUMN_MIN_WIDTH = 140;
 const REF_COLUMN_MAX_WIDTH = 900;
 const REF_COLUMN_DEFAULT_WIDTH = 230;
@@ -139,6 +145,24 @@ function refLabelClass(type: CommitRefLabel['type']): string {
   return 'border-slate-300 bg-white/85 text-slate-700';
 }
 
+function WipNode({ className = '', style }: { className?: string; style?: CSSProperties }): JSX.Element {
+  return (
+    <span className={`wip-node ${className}`.trim()} style={style} aria-hidden="true">
+      <svg width={WIP_NODE_SIZE} height={WIP_NODE_SIZE} viewBox={`0 0 ${WIP_NODE_SIZE} ${WIP_NODE_SIZE}`} fill="none">
+        <circle
+          className="wip-node-ring"
+          cx={WIP_NODE_CENTER}
+          cy={WIP_NODE_CENTER}
+          r={WIP_NODE_RING_RADIUS}
+          strokeDasharray="2 3"
+          strokeLinecap="round"
+        />
+        <circle className="wip-node-core" cx={WIP_NODE_CENTER} cy={WIP_NODE_CENTER} r={WIP_NODE_CORE_RADIUS} />
+      </svg>
+    </span>
+  );
+}
+
 export function CommitGraph({
   commits,
   mode,
@@ -157,7 +181,8 @@ export function CommitGraph({
   onSelectCommit,
   onCheckoutCommit,
   onCheckoutBranchRef,
-  onLoadMore
+  onLoadMore,
+  headerAccessory
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
@@ -303,6 +328,7 @@ export function CommitGraph({
             {isDetailedMode ? 'Detailed lane mode (branch / merge)' : 'Simple lane mode'}
           </div>
         </div>
+        {headerAccessory}
       </div>
 
       <div
@@ -365,7 +391,7 @@ export function CommitGraph({
                 >
                   <line
                     x1={laneX(0)}
-                    y1={ROW_HEIGHT / 2}
+                    y1={WIP_LINE_TOP}
                     x2={laneX(0)}
                     y2={ROW_HEIGHT + LINE_OVERDRAW}
                     stroke={LANE_COLORS[0]}
@@ -375,11 +401,11 @@ export function CommitGraph({
                     strokeDasharray="4 3"
                   />
                 </svg>
-                <span
-                  className="absolute block wip-node"
+                <WipNode
+                  className="absolute block"
                   style={{
-                    left: `${laneX(0) - 6}px`,
-                    top: `${ROW_HEIGHT / 2 - 6}px`
+                    left: `${laneX(0) - WIP_NODE_CENTER}px`,
+                    top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`
                   }}
                 />
               </div>
@@ -388,11 +414,11 @@ export function CommitGraph({
                 <div
                   className="absolute w-[2px] bg-accent/20"
                   style={{
-                    top: `${ROW_HEIGHT / 2}px`,
-                    height: `${ROW_HEIGHT / 2 + LINE_OVERDRAW}px`
+                    top: `${WIP_LINE_TOP}px`,
+                    height: `${ROW_HEIGHT - WIP_LINE_TOP + LINE_OVERDRAW}px`
                   }}
                 />
-                <span className="wip-node" />
+                <WipNode />
               </div>
             )}
             <div className="overflow-hidden whitespace-nowrap text-xs">

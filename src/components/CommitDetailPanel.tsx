@@ -8,18 +8,21 @@ interface CommitDetailPanelProps {
   loading: boolean;
   activeDiffFile: string | null;
   onOpenFileDiff: (file: string) => void;
+  headerAccessory?: JSX.Element | null;
 }
 
 export function CommitDetailPanel({
   detail,
   loading,
   activeDiffFile,
-  onOpenFileDiff
+  onOpenFileDiff,
+  headerAccessory
 }: CommitDetailPanelProps): JSX.Element {
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
-      <div className="mb-2 px-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-2">
         <div className="section-title">Commit Detail</div>
+        {headerAccessory}
       </div>
 
       {loading ? <div className="p-4 text-sm text-ink-subtle">詳細を読み込み中...</div> : null}

@@ -1,4 +1,4 @@
-import { GitBranch, Github, LayoutDashboard, Settings2, type LucideIcon } from 'lucide-react';
+import { Cog, GitBranch, Github, LayoutDashboard, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ConfigView } from './components/ConfigView';
@@ -136,7 +136,7 @@ export default function App(): JSX.Element {
     () => [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'controller', label: 'Controller', icon: GitBranch },
-      { id: 'config', label: 'Config', icon: Settings2 }
+      { id: 'config', label: 'Config', icon: Cog }
     ] satisfies Array<{ id: Screen; label: string; icon: LucideIcon }>,
     []
   );

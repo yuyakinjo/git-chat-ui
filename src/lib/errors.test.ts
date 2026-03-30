@@ -51,6 +51,24 @@ describe('describeGitError', () => {
     expect(parsed.title).toBe('競合が発生しました');
   });
 
+  test('maps checked out branch deletion failure', () => {
+    const parsed = describeGitError(
+      "error: Cannot delete branch 'main' checked out at '/tmp/example'",
+      'ブランチ削除に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('現在 checkout 中の branch は削除できません');
+  });
+
+  test('maps unmerged branch deletion failure', () => {
+    const parsed = describeGitError(
+      "error: The branch 'feature/delete-me' is not fully merged.",
+      'ブランチ削除に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('未マージのため削除できません');
+  });
+
   test('keeps fallback title for unknown errors', () => {
     const parsed = describeGitError('unexpected low level failure', 'Git 操作に失敗しました。');
 
