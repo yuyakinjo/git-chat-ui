@@ -9,7 +9,7 @@ import {
   checkoutRef,
   commitChanges,
   createPullRequest,
-  deleteLocalBranch,
+  deleteBranch,
   discoverRepositories,
   getBranchDiffDetail,
   getBranches,
@@ -270,7 +270,12 @@ app.post('/api/branches/delete', async (request, response, next) => {
   try {
     const repoPath = getRequiredString(request.body.repoPath, 'repoPath');
     const branchName = getRequiredString(request.body.branchName, 'branchName');
-    await deleteLocalBranch(repoPath, branchName);
+    const branchType = getRequiredString(request.body.branchType, 'branchType');
+    if (branchType !== 'local' && branchType !== 'remote') {
+      throw new Error('branchType must be local or remote.');
+    }
+
+    await deleteBranch(repoPath, branchName, branchType);
     response.json({ ok: true });
   } catch (error) {
     next(error);

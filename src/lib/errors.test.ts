@@ -69,6 +69,15 @@ describe('describeGitError', () => {
     expect(parsed.title).toBe('未マージのため削除できません');
   });
 
+  test('maps protected default remote branch deletion failure', () => {
+    const parsed = describeGitError(
+      "Default branch 'main' on remote 'origin' cannot be deleted.",
+      'ブランチ削除に失敗しました。'
+    );
+
+    expect(parsed.title).toBe('デフォルト branch は削除できません');
+  });
+
   test('keeps fallback title for unknown errors', () => {
     const parsed = describeGitError('unexpected low level failure', 'Git 操作に失敗しました。');
 

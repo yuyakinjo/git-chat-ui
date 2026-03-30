@@ -7,6 +7,7 @@ import {
   useRef,
   useState
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
 import { canDropBranchOnBranch } from '../lib/branchDragDrop';
@@ -15,6 +16,7 @@ import type { Branch, BranchResponse } from '../types';
 interface BranchTreeProps {
   branches: BranchResponse | null;
   selectedBranchName: string | null;
+  defaultBranchName: string | null;
   busy: boolean;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
@@ -102,6 +104,7 @@ function SectionTitle({ children }: { children: string }): JSX.Element {
 export function BranchTree({
   branches,
   selectedBranchName,
+  defaultBranchName,
   busy,
   onSelectBranch,
   onCheckoutBranch,
@@ -402,7 +405,7 @@ export function BranchTree({
       branch,
       x: position.x,
       y: position.y,
-      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName)
+      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName, defaultBranchName)
     });
   };
 
@@ -515,62 +518,69 @@ export function BranchTree({
       : '別の local branch にドロップ'
     : '右クリックで削除。local branch は別の local branch にドロップできます。';
 
-  return (
-    <section className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? 'is-dragging' : ''}`}>
-      <div className="px-2 pb-2">
-        <div className="section-title">Branch List</div>
-        <div className={`branch-tree__hint ${draggedBranchName ? 'is-active' : ''}`}>{dragHint}</div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <SectionTitle>Local</SectionTitle>
-        <div className="mt-1">{renderNode(localTree, 'local', 0)}</div>
-
-        <SectionTitle>Remote</SectionTitle>
-        <div className="mt-1">{renderNode(remoteTree, 'remote', 0)}</div>
-      </div>
-
-      {draggedBranchName && dragPreviewPosition ? (
-        <div
-          className="branch-drag-preview"
-          style={{
-            left: `${dragPreviewPosition.x + 18}px`,
-            top: `${dragPreviewPosition.y + 18}px`
-          }}
-        >
-          <div className="branch-drag-preview__title">
-            <GitBranch size={13} />
-            <span>{draggedBranchName}</span>
-          </div>
-          <div className="branch-drag-preview__hint">{dragHint}</div>
-        </div>
-      ) : null}
-
-      {contextMenu ? (
-        <div
-          ref={contextMenuRef}
-          className="branch-context-menu"
-          role="menu"
-          aria-label="branch context menu"
-          style={{
-            left: `${contextMenu.x}px`,
-            top: `${contextMenu.y}px`
-          }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
-            disabled={busy || Boolean(contextMenu.disabledReason)}
-            onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
+  const contextMenuPortal =
+    contextMenu && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={contextMenuRef}
+            className="branch-context-menu"
+            role="menu"
+            aria-label="branch context menu"
+            style={{
+              left: `${contextMenu.x}px`,
+              top: `${contextMenu.y}px`
+            }}
           >
-            <Trash2 size={14} />
-            <span>ブランチを削除</span>
-          </button>
-          <div className="branch-context-menu__hint">
-            {contextMenu.disabledReason ?? '確認ダイアログを開いてから削除します。'}
-          </div>
+            <button
+              type="button"
+              role="menuitem"
+              className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
+              disabled={busy || Boolean(contextMenu.disabledReason)}
+              onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
+            >
+              <Trash2 size={14} />
+              <span>ブランチを削除</span>
+            </button>
+            <div className="branch-context-menu__hint">
+              {contextMenu.disabledReason ?? '確認ダイアログを開いてから削除します。'}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <>
+      <section className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? 'is-dragging' : ''}`}>
+        <div className="px-2 pb-2">
+          <div className="section-title">Branch List</div>
+          <div className={`branch-tree__hint ${draggedBranchName ? 'is-active' : ''}`}>{dragHint}</div>
         </div>
-      ) : null}
-    </section>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <SectionTitle>Local</SectionTitle>
+          <div className="mt-1">{renderNode(localTree, 'local', 0)}</div>
+
+          <SectionTitle>Remote</SectionTitle>
+          <div className="mt-1">{renderNode(remoteTree, 'remote', 0)}</div>
+        </div>
+
+        {draggedBranchName && dragPreviewPosition ? (
+          <div
+            className="branch-drag-preview"
+            style={{
+              left: `${dragPreviewPosition.x + 18}px`,
+              top: `${dragPreviewPosition.y + 18}px`
+            }}
+          >
+            <div className="branch-drag-preview__title">
+              <GitBranch size={13} />
+              <span>{draggedBranchName}</span>
+            </div>
+            <div className="branch-drag-preview__hint">{dragHint}</div>
+          </div>
+        ) : null}
+      </section>
+      {contextMenuPortal}
+    </>
   );
 }

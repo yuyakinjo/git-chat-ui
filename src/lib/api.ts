@@ -251,14 +251,14 @@ export const api = {
     });
   },
 
-  deleteLocalBranch(repoPath: string, branchName: string): Promise<{ ok: boolean }> {
+  deleteBranch(repoPath: string, branchName: string, branchType: 'local' | 'remote'): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('delete_local_branch', { repoPath, branchName });
+      return invokeCommand('delete_branch', { repoPath, branchName, branchType });
     }
 
     return request('/branches/delete', {
       method: 'POST',
-      body: JSON.stringify({ repoPath, branchName })
+      body: JSON.stringify({ repoPath, branchName, branchType })
     });
   },
 

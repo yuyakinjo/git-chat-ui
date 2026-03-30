@@ -65,6 +65,13 @@ export function describeGitError(error: unknown, fallbackTitle: string): UiError
     };
   }
 
+  if (/default branch .* cannot be deleted/i.test(message)) {
+    return {
+      title: 'デフォルト branch は削除できません',
+      detail: message
+    };
+  }
+
   if (/branch .* is not fully merged/i.test(message) || /not fully merged/i.test(message)) {
     return {
       title: '未マージのため削除できません',

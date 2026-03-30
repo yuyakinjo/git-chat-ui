@@ -1,8 +1,38 @@
 import type { Branch } from '../types';
 
-export function getBranchDeleteDisabledReason(branch: Branch, currentBranchName: string | null): string | null {
-  if (branch.type !== 'local') {
-    return 'local branch のみ削除できます。';
+function getRemoteBranchTargetName(branchName: string): string | null {
+  const parts = branchName.split('/').filter(Boolean);
+  if (parts.length < 2) {
+    return null;
+  }
+
+  return parts.slice(1).join('/');
+}
+
+export function getBranchDeleteTargetName(branch: Branch): string {
+  if (branch.type === 'local') {
+    return branch.name;
+  }
+
+  return getRemoteBranchTargetName(branch.name) ?? branch.name;
+}
+
+export function getBranchDeleteDisabledReason(
+  branch: Branch,
+  currentBranchName: string | null,
+  defaultBranchName: string | null
+): string | null {
+  if (branch.type === 'remote') {
+    const targetName = getRemoteBranchTargetName(branch.name);
+    if (!targetName) {
+      return '削除できない remote branch です。';
+    }
+
+    if (defaultBranchName && targetName === defaultBranchName) {
+      return 'remote の default branch は削除できません。';
+    }
+
+    return null;
   }
 
   if (branch.name === currentBranchName) {
@@ -12,6 +42,6 @@ export function getBranchDeleteDisabledReason(branch: Branch, currentBranchName:
   return null;
 }
 
-export function canDeleteBranch(branch: Branch, currentBranchName: string | null): boolean {
-  return getBranchDeleteDisabledReason(branch, currentBranchName) === null;
+export function canDeleteBranch(branch: Branch, currentBranchName: string | null, defaultBranchName: string | null): boolean {
+  return getBranchDeleteDisabledReason(branch, currentBranchName, defaultBranchName) === null;
 }

@@ -2,7 +2,7 @@ import { AlertTriangle, GripVertical, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
-import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
+import { getBranchDeleteDisabledReason, getBranchDeleteTargetName } from '../lib/branchDelete';
 import {
   canCompareCurrentBranch,
   getBranchDiffButtonLabel,
@@ -197,6 +197,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     [branches]
   );
   const defaultBranch = useMemo(() => resolveDefaultBranch(branches) ?? null, [branches]);
+  const defaultBranchName = defaultBranch?.name ?? null;
   const showBranchDiffButton = canCompareCurrentBranch(currentLocalBranch, defaultBranch);
   const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(branchDiffDetail, defaultBranch, currentLocalBranch);
   const branchDiffButtonLabel = getBranchDiffButtonLabel(defaultBranch?.name ?? null);
@@ -788,7 +789,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
   };
 
   const handleRequestDeleteBranch = (branch: Branch): void => {
-    const disabledReason = getBranchDeleteDisabledReason(branch, branches?.current ?? null);
+    const disabledReason = getBranchDeleteDisabledReason(branch, branches?.current ?? null, defaultBranchName);
     if (disabledReason) {
       const nextError: UiError = {
         title: 'このブランチは削除できません',
@@ -845,7 +846,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       return;
     }
 
-    const disabledReason = getBranchDeleteDisabledReason(currentTarget, branches?.current ?? null);
+    const disabledReason = getBranchDeleteDisabledReason(currentTarget, branches?.current ?? null, defaultBranchName);
     if (disabledReason) {
       const nextError: UiError = {
         title: 'このブランチは削除できません',
@@ -860,7 +861,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
     setOperationBusy(true);
 
     try {
-      await api.deleteLocalBranch(repoPath, currentTarget.name);
+      await api.deleteBranch(repoPath, currentTarget.name, currentTarget.type);
       setBranchDeleteTarget(null);
       setBranchAction(null);
       setSelectedBranchForHover(null);
@@ -868,7 +869,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       setShowBranchDiff(false);
       setFocusedCommitDiffFile(null);
       setInlineError(null);
-      onNotify(`${currentTarget.name} を削除しました。`);
+      onNotify(`${getBranchDeleteTargetName(currentTarget)} を削除しました。`);
       await reloadAfterBranchMutation();
     } catch (error) {
       setBranchDeleteTarget(null);
@@ -1177,6 +1178,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
         <BranchTree
           branches={branches}
           selectedBranchName={branches?.current ?? null}
+          defaultBranchName={defaultBranchName}
           busy={operationBusy}
           onSelectBranch={handleSelectBranch}
           onCheckoutBranch={(branch) => {
@@ -1288,6 +1290,7 @@ export function ControllerView({ repository, appConfig, onNotify }: ControllerVi
       {branchDeleteTarget ? (
         <BranchDeleteDialog
           branchName={branchDeleteTarget.name}
+          branchType={branchDeleteTarget.type}
           busy={operationBusy}
           onClose={() => setBranchDeleteTarget(null)}
           onDelete={() => {

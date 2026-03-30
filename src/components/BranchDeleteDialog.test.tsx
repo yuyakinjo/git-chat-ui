@@ -6,7 +6,13 @@ import { BranchDeleteDialog } from './BranchDeleteDialog';
 describe('BranchDeleteDialog', () => {
   test('renders branch delete confirmation copy', () => {
     const html = renderToStaticMarkup(
-      <BranchDeleteDialog branchName="feature/delete-me" busy={false} onClose={() => {}} onDelete={() => {}} />
+      <BranchDeleteDialog
+        branchName="feature/delete-me"
+        branchType="local"
+        busy={false}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />
     );
 
     expect(html).toContain('role="dialog"');
@@ -14,5 +20,20 @@ describe('BranchDeleteDialog', () => {
     expect(html).toContain('feature/delete-me');
     expect(html).toContain('この操作は取り消せません');
     expect(html).toContain('Cancel');
+  });
+
+  test('renders remote delete confirmation copy', () => {
+    const html = renderToStaticMarkup(
+      <BranchDeleteDialog
+        branchName="origin/feature/delete-me"
+        branchType="remote"
+        busy={false}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />
+    );
+
+    expect(html).toContain('remote branch を削除します。');
+    expect(html).toContain('remote-tracking ref も prune します。');
   });
 });

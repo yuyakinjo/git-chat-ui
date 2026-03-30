@@ -22,7 +22,7 @@ fn main() {
             backend::get_stashes,
             backend::checkout,
             backend::merge_branches,
-            backend::delete_local_branch,
+            backend::delete_branch,
             backend::prepare_pull_request,
             backend::create_pull_request,
             backend::commit,

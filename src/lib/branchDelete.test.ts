@@ -13,18 +13,18 @@ const localBranch: Branch = {
 
 describe('branchDelete', () => {
   test('allows deleting a non-current local branch', () => {
-    expect(canDeleteBranch(localBranch, 'main')).toBe(true);
-    expect(getBranchDeleteDisabledReason(localBranch, 'main')).toBeNull();
+    expect(canDeleteBranch(localBranch, 'main', 'main')).toBe(true);
+    expect(getBranchDeleteDisabledReason(localBranch, 'main', 'main')).toBeNull();
   });
 
   test('blocks deleting the checked out branch', () => {
-    expect(canDeleteBranch(localBranch, 'feature/delete-me')).toBe(false);
-    expect(getBranchDeleteDisabledReason(localBranch, 'feature/delete-me')).toBe(
+    expect(canDeleteBranch(localBranch, 'feature/delete-me', 'main')).toBe(false);
+    expect(getBranchDeleteDisabledReason(localBranch, 'feature/delete-me', 'main')).toBe(
       '現在 checkout 中の branch は削除できません。'
     );
   });
 
-  test('blocks deleting remote branches', () => {
+  test('allows deleting non-default remote branches', () => {
     const remoteBranch: Branch = {
       ...localBranch,
       name: 'origin/feature/delete-me',
@@ -32,7 +32,21 @@ describe('branchDelete', () => {
       type: 'remote'
     };
 
-    expect(canDeleteBranch(remoteBranch, 'main')).toBe(false);
-    expect(getBranchDeleteDisabledReason(remoteBranch, 'main')).toBe('local branch のみ削除できます。');
+    expect(canDeleteBranch(remoteBranch, 'main', 'main')).toBe(true);
+    expect(getBranchDeleteDisabledReason(remoteBranch, 'main', 'main')).toBeNull();
+  });
+
+  test('blocks deleting remote default branches', () => {
+    const remoteDefaultBranch: Branch = {
+      ...localBranch,
+      name: 'origin/main',
+      fullRef: 'refs/remotes/origin/main',
+      type: 'remote'
+    };
+
+    expect(canDeleteBranch(remoteDefaultBranch, 'feature/delete-me', 'main')).toBe(false);
+    expect(getBranchDeleteDisabledReason(remoteDefaultBranch, 'feature/delete-me', 'main')).toBe(
+      'remote の default branch は削除できません。'
+    );
   });
 });
