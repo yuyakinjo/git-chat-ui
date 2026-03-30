@@ -615,6 +615,71 @@ fn ensure_deletable_local_branch(repo_path: &str, branch_name: &str) -> Result<(
     Ok(())
 }
 
+fn parse_remote_branch_name(branch_name: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = branch_name
+        .trim()
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+
+    let remote_name = parts
+        .first()
+        .ok_or_else(|| "branchName must include remote and branch name.".to_string())?;
+    let remote_branch_name = parts[1..].join("/");
+
+    if remote_branch_name.is_empty() {
+        return Err("branchName must include remote and branch name.".to_string());
+    }
+
+    Ok(((*remote_name).to_string(), remote_branch_name))
+}
+
+fn get_local_default_branch_name(repo_path: &str) -> Result<Option<String>, String> {
+    let branches = get_branches(repo_path.to_string())?;
+    let candidate = branches
+        .local
+        .iter()
+        .find(|branch| branch.name == "main")
+        .or_else(|| branches.local.iter().find(|branch| branch.name == "master"))
+        .or_else(|| branches.local.iter().find(|branch| branch.name == branches.current))
+        .or_else(|| branches.local.first());
+
+    Ok(candidate.map(|branch| branch.name.clone()))
+}
+
+fn get_remote_default_branch_name(repo_path: &str, remote_name: &str) -> Option<String> {
+    let remote_head_ref = format!("refs/remotes/{remote_name}/HEAD");
+    if let Ok(reference) = run_git(
+        &["symbolic-ref", "--quiet", "--short", remote_head_ref.as_str()],
+        repo_path,
+    ) {
+        let normalized = reference.trim();
+        let prefix = format!("{remote_name}/");
+        if normalized.starts_with(&prefix) {
+            return Some(normalized[prefix.len()..].to_string());
+        }
+    }
+
+    get_local_default_branch_name(repo_path).ok().flatten()
+}
+
+fn ensure_deletable_remote_branch(repo_path: &str, branch_name: &str) -> Result<(String, String), String> {
+    ensure_repo_path(repo_path)?;
+    let (remote_name, remote_branch_name) = parse_remote_branch_name(branch_name)?;
+    let reference = format!("refs/remotes/{branch_name}");
+    run_git(&["rev-parse", "--verify", reference.as_str()], repo_path)?;
+
+    if let Some(default_branch_name) = get_remote_default_branch_name(repo_path, &remote_name) {
+        if remote_branch_name == default_branch_name {
+            return Err(format!(
+                "Default branch '{default_branch_name}' on remote '{remote_name}' cannot be deleted."
+            ));
+        }
+    }
+
+    Ok((remote_name, remote_branch_name))
+}
+
 fn ensure_origin_remote(repo_path: &str) -> Result<(), String> {
     run_git(&["remote", "get-url", "origin"], repo_path).map(|_| ())
 }
@@ -1759,9 +1824,27 @@ pub fn merge_branches(
 }
 
 #[tauri::command]
-pub fn delete_local_branch(repo_path: String, branch_name: String) -> Result<OkResponse, String> {
-    ensure_deletable_local_branch(&repo_path, &branch_name)?;
-    run_git(&["branch", "-d", branch_name.as_str()], &repo_path)?;
+pub fn delete_branch(
+    repo_path: String,
+    branch_name: String,
+    branch_type: String,
+) -> Result<OkResponse, String> {
+    match branch_type.as_str() {
+        "local" => {
+            ensure_deletable_local_branch(&repo_path, &branch_name)?;
+            run_git(&["branch", "-d", branch_name.as_str()], &repo_path)?;
+        }
+        "remote" => {
+            let (remote_name, remote_branch_name) =
+                ensure_deletable_remote_branch(&repo_path, &branch_name)?;
+            run_git(
+                &["push", remote_name.as_str(), "--delete", remote_branch_name.as_str()],
+                &repo_path,
+            )?;
+            run_git(&["fetch", remote_name.as_str(), "--prune"], &repo_path)?;
+        }
+        _ => return Err("branchType must be local or remote.".to_string()),
+    }
 
     Ok(OkResponse { ok: true })
 }

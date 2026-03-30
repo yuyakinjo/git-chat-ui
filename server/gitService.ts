@@ -630,6 +630,66 @@ async function ensureDeletableLocalBranch(repoPath: string, branchName: string):
   }
 }
 
+function parseRemoteBranchName(branchName: string): { remoteName: string; remoteBranchName: string } {
+  const parts = branchName.trim().split('/').filter(Boolean);
+  const remoteName = parts[0];
+  const remoteBranchName = parts.slice(1).join('/');
+
+  if (!remoteName || !remoteBranchName) {
+    throw new Error('branchName must include remote and branch name.');
+  }
+
+  return {
+    remoteName,
+    remoteBranchName
+  };
+}
+
+async function getLocalDefaultBranchName(repoPath: string): Promise<string | null> {
+  const branches = await getBranches(repoPath);
+  const localBranches = branches.local;
+  const candidate =
+    localBranches.find((branch) => branch.name === 'main') ??
+    localBranches.find((branch) => branch.name === 'master') ??
+    localBranches.find((branch) => branch.name === branches.current) ??
+    localBranches[0];
+
+  return candidate?.name ?? null;
+}
+
+async function getRemoteDefaultBranchName(repoPath: string, remoteName: string): Promise<string | null> {
+  try {
+    const reference = await runGit(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], repoPath);
+    const normalized = reference.trim();
+    if (normalized.startsWith(`${remoteName}/`)) {
+      return normalized.slice(remoteName.length + 1);
+    }
+  } catch {
+    // fall back to local default branch heuristic
+  }
+
+  return getLocalDefaultBranchName(repoPath);
+}
+
+async function ensureDeletableRemoteBranch(
+  repoPath: string,
+  branchName: string
+): Promise<{ remoteName: string; remoteBranchName: string }> {
+  await ensureRepoPath(repoPath);
+  const { remoteName, remoteBranchName } = parseRemoteBranchName(branchName);
+  await runGit(['rev-parse', '--verify', `refs/remotes/${branchName}`], repoPath);
+
+  const defaultBranchName = await getRemoteDefaultBranchName(repoPath, remoteName);
+  if (defaultBranchName && remoteBranchName === defaultBranchName) {
+    throw new Error(`Default branch '${defaultBranchName}' on remote '${remoteName}' cannot be deleted.`);
+  }
+
+  return {
+    remoteName,
+    remoteBranchName
+  };
+}
+
 export async function mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
@@ -642,7 +702,14 @@ export async function mergeBranches(repoPath: string, sourceBranch: string, targ
   await runGit(['merge', sourceBranch], repoPath);
 }
 
-export async function deleteLocalBranch(repoPath: string, branchName: string): Promise<void> {
+export async function deleteBranch(repoPath: string, branchName: string, branchType: 'local' | 'remote'): Promise<void> {
+  if (branchType === 'remote') {
+    const { remoteName, remoteBranchName } = await ensureDeletableRemoteBranch(repoPath, branchName);
+    await runGit(['push', remoteName, '--delete', remoteBranchName], repoPath);
+    await runGit(['fetch', remoteName, '--prune'], repoPath);
+    return;
+  }
+
   await ensureDeletableLocalBranch(repoPath, branchName);
   await runGit(['branch', '-d', branchName], repoPath);
 }

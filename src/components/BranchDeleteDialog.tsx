@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 interface BranchDeleteDialogProps {
   branchName: string;
+  branchType: 'local' | 'remote';
   busy: boolean;
   onClose: () => void;
   onDelete: () => void;
@@ -10,6 +11,7 @@ interface BranchDeleteDialogProps {
 
 export function BranchDeleteDialog({
   branchName,
+  branchType,
   busy,
   onClose,
   onDelete
@@ -27,6 +29,8 @@ export function BranchDeleteDialog({
     };
   }, [busy, onClose]);
 
+  const isRemoteBranch = branchType === 'remote';
+
   return (
     <div
       className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-sm"
@@ -40,7 +44,9 @@ export function BranchDeleteDialog({
             <div className="section-title">Delete Branch</div>
             <div className="truncate text-base font-semibold text-ink">{branchName}</div>
             <div className="mt-1 text-sm leading-6 text-ink-subtle">
-              local branch を削除します。未 merge の場合は Git が拒否するため、そのときは何も削除されません。
+              {isRemoteBranch
+                ? 'remote branch を削除します。remote 上の参照を削除し、local の remote-tracking ref も prune します。'
+                : 'local branch を削除します。未 merge の場合は Git が拒否するため、そのときは何も削除されません。'}
             </div>
           </div>
 
@@ -62,8 +68,10 @@ export function BranchDeleteDialog({
             <span>この操作は取り消せません</span>
           </div>
           <div className="mt-2 leading-6">
-            <span className="font-medium">{branchName}</span> を branch list から削除します。必要なら先に merge するか、
-            別名で branch を作り直してください。
+            <span className="font-medium">{branchName}</span> を branch list から削除します。
+            {isRemoteBranch
+              ? ' 必要なら push して remote branch を作り直してください。'
+              : ' 必要なら先に merge するか、別名で branch を作り直してください。'}
           </div>
         </div>
 
