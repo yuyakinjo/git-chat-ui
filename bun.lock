@@ -6,7 +6,7 @@
       "name": "git-chat-ui",
       "dependencies": {
         "@tauri-apps/api": "^2.10.1",
-        "animejs": "^4.0.2",
+        "animejs": "^4.3.6",
         "cors": "^2.8.5",
         "express": "^5.2.1",
         "lucide-react": "^1.7.0",
