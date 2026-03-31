@@ -1,16 +1,17 @@
-import path from 'node:path';
+/* oxlint-disable no-console -- CLI tool that outputs to stdout/stderr */
+import path from "node:path";
 
-import { CodexAppServerClient } from './codexAppServer';
-import { ensureThreadTaskDirectory, type CodexThreadSummary } from './codexTaskFolders';
+import { CodexAppServerClient } from "./codexAppServer";
+import { ensureThreadTaskDirectory, type CodexThreadSummary } from "./codexTaskFolders";
 import {
   ensureBackgroundThreadTaskWatcher,
   formatThreadTaskSyncSummary,
   runThreadTaskSync,
   WATCH_DEFAULT_INTERVAL_SECONDS,
-  watchThreadTaskDirectories
-} from './codexThreadTaskWatcher';
+  watchThreadTaskDirectories,
+} from "./codexThreadTaskWatcher";
 
-type Command = 'list' | 'attach' | 'attach-latest' | 'archive' | 'sync' | 'watch';
+type Command = "list" | "attach" | "attach-latest" | "archive" | "sync" | "watch";
 
 interface ParsedArgs {
   command: Command;
@@ -19,36 +20,36 @@ interface ParsedArgs {
 
 async function main(argv: string[]): Promise<void> {
   const parsed = parseArgs(argv);
-  const repoRoot = path.resolve(parsed.flags.get('cwd') ?? process.cwd());
+  const repoRoot = path.resolve(parsed.flags.get("cwd") ?? process.cwd());
 
   switch (parsed.command) {
-    case 'list':
+    case "list":
       await withClient(repoRoot, async (client) => {
         const threads = await client.listThreads({
-          archived: parsed.flags.get('archived') === 'true',
-          cwd: repoRoot
+          archived: parsed.flags.get("archived") === "true",
+          cwd: repoRoot,
         });
         printThreadList(threads);
       });
       return;
 
-    case 'attach':
+    case "attach":
       await withClient(repoRoot, async (client) => {
-        const threadId = requireFlag(parsed.flags, 'thread-id');
+        const threadId = requireFlag(parsed.flags, "thread-id");
         const thread = await client.readThread(threadId);
         const result = await ensureThreadTaskDirectory(repoRoot, thread);
-        console.log(`${result.created ? 'created' : 'updated'} ${result.threadDir}`);
+        console.log(`${result.created ? "created" : "updated"} ${result.threadDir}`);
         await maybeEnsureWatcher(repoRoot, parsed.flags);
       });
       return;
 
-    case 'attach-latest':
+    case "attach-latest":
       await withClient(repoRoot, async (client) => {
         const threads = await client.listThreads({
           cwd: repoRoot,
           archived: false,
           limit: 1,
-          sortKey: 'updated_at'
+          sortKey: "updated_at",
         });
         const thread = threads[0];
         if (!thread) {
@@ -56,14 +57,14 @@ async function main(argv: string[]): Promise<void> {
         }
 
         const result = await ensureThreadTaskDirectory(repoRoot, thread);
-        console.log(`${result.created ? 'created' : 'updated'} ${result.threadDir}`);
+        console.log(`${result.created ? "created" : "updated"} ${result.threadDir}`);
         await maybeEnsureWatcher(repoRoot, parsed.flags);
       });
       return;
 
-    case 'archive':
+    case "archive":
       await withClient(repoRoot, async (client) => {
-        const threadId = requireFlag(parsed.flags, 'thread-id');
+        const threadId = requireFlag(parsed.flags, "thread-id");
         await client.archiveThread(threadId);
         const syncResult = await runThreadTaskSync(client, repoRoot);
         console.log(`archived ${threadId}`);
@@ -71,14 +72,14 @@ async function main(argv: string[]): Promise<void> {
       });
       return;
 
-    case 'sync':
+    case "sync":
       await withClient(repoRoot, async (client) => {
         const syncResult = await runThreadTaskSync(client, repoRoot);
         printSyncSummary(repoRoot, syncResult);
       });
       return;
 
-    case 'watch': {
+    case "watch": {
       const intervalSeconds = parseIntervalSeconds(parsed.flags);
 
       await withClient(repoRoot, async (client) => {
@@ -86,7 +87,7 @@ async function main(argv: string[]): Promise<void> {
         await watchThreadTaskDirectories({
           client,
           repoRoot,
-          intervalSeconds
+          intervalSeconds,
         });
       });
       return;
@@ -94,7 +95,10 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-async function withClient(repoRoot: string, callback: (client: CodexAppServerClient) => Promise<void>): Promise<void> {
+async function withClient(
+  repoRoot: string,
+  callback: (client: CodexAppServerClient) => Promise<void>,
+): Promise<void> {
   const client = new CodexAppServerClient(repoRoot);
 
   try {
@@ -116,14 +120,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
-    if (!token.startsWith('--')) {
+    if (!token.startsWith("--")) {
       throw new Error(`Unexpected argument: ${token}\n\n${usage()}`);
     }
 
     const key = token.slice(2);
     const next = rest[index + 1];
-    if (!next || next.startsWith('--')) {
-      flags.set(key, 'true');
+    if (!next || next.startsWith("--")) {
+      flags.set(key, "true");
       continue;
     }
 
@@ -135,12 +139,19 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function isCommand(value: string | undefined): value is Command {
-  return value === 'list' || value === 'attach' || value === 'attach-latest' || value === 'archive' || value === 'sync' || value === 'watch';
+  return (
+    value === "list" ||
+    value === "attach" ||
+    value === "attach-latest" ||
+    value === "archive" ||
+    value === "sync" ||
+    value === "watch"
+  );
 }
 
 function requireFlag(flags: Map<string, string>, key: string): string {
   const value = flags.get(key);
-  if (!value || value === 'true') {
+  if (!value || value === "true") {
     throw new Error(`--${key} is required`);
   }
   return value;
@@ -148,39 +159,46 @@ function requireFlag(flags: Map<string, string>, key: string): string {
 
 function printThreadList(threads: CodexThreadSummary[]): void {
   if (threads.length === 0) {
-    console.log('No threads found.');
+    console.log("No threads found.");
     return;
   }
 
   for (const thread of threads) {
-    const title = thread.name?.trim() || thread.preview?.trim() || 'Untitled thread';
-    const updatedAt = thread.updatedAt ? new Date(thread.updatedAt * 1000).toISOString() : 'unknown';
+    const title = thread.name?.trim() || thread.preview?.trim() || "Untitled thread";
+    const updatedAt = thread.updatedAt
+      ? new Date(thread.updatedAt * 1000).toISOString()
+      : "unknown";
     console.log(`${thread.id}\t${updatedAt}\t${title}`);
   }
 }
 
 async function maybeEnsureWatcher(repoRoot: string, flags: Map<string, string>): Promise<void> {
-  if (flags.get('watch') === 'false') {
+  if (flags.get("watch") === "false") {
     return;
   }
 
   const watchResult = await ensureBackgroundThreadTaskWatcher({
     repoRoot,
-    intervalSeconds: parseIntervalSeconds(flags)
+    intervalSeconds: parseIntervalSeconds(flags),
   });
-  console.log(`${watchResult.started ? 'started' : 'reused'} watcher ${watchResult.pid} (${watchResult.logPath})`);
+  console.log(
+    `${watchResult.started ? "started" : "reused"} watcher ${watchResult.pid} (${watchResult.logPath})`,
+  );
 }
 
-function printSyncSummary(repoRoot: string, result: Awaited<ReturnType<typeof runThreadTaskSync>>): void {
+function printSyncSummary(
+  repoRoot: string,
+  result: Awaited<ReturnType<typeof runThreadTaskSync>>,
+): void {
   for (const line of formatThreadTaskSyncSummary(repoRoot, result)) {
     console.log(line);
   }
 }
 
 function parseIntervalSeconds(flags: Map<string, string>): number {
-  const intervalSeconds = Number(flags.get('interval') ?? WATCH_DEFAULT_INTERVAL_SECONDS);
+  const intervalSeconds = Number(flags.get("interval") ?? WATCH_DEFAULT_INTERVAL_SECONDS);
   if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
-    throw new Error('interval must be a positive number');
+    throw new Error("interval must be a positive number");
   }
 
   return intervalSeconds;
@@ -188,16 +206,16 @@ function parseIntervalSeconds(flags: Map<string, string>): number {
 
 function usage(): string {
   return [
-    'Usage: bun server/codexThreadTasks.ts <command> [flags]',
-    '',
-    'Commands:',
-    '  list [--archived]',
-    '  attach --thread-id <threadId>',
-    '  attach-latest',
-    '  archive --thread-id <threadId>',
-    '  sync',
-    '  watch [--interval <seconds>]'
-  ].join('\n');
+    "Usage: bun server/codexThreadTasks.ts <command> [flags]",
+    "",
+    "Commands:",
+    "  list [--archived]",
+    "  attach --thread-id <threadId>",
+    "  attach-latest",
+    "  archive --thread-id <threadId>",
+    "  sync",
+    "  watch [--interval <seconds>]",
+  ].join("\n");
 }
 
 if (import.meta.main) {

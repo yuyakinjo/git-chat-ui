@@ -1,29 +1,29 @@
-import { AlertTriangle, GripVertical, X } from 'lucide-react';
-import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from 'react';
-import { flushSync } from 'react-dom';
+import { AlertTriangle, GripVertical, X } from "lucide-react";
+import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from "react";
+import { flushSync } from "react-dom";
 
-import { api } from '../lib/api';
-import { describeGitError, type UiError } from '../lib/errors';
-import { canSwapControllerPanel, type ControllerPanelId } from '../lib/controllerPanelOrder';
-import { controllerPanelLabels } from '../lib/controllerViewUtils';
-import { canMergeBranchWithoutWorkingTreeChange } from '../lib/repositoryMutationSafety';
-import { waitForNextPaint } from '../lib/waitForNextPaint';
-import { BranchActionDialog } from './BranchActionDialog';
-import { BranchCreateDialog } from './BranchCreateDialog';
-import { BranchDeleteDialog } from './BranchDeleteDialog';
-import { BranchDiffOverlay } from './BranchDiffOverlay';
-import { BranchTree } from './BranchTree';
-import { CommitDetailPanel } from './CommitDetailPanel';
-import { CommitDiffOverlay } from './CommitDiffOverlay';
-import { CommitGraph } from './CommitGraph';
-import { GitOperationPanel } from './GitOperationPanel';
-import { StashDiffOverlay } from './StashDiffOverlay';
-import { StashRenameDialog } from './StashRenameDialog';
-import { useControllerBranchOps } from '../hooks/useControllerBranchOps';
-import { useControllerData } from '../hooks/useControllerData';
-import { useControllerPanelDrag } from '../hooks/useControllerPanelDrag';
-import { WorkingTreeDiffOverlay } from './WorkingTreeDiffOverlay';
-import type { AppConfig, Branch, Repository } from '../types';
+import { api } from "../lib/api";
+import { describeGitError, type UiError } from "../lib/errors";
+import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
+import { controllerPanelLabels } from "../lib/controllerViewUtils";
+import { canMergeBranchWithoutWorkingTreeChange } from "../lib/repositoryMutationSafety";
+import { waitForNextPaint } from "../lib/waitForNextPaint";
+import { BranchActionDialog } from "./BranchActionDialog";
+import { BranchCreateDialog } from "./BranchCreateDialog";
+import { BranchDeleteDialog } from "./BranchDeleteDialog";
+import { BranchDiffOverlay } from "./BranchDiffOverlay";
+import { BranchTree } from "./BranchTree";
+import { CommitDetailPanel } from "./CommitDetailPanel";
+import { CommitDiffOverlay } from "./CommitDiffOverlay";
+import { CommitGraph } from "./CommitGraph";
+import { GitOperationPanel } from "./GitOperationPanel";
+import { StashDiffOverlay } from "./StashDiffOverlay";
+import { StashRenameDialog } from "./StashRenameDialog";
+import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
+import { useControllerData } from "../hooks/useControllerData";
+import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
+import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
+import type { AppConfig, Branch, Repository } from "../types";
 
 interface ControllerViewProps {
   repository: Repository;
@@ -33,15 +33,15 @@ interface ControllerViewProps {
 }
 
 type CommitMessageGenerationState =
-  | { status: 'idle' }
-  | { status: 'success'; title: string; description: string }
-  | { status: 'error'; error: UiError };
+  | { status: "idle" }
+  | { status: "success"; title: string; description: string }
+  | { status: "error"; error: UiError };
 
 export function ControllerView({
   repository,
   appConfig,
   onNotify,
-  onCurrentBranchChange
+  onCurrentBranchChange,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -50,37 +50,38 @@ export function ControllerView({
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
-  const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] = useActionState(
-    async (
-      _previousState: CommitMessageGenerationState,
-      files: string[]
-    ): Promise<CommitMessageGenerationState> => {
-      if (files.length === 0) {
-        return {
-          status: 'error',
-          error: describeGitError(
-            new Error('No staged changes are available for commit message generation.'),
-            'コミット文生成に失敗しました。'
-          )
-        };
-      }
+  const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
+    useActionState(
+      async (
+        _previousState: CommitMessageGenerationState,
+        files: string[],
+      ): Promise<CommitMessageGenerationState> => {
+        if (files.length === 0) {
+          return {
+            status: "error",
+            error: describeGitError(
+              new Error("No staged changes are available for commit message generation."),
+              "コミット文生成に失敗しました。",
+            ),
+          };
+        }
 
-      try {
-        const response = await api.generateCommitMessage(repoPath, files);
-        return {
-          status: 'success',
-          title: response.title,
-          description: response.description
-        };
-      } catch (error) {
-        return {
-          status: 'error',
-          error: describeGitError(error, 'コミット文生成に失敗しました。')
-        };
-      }
-    },
-    { status: 'idle' }
-  );
+        try {
+          const response = await api.generateCommitMessage(repoPath, files);
+          return {
+            status: "success",
+            title: response.title,
+            description: response.description,
+          };
+        } catch (error) {
+          return {
+            status: "error",
+            error: describeGitError(error, "コミット文生成に失敗しました。"),
+          };
+        }
+      },
+      { status: "idle" },
+    );
   const isCommitMessageGenerating = commitMessageAnimationPending || generatingCommitMessage;
 
   const {
@@ -89,7 +90,7 @@ export function ControllerView({
     dropTargetPanelId,
     panelDragPreviewPosition,
     panelDragHint,
-    handlePanelPointerDown
+    handlePanelPointerDown,
   } = useControllerPanelDrag({ repoPath, operationBusy: data.operationBusy });
 
   const branchOps = useControllerBranchOps({
@@ -97,7 +98,7 @@ export function ControllerView({
     onNotify,
     data,
     setSelectedBranchForHover,
-    setPendingScrollCommitSha
+    setPendingScrollCommitSha,
   });
 
   useEffect(() => {
@@ -106,12 +107,13 @@ export function ControllerView({
     }
   }, [generatingCommitMessage]);
 
+  /* oxlint-disable react-hooks/exhaustive-deps -- depend on stable setter references, not the data object itself */
   useEffect(() => {
-    if (commitMessageGenerationState.status === 'idle') {
+    if (commitMessageGenerationState.status === "idle") {
       return;
     }
 
-    if (commitMessageGenerationState.status === 'success') {
+    if (commitMessageGenerationState.status === "success") {
       data.setInlineError(null);
       data.setCommitTitle(commitMessageGenerationState.title);
       data.setCommitDescription(commitMessageGenerationState.description);
@@ -128,8 +130,9 @@ export function ControllerView({
     data.setCommitTitle,
     data.setInlineError,
     data.setOperationBusy,
-    onNotify
+    onNotify,
   ]);
+  /* oxlint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     setCommitMessageAnimationPending(false);
@@ -162,28 +165,31 @@ export function ControllerView({
       files: [
         ...(data.workingStatus?.staged.map((item) => ({
           file: item.file,
-          area: 'staged' as const,
+          area: "staged" as const,
           x: item.x,
           y: item.y,
-          statusLabel: item.statusLabel
+          statusLabel: item.statusLabel,
         })) ?? []),
         ...(data.workingStatus?.unstaged.map((item) => ({
           file: item.file,
-          area: 'unstaged' as const,
+          area: "unstaged" as const,
           x: item.x,
           y: item.y,
-          statusLabel: item.statusLabel
-        })) ?? [])
-      ]
+          statusLabel: item.statusLabel,
+        })) ?? []),
+      ],
     };
   }, [data.isWipSelected, data.workingStatus]);
 
   const selectedCommitDetail = useMemo(
-    () => (data.commitDetail && data.activeCommit && data.commitDetail.sha === data.activeCommit.sha ? data.commitDetail : null),
-    [data.activeCommit, data.commitDetail]
+    () =>
+      data.commitDetail && data.activeCommit && data.commitDetail.sha === data.activeCommit.sha
+        ? data.commitDetail
+        : null,
+    [data.activeCommit, data.commitDetail],
   );
   const branchActionMergeDisabledReason =
-    branchOps.branchAction?.step === 'select-action' &&
+    branchOps.branchAction?.step === "select-action" &&
     data.selfMutationBlockedReason &&
     !canMergeBranchWithoutWorkingTreeChange(data.currentBranchName, branchOps.branchAction.target)
       ? data.selfMutationBlockedReason
@@ -229,7 +235,7 @@ export function ControllerView({
           append: true,
           offset: data.commits.length,
           ref: data.activeLogRef,
-          compareRefs: data.activeCompareRefs
+          compareRefs: data.activeCompareRefs,
         });
       }}
     />
@@ -239,6 +245,7 @@ export function ControllerView({
     <GitOperationPanel
       status={data.workingStatus}
       stashes={data.stashes}
+      pullStatus={data.pullStatus}
       commitTitle={data.commitTitle}
       commitDescription={data.commitDescription}
       busy={data.operationBusy}
@@ -251,7 +258,7 @@ export function ControllerView({
           async () => {
             await api.stageFile(repoPath, file);
           },
-          { reloadCommits: false }
+          { reloadCommits: false },
         );
       }}
       onUnstageFile={(file) => {
@@ -259,7 +266,7 @@ export function ControllerView({
           async () => {
             await api.unstageFile(repoPath, file);
           },
-          { reloadCommits: false }
+          { reloadCommits: false },
         );
       }}
       onStageAll={() => {
@@ -270,7 +277,7 @@ export function ControllerView({
               await api.stageFile(repoPath, file);
             }
           },
-          { reloadCommits: false }
+          { reloadCommits: false },
         );
       }}
       onUnstageAll={() => {
@@ -281,7 +288,7 @@ export function ControllerView({
               await api.unstageFile(repoPath, file);
             }
           },
-          { reloadCommits: false }
+          { reloadCommits: false },
         );
       }}
       onStashFile={(file) => {
@@ -289,7 +296,7 @@ export function ControllerView({
           async () => {
             await api.stashFile(repoPath, file);
           },
-          { reloadCommits: false }
+          { reloadCommits: false },
         );
       }}
       onOpenWorkingTreeDiff={(file, area) => {
@@ -298,8 +305,8 @@ export function ControllerView({
       onGenerateCommitMessage={() => {
         if (data.commitMessageFiles.length === 0) {
           const nextError = describeGitError(
-            new Error('No staged changes are available for commit message generation.'),
-            'コミット文生成に失敗しました。'
+            new Error("No staged changes are available for commit message generation."),
+            "コミット文生成に失敗しました。",
           );
           data.setInlineError(nextError);
           onNotify(nextError.title);
@@ -331,8 +338,8 @@ export function ControllerView({
               flushSync(() => {
                 data.clearCommitMessageDraft();
               });
-            }
-          }
+            },
+          },
         );
       }}
       onPush={() => {
@@ -345,15 +352,31 @@ export function ControllerView({
               flushSync(() => {
                 data.clearCommitMessageDraft();
               });
-            }
-          }
+            },
+          },
+        );
+      }}
+      onPull={() => {
+        if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
+          return;
+        }
+
+        void data.mutateAndReload(
+          async () => {
+            await api.pull(repoPath);
+          },
+          {
+            onSuccess: () => {
+              onNotify("upstream の変更を取り込みました。");
+            },
+          },
         );
       }}
       headerAccessory={
         data.showBranchDiffButton ? (
           <button
             type="button"
-            className={`button ${data.showBranchDiff ? 'button-primary' : 'button-secondary'}`}
+            className={`button ${data.showBranchDiff ? "button-primary" : "button-secondary"}`}
             disabled={data.loadingBranchDiffDetail}
             aria-haspopup="dialog"
             aria-expanded={data.showBranchDiff}
@@ -362,7 +385,7 @@ export function ControllerView({
               data.setShowBranchDiff(!data.showBranchDiff);
             }}
           >
-            {data.showBranchDiff ? 'Close Diffs' : data.branchDiffButtonLabel}
+            {data.showBranchDiff ? "Close Diffs" : data.branchDiffButtonLabel}
           </button>
         ) : null
       }
@@ -388,7 +411,7 @@ export function ControllerView({
   const panelContentById: Record<ControllerPanelId, JSX.Element> = {
     commitGraph: commitGraphPanel,
     gitOperations: gitOperationPanel,
-    commitDetail: commitDetailPanel
+    commitDetail: commitDetailPanel,
   };
 
   // --- Render ---
@@ -440,7 +463,7 @@ export function ControllerView({
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
         />
 
-        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1.35fr)_minmax(260px,1fr)_minmax(240px,0.95fr)] gap-3 max-[1100px]:grid-rows-[minmax(280px,1.2fr)_minmax(240px,1fr)_minmax(220px,0.95fr)]">
+        <div className="controller-panels-grid">
           {panelOrder.map((panelId) => {
             const isDragActive = draggedPanelId !== null;
             const isDropTarget = dropTargetPanelId === panelId;
@@ -450,7 +473,7 @@ export function ControllerView({
               canSwapControllerPanel({
                 busy: data.operationBusy,
                 sourceId: draggedPanelId,
-                targetId: panelId
+                targetId: panelId,
               });
 
             return (
@@ -458,7 +481,7 @@ export function ControllerView({
                 key={panelId}
                 data-controller-panel-drop-id={panelId}
                 data-controller-panel-drag-source-id={panelId}
-                className={`controller-panel-slot min-h-0 ${isDropCandidate ? 'is-drop-candidate' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragSource ? 'is-drag-source' : ''}`}
+                className={`controller-panel-slot min-h-0 ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isDragSource ? "is-drag-source" : ""}`}
                 onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
               >
                 <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>
@@ -467,14 +490,18 @@ export function ControllerView({
                   <div className="controller-panel-drop-split">
                     <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--source">
                       <div className="controller-panel-drop-split__eyebrow">From</div>
-                      <div className="controller-panel-drop-split__title">{controllerPanelLabels[draggedPanelId]}</div>
+                      <div className="controller-panel-drop-split__title">
+                        {controllerPanelLabels[draggedPanelId]}
+                      </div>
                     </div>
                     <div className="controller-panel-drop-split__flow" aria-hidden="true">
                       <span className="controller-panel-drop-split__arrow">→</span>
                     </div>
                     <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--target">
                       <div className="controller-panel-drop-split__eyebrow">Swap</div>
-                      <div className="controller-panel-drop-split__title">{controllerPanelLabels[panelId]}</div>
+                      <div className="controller-panel-drop-split__title">
+                        {controllerPanelLabels[panelId]}
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -489,7 +516,7 @@ export function ControllerView({
           className="controller-panel-drag-preview"
           style={{
             left: `${panelDragPreviewPosition.x + 18}px`,
-            top: `${panelDragPreviewPosition.y + 18}px`
+            top: `${panelDragPreviewPosition.y + 18}px`,
           }}
         >
           <div className="controller-panel-drag-preview__title">
@@ -560,7 +587,9 @@ export function ControllerView({
             void branchOps.handleCreatePullRequest(true);
           }}
           onBack={() => {
-            branchOps.setBranchAction((current) => (current ? { ...current, step: 'select-action' } : current));
+            branchOps.setBranchAction((current) =>
+              current ? { ...current, step: "select-action" } : current,
+            );
           }}
         />
       ) : null}

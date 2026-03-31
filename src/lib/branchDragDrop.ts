@@ -1,10 +1,10 @@
-import type { Branch } from '../types';
+import type { Branch } from "../types";
 
-export const BRANCH_DRAG_MIME = 'application/x-git-chat-ui-branch';
+export const BRANCH_DRAG_MIME = "application/x-git-chat-ui-branch";
 
 export interface BranchDragPayload {
   branchName: string;
-  branchType: Branch['type'];
+  branchType: Branch["type"];
 }
 
 export function serializeBranchDragPayload(payload: BranchDragPayload): string {
@@ -19,33 +19,34 @@ export function parseBranchDragPayload(raw: string): BranchDragPayload | null {
   try {
     const parsed = JSON.parse(raw) as Partial<BranchDragPayload>;
     if (
-      typeof parsed.branchName !== 'string' ||
+      typeof parsed.branchName !== "string" ||
       !parsed.branchName.trim() ||
-      (parsed.branchType !== 'local' && parsed.branchType !== 'remote')
+      (parsed.branchType !== "local" && parsed.branchType !== "remote")
     ) {
       return null;
     }
 
     return {
       branchName: parsed.branchName,
-      branchType: parsed.branchType
+      branchType: parsed.branchType,
     };
   } catch {
     return null;
   }
 }
 
-export function writeBranchDragPayload(dataTransfer: DataTransfer, payload: BranchDragPayload): void {
+export function writeBranchDragPayload(
+  dataTransfer: DataTransfer,
+  payload: BranchDragPayload,
+): void {
   const serialized = serializeBranchDragPayload(payload);
   dataTransfer.setData(BRANCH_DRAG_MIME, serialized);
-  dataTransfer.setData('text/plain', serialized);
-  dataTransfer.effectAllowed = 'move';
+  dataTransfer.setData("text/plain", serialized);
+  dataTransfer.effectAllowed = "move";
 }
 
 export function readBranchDragPayload(dataTransfer: DataTransfer): BranchDragPayload | null {
-  const raw =
-    dataTransfer.getData(BRANCH_DRAG_MIME) ||
-    dataTransfer.getData('text/plain');
+  const raw = dataTransfer.getData(BRANCH_DRAG_MIME) || dataTransfer.getData("text/plain");
 
   return parseBranchDragPayload(raw);
 }
@@ -60,7 +61,7 @@ export function canDropBranchOnBranch(options: {
     return false;
   }
 
-  if (source.branchType !== 'local' || target.type !== 'local') {
+  if (source.branchType !== "local" || target.type !== "local") {
     return false;
   }
 

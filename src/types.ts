@@ -1,5 +1,5 @@
-export type CommitGraphMode = 'simple' | 'detailed';
-export type AiProvider = 'openAi' | 'claudeCode';
+export type { AiProvider, GeneratedCommitMessage, OpenAiModelsResponse, TokenValidationResult } from "../shared/ai.js";
+export type { AiGenerationConfig, AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
 
 export interface Repository {
   name: string;
@@ -10,7 +10,7 @@ export interface Repository {
 export interface Branch {
   name: string;
   fullRef: string;
-  type: 'local' | 'remote';
+  type: "local" | "remote";
   commit: string;
   isRemoteDefault?: boolean;
 }
@@ -78,7 +78,7 @@ export interface BranchDiffFileDetail {
   isDiffTruncated: boolean;
 }
 
-export type WorkingTreeDiffArea = 'staged' | 'unstaged';
+export type WorkingTreeDiffArea = "staged" | "unstaged";
 
 export interface WorkingTreeDiffDetail {
   file: string;
@@ -118,6 +118,25 @@ export interface PullRequestResponse {
   url: string;
 }
 
+export type PullStatusState =
+  | "detached"
+  | "noUpstream"
+  | "upToDate"
+  | "behind"
+  | "ahead"
+  | "diverged";
+
+export interface PullStatus {
+  branchName: string | null;
+  upstreamName: string | null;
+  remoteName: string | null;
+  remoteBranchName: string | null;
+  aheadCount: number;
+  behindCount: number;
+  canPull: boolean;
+  state: PullStatusState;
+}
+
 export interface RepositoryMutationSafety {
   isSelfRepository: boolean;
 }
@@ -139,45 +158,4 @@ export interface StashEntry {
   relativeDate: string;
   message: string;
   files: string[];
-}
-
-export interface WindowState {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  isMaximized: boolean;
-}
-
-export interface AppConfig {
-  openAiToken: string;
-  openAiModel: string;
-  claudeCodeToken: string;
-  selectedAiProvider: AiProvider;
-  commitTitlePrompt: string;
-  commitGraphMode: CommitGraphMode;
-  repositoryScanDepth: number;
-  recentlyUsed: Array<{
-    path: string;
-    usedAt: string;
-  }>;
-  windowState?: WindowState | null;
-}
-
-export type AiGenerationConfig = Pick<
-  AppConfig,
-  'openAiToken' | 'openAiModel' | 'claudeCodeToken' | 'selectedAiProvider' | 'commitTitlePrompt'
->;
-
-export interface GeneratedCommitMessage {
-  title: string;
-  description: string;
-}
-
-export interface TokenValidationResult {
-  valid: boolean;
-}
-
-export interface OpenAiModelsResponse {
-  models: string[];
 }

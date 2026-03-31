@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-const globalsCss = await Bun.file(new URL('../../../src/styles/globals.css', import.meta.url)).text();
+const globalsCss = await Bun.file(
+  new URL("../../../src/styles/globals.css", import.meta.url),
+).text();
 
 function getSection(startMarker: string, endMarker: string): string {
   const start = globalsCss.indexOf(startMarker);
@@ -12,79 +14,130 @@ function getSection(startMarker: string, endMarker: string): string {
   return globalsCss.slice(start, end);
 }
 
-describe('globals.css', () => {
-  test('git operation panel uses a stacked staged/stash column and expands commit in wider layouts', () => {
-    const gitOperationSection = getSection('.git-operation-panel__grid {', '.git-operation-panel__file-row {');
-
-    expect(gitOperationSection).toContain('.git-operation-panel__stacked-buckets {');
-    expect(gitOperationSection).toContain('gap: 12px;');
-    expect(gitOperationSection).toContain('.git-operation-panel__stacked-buckets--split {');
-    expect(gitOperationSection).toContain('height: 100%;');
-    expect(gitOperationSection).toContain('grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);');
-    expect(gitOperationSection).toContain('.git-operation-panel__stacked-buckets--split .git-operation-panel__stacked-bucket {');
-    expect(gitOperationSection).toContain('overflow: hidden;');
-    expect(gitOperationSection).toContain('.git-operation-panel__stacked-buckets--split .drop-zone {');
-    expect(gitOperationSection).toContain('min-height: 0;');
-    expect(gitOperationSection).toContain('.git-operation-panel__commit-column--full {');
-    expect(gitOperationSection).toContain('grid-column: 1 / -1;');
-    expect(gitOperationSection).toContain('.git-operation-panel__commit-column--span-2 {');
-    expect(gitOperationSection).toContain('grid-column: span 2 / span 2;');
-  });
-
-  test('branch context menu uses theme tokens instead of a fixed light palette', () => {
-    const menuSection = getSection('.branch-context-menu {', '.commit-row {');
-
-    expect(menuSection).toContain('border: 1px solid var(--surface-border-strong);');
-    expect(menuSection).toContain(
-      'background: linear-gradient(148deg, rgb(var(--theme-elevated-strong-rgb) / 0.94), rgb(var(--theme-elevated-rgb) / 0.9));'
+describe("globals.css", () => {
+  test("controller panel rows give git operations more height at medium widths", () => {
+    const controllerPanelSection = getSection(
+      ".controller-panels-grid {",
+      ".controller-panel-slot {",
     );
-    expect(menuSection).toContain('color: var(--text-primary);');
-    expect(menuSection).toContain('background: var(--list-hover-bg);');
-    expect(menuSection).toContain('border-top: 1px solid var(--surface-border);');
-    expect(menuSection).not.toContain('rgba(255, 255, 255, 0.97)');
-    expect(menuSection).not.toContain('rgba(244, 247, 252, 0.95)');
+
+    expect(controllerPanelSection).toContain(
+      "grid-template-rows: minmax(0, 1.3fr) minmax(320px, 1.15fr) minmax(170px, 0.72fr);",
+    );
+    expect(controllerPanelSection).toContain("@media (max-width: 1320px) {");
+    expect(controllerPanelSection).toContain(
+      "grid-template-rows: minmax(0, 1.08fr) minmax(340px, 1.18fr) minmax(150px, 0.56fr);",
+    );
+    expect(controllerPanelSection).toContain("@media (max-width: 1100px) {");
+    expect(controllerPanelSection).toContain(
+      "grid-template-rows: minmax(280px, 1.08fr) minmax(320px, 1.1fr) minmax(170px, 0.62fr);",
+    );
   });
 
-  test('wip row defines dedicated dark theme contrast overrides', () => {
-    const wipSection = getSection('.wip-row {', '.wip-node {');
+  test("git operation panel uses a stacked staged/stash column and expands commit in wider layouts", () => {
+    const gitOperationSection = getSection(
+      ".git-operation-panel__grid {",
+      ".git-operation-panel__file-row {",
+    );
 
-    expect(wipSection).toContain('.wip-row__badge {');
-    expect(wipSection).toContain('.wip-row__primary {');
-    expect(wipSection).toContain('.wip-row__meta {');
-    expect(wipSection).toContain("body[data-theme='default-dark'] .wip-row {");
-    expect(wipSection).toContain("body[data-theme='default-dark'] .wip-row__badge {");
-    expect(wipSection).toContain("body[data-theme='default-dark'] .wip-row__meta {");
-    expect(wipSection).toContain('background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;');
-    expect(wipSection).toContain('color: rgb(254 243 199 / 0.82);');
+    expect(gitOperationSection).toContain(".git-operation-panel__stacked-buckets {");
+    expect(gitOperationSection).toContain("gap: 12px;");
+    expect(gitOperationSection).toContain(".git-operation-panel__grid--fit-height {");
+    expect(gitOperationSection).toContain("grid-template-rows: minmax(0, 1fr);");
+    expect(gitOperationSection).toContain(".git-operation-panel__grid--3 {");
+    expect(gitOperationSection).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(gitOperationSection).toContain(".git-operation-panel__stacked-buckets--split {");
+    expect(gitOperationSection).toContain("height: 100%;");
+    expect(gitOperationSection).toContain("grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);");
+    expect(gitOperationSection).toContain(
+      ".git-operation-panel__stacked-buckets--split .git-operation-panel__stacked-bucket {",
+    );
+    expect(gitOperationSection).toContain("overflow: hidden;");
+    expect(gitOperationSection).toContain(
+      ".git-operation-panel__stacked-buckets--split .drop-zone {",
+    );
+    expect(gitOperationSection).toContain("min-height: 0;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-column--full {");
+    expect(gitOperationSection).toContain("grid-column: 1 / -1;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-column--span-2 {");
+    expect(gitOperationSection).toContain("grid-column: span 2 / span 2;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-card {");
+    expect(gitOperationSection).toContain("overflow: hidden;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-card--medium {");
+    expect(gitOperationSection).toContain("padding: 10px;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-card--compact {");
+    expect(gitOperationSection).toContain("padding: 8px;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-body {");
+    expect(gitOperationSection).toContain("overflow: auto;");
+    expect(gitOperationSection).toContain(".git-operation-panel__description-input--compact {");
+    expect(gitOperationSection).toContain("min-height: 44px;");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--three {");
+    expect(gitOperationSection).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
   });
 
-  test('diff viewer defaults to a light palette and scopes dark styling to explicit dark-theme overrides', () => {
-    const diffSection = getSection('.diff-workbench {', '.diff-empty-state,');
+  test("branch context menu uses theme tokens instead of a fixed light palette", () => {
+    const menuSection = getSection(".branch-context-menu {", ".commit-row {");
 
-    expect(globalsCss).toContain('--diff-surface: #f7faff;');
-    expect(globalsCss).toContain('--diff-text: #11233f;');
+    expect(menuSection).toContain("border: 1px solid var(--surface-border-strong);");
+    expect(menuSection).toContain("rgb(var(--theme-elevated-strong-rgb) / 0.94)");
+    expect(menuSection).toContain("rgb(var(--theme-elevated-rgb) / 0.9)");
+    expect(menuSection).toContain("color: var(--text-primary);");
+    expect(menuSection).toContain("background: var(--list-hover-bg);");
+    expect(menuSection).toContain("border-top: 1px solid var(--surface-border);");
+    expect(menuSection).not.toContain("rgba(255, 255, 255, 0.97)");
+    expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
+  });
+
+  test("wip row defines dedicated dark theme contrast overrides", () => {
+    const wipSection = getSection(".wip-row {", ".wip-node {");
+
+    expect(wipSection).toContain(".wip-row__badge {");
+    expect(wipSection).toContain(".wip-row__primary {");
+    expect(wipSection).toContain(".wip-row__meta {");
+    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row {');
+    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__badge {');
+    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__meta {');
+    expect(wipSection).toContain(
+      "background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;",
+    );
+    expect(wipSection).toContain("color: rgb(254 243 199 / 0.82);");
+  });
+
+  test("diff viewer defaults to a light palette and scopes dark styling to explicit dark-theme overrides", () => {
+    const diffSection = getSection(".diff-workbench {", ".diff-empty-state,");
+
+    expect(globalsCss).toContain("--diff-surface: #f7faff;");
+    expect(globalsCss).toContain("--diff-text: #11233f;");
+    expect(diffSection).toContain("rgb(var(--theme-elevated-rgb) / 0.96)");
+    expect(diffSection).toContain("rgb(var(--theme-elevated-strong-rgb) / 0.88)");
+    expect(diffSection).toContain("background: rgb(var(--theme-elevated-rgb) / 0.72);");
+    expect(diffSection).toContain('body[data-theme="default-dark"] .diff-workbench__sidebar {');
     expect(diffSection).toContain(
-      'background: linear-gradient(180deg, rgb(var(--theme-elevated-rgb) / 0.96), rgb(var(--theme-elevated-strong-rgb) / 0.88));'
+      'body[data-theme="default-dark"] .diff-workbench__file-tab.is-active {',
     );
-    expect(diffSection).toContain('background: rgb(var(--theme-elevated-rgb) / 0.72);');
-    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-workbench__sidebar {");
-    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-workbench__file-tab.is-active {");
-    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-file__columns {");
+    expect(diffSection).toContain('body[data-theme="default-dark"] .diff-file__columns {');
   });
 
-  test('branch action dialog renders PR refs as pills with a reduced-motion-safe arrow animation', () => {
-    const branchActionSection = getSection('.branch-action-dialog__ref-flow {', '.git-operation-panel__hint {');
+  test("branch action dialog renders PR refs as pills with a reduced-motion-safe arrow animation", () => {
+    const branchActionSection = getSection(
+      ".branch-action-dialog__ref-flow {",
+      ".git-operation-panel__hint {",
+    );
 
-    expect(branchActionSection).toContain('.branch-action-dialog__ref-pill {');
-    expect(branchActionSection).toContain('border: 1px solid rgb(var(--theme-border-rgb) / 0.12);');
-    expect(branchActionSection).toContain('.branch-action-dialog__ref-label {');
-    expect(branchActionSection).toContain('.branch-action-dialog__ref-value {');
-    expect(branchActionSection).toContain('.branch-action-dialog__ref-arrow svg {');
-    expect(branchActionSection).toContain('animation: branch-action-dialog-arrow 1.8s ease-in-out infinite;');
-    expect(branchActionSection).toContain('@keyframes branch-action-dialog-arrow {');
-    expect(branchActionSection).toContain("body[data-theme='default-dark'] .branch-action-dialog__ref-pill {");
-    expect(branchActionSection).toContain('@media (prefers-reduced-motion: reduce) {');
-    expect(branchActionSection).toContain('.branch-action-dialog__ref-arrow svg {');
-    expect(branchActionSection).toContain('animation: none;');
+    expect(branchActionSection).toContain(".branch-action-dialog__ref-pill {");
+    expect(branchActionSection).toContain("border: 1px solid rgb(var(--theme-border-rgb) / 0.12);");
+    expect(branchActionSection).toContain(".branch-action-dialog__ref-label {");
+    expect(branchActionSection).toContain(".branch-action-dialog__ref-value {");
+    expect(branchActionSection).toContain(".branch-action-dialog__ref-arrow svg {");
+    expect(branchActionSection).toContain(
+      "animation: branch-action-dialog-arrow 1.8s ease-in-out infinite;",
+    );
+    expect(branchActionSection).toContain("@keyframes branch-action-dialog-arrow {");
+    expect(branchActionSection).toContain(
+      'body[data-theme="default-dark"] .branch-action-dialog__ref-pill {',
+    );
+    expect(branchActionSection).toContain("@media (prefers-reduced-motion: reduce) {");
+    expect(branchActionSection).toContain(".branch-action-dialog__ref-arrow svg {");
+    expect(branchActionSection).toContain("animation: none;");
   });
 });

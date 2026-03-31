@@ -1,21 +1,24 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { resolveGitOperationPanelColumnCount, shouldSplitCommitDetailPanel } from '../../../src/lib/controllerPanelLayout';
+import {
+  resolveGitOperationPanelColumnCount,
+  shouldSplitCommitDetailPanel,
+} from "../../../src/lib/controllerPanelLayout";
 
-describe('controllerPanelLayout', () => {
-  test('uses a single column git operation layout in narrow panels', () => {
+describe("controllerPanelLayout", () => {
+  test("uses a single column git operation layout in narrow panels", () => {
     expect(resolveGitOperationPanelColumnCount(640)).toBe(1);
   });
 
-  test('uses a two column git operation layout in medium panels', () => {
-    expect(resolveGitOperationPanelColumnCount(980)).toBe(2);
+  test("uses a three column git operation layout in medium panels", () => {
+    expect(resolveGitOperationPanelColumnCount(980)).toBe(3);
   });
 
-  test('uses a four column git operation layout only in wide panels', () => {
+  test("uses a four column git operation layout only in wide panels", () => {
     expect(resolveGitOperationPanelColumnCount(1240)).toBe(4);
   });
 
-  test('splits commit detail only when the panel is wide enough', () => {
+  test("splits commit detail only when the panel is wide enough", () => {
     expect(shouldSplitCommitDetailPanel(880)).toBe(false);
     expect(shouldSplitCommitDetailPanel(980)).toBe(true);
   });

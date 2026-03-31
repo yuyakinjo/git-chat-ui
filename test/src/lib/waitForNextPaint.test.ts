@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { waitForNextPaint } from '../../../src/lib/waitForNextPaint';
+import { waitForNextPaint } from "../../../src/lib/waitForNextPaint";
 
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 
@@ -8,8 +8,8 @@ afterEach(() => {
   globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 });
 
-describe('waitForNextPaint', () => {
-  test('uses requestAnimationFrame when available', async () => {
+describe("waitForNextPaint", () => {
+  test("uses requestAnimationFrame when available", async () => {
     let called = false;
 
     globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -23,7 +23,7 @@ describe('waitForNextPaint', () => {
     expect(called).toBe(true);
   });
 
-  test('falls back to setTimeout when requestAnimationFrame is unavailable', async () => {
+  test("falls back to setTimeout when requestAnimationFrame is unavailable", async () => {
     globalThis.requestAnimationFrame = undefined as unknown as typeof requestAnimationFrame;
 
     await expect(waitForNextPaint()).resolves.toBeUndefined();

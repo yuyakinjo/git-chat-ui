@@ -1,8 +1,8 @@
-import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import type { Writable, Readable } from 'node:stream';
-import readline from 'node:readline';
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Writable, Readable } from "node:stream";
+import readline from "node:readline";
 
-import type { CodexThreadSummary } from './codexTaskFolders';
+import type { CodexThreadSummary } from "./codexTaskFolders";
 
 interface JsonRpcSuccess<T> {
   id: number;
@@ -34,7 +34,7 @@ export interface ListThreadsOptions {
   archived?: boolean;
   cwd?: string;
   limit?: number;
-  sortKey?: 'created_at' | 'updated_at';
+  sortKey?: "created_at" | "updated_at";
   sourceKinds?: string[];
 }
 
@@ -42,8 +42,13 @@ export class CodexAppServerClient {
   private readonly process: ChildProcessByStdio<Writable, Readable, Readable>;
   private readonly lines: readline.Interface;
   private readonly stderr: readline.Interface;
-  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  private readonly notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
+  private readonly pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+  private readonly notificationListeners = new Set<
+    (notification: CodexAppServerNotification) => void
+  >();
   private readonly closeListeners = new Set<(error?: Error) => void>();
   private readonly stderrBuffer: string[] = [];
   private nextId = 0;
@@ -53,19 +58,19 @@ export class CodexAppServerClient {
   private closeNotified = false;
 
   constructor(cwd: string) {
-    this.process = spawn('codex', ['app-server'], {
+    this.process = spawn("codex", ["app-server"], {
       cwd,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ["pipe", "pipe", "pipe"],
     });
     this.lines = readline.createInterface({ input: this.process.stdout });
     this.stderr = readline.createInterface({ input: this.process.stderr });
 
-    this.lines.on('line', (line) => {
+    this.lines.on("line", (line) => {
       const message = JSON.parse(line) as JsonRpcMessage<unknown>;
-      if (!('id' in message)) {
+      if (!("id" in message)) {
         this.emitNotification({
           method: message.method,
-          params: message.params
+          params: message.params,
         });
         return;
       }
@@ -77,7 +82,7 @@ export class CodexAppServerClient {
 
       this.pending.delete(message.id);
 
-      if ('error' in message) {
+      if ("error" in message) {
         pending.reject(new Error(message.error.message));
         return;
       }
@@ -85,24 +90,24 @@ export class CodexAppServerClient {
       pending.resolve(message.result);
     });
 
-    this.stderr.on('line', (line) => {
+    this.stderr.on("line", (line) => {
       this.stderrBuffer.push(line);
       if (this.stderrBuffer.length > 40) {
         this.stderrBuffer.shift();
       }
     });
 
-    this.process.once('error', (error) => {
+    this.process.once("error", (error) => {
       this.handleProcessClose(error instanceof Error ? error : new Error(String(error)));
     });
 
-    this.process.once('exit', (code, signal) => {
+    this.process.once("exit", (code, signal) => {
       const error = this.closing
         ? undefined
         : new Error(
             `codex app-server exited with ${
-              code !== null ? `exit code ${code}` : `signal ${signal ?? 'unknown'}`
-            }${this.stderrBuffer.length > 0 ? `\n${this.stderrBuffer.join('\n')}` : ''}`
+              code !== null ? `exit code ${code}` : `signal ${signal ?? "unknown"}`
+            }${this.stderrBuffer.length > 0 ? `\n${this.stderrBuffer.join("\n")}` : ""}`,
           );
       this.handleProcessClose(error);
     });
@@ -113,14 +118,14 @@ export class CodexAppServerClient {
       return;
     }
 
-    await this.call('initialize', {
+    await this.call("initialize", {
       clientInfo: {
-        name: 'git_chat_ui_task_sync',
-        title: 'Git Chat UI Task Sync',
-        version: '0.1.0'
-      }
+        name: "git_chat_ui_task_sync",
+        title: "Git Chat UI Task Sync",
+        version: "0.1.0",
+      },
     });
-    this.notify('initialized', {});
+    this.notify("initialized", {});
     this.initialized = true;
   }
 
@@ -129,13 +134,13 @@ export class CodexAppServerClient {
     let cursor: string | null = null;
 
     do {
-      const result: ThreadListResponse = await this.call<ThreadListResponse>('thread/list', {
+      const result: ThreadListResponse = await this.call<ThreadListResponse>("thread/list", {
         cursor,
         limit: options.limit ?? 100,
-        sortKey: options.sortKey ?? 'updated_at',
+        sortKey: options.sortKey ?? "updated_at",
         archived: options.archived ?? false,
         cwd: options.cwd,
-        sourceKinds: options.sourceKinds ?? ['appServer', 'cli', 'vscode']
+        sourceKinds: options.sourceKinds ?? ["appServer", "cli", "vscode"],
       });
 
       threads.push(...result.data);
@@ -146,15 +151,15 @@ export class CodexAppServerClient {
   }
 
   async readThread(threadId: string): Promise<CodexThreadSummary> {
-    const result = await this.call<{ thread: CodexThreadSummary }>('thread/read', {
+    const result = await this.call<{ thread: CodexThreadSummary }>("thread/read", {
       threadId,
-      includeTurns: false
+      includeTurns: false,
     });
     return result.thread;
   }
 
   async archiveThread(threadId: string): Promise<void> {
-    await this.call('thread/archive', { threadId });
+    await this.call("thread/archive", { threadId });
   }
 
   onNotification(listener: (notification: CodexAppServerNotification) => void): () => void {
@@ -182,7 +187,7 @@ export class CodexAppServerClient {
     this.process.stdin.end();
     this.process.kill();
     await new Promise<void>((resolve) => {
-      this.process.once('exit', () => resolve());
+      this.process.once("exit", () => resolve());
     });
   }
 
@@ -193,7 +198,7 @@ export class CodexAppServerClient {
     return await new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
         resolve: (value) => resolve(value as T),
-        reject
+        reject,
       });
       this.process.stdin.write(`${JSON.stringify(payload)}\n`);
     });
@@ -215,7 +220,7 @@ export class CodexAppServerClient {
     }
 
     this.closed = true;
-    this.rejectAllPending(error ?? new Error('codex app-server closed.'));
+    this.rejectAllPending(error ?? new Error("codex app-server closed."));
     this.emitClose(error);
   }
 

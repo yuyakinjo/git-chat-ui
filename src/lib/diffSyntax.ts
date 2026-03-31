@@ -1,21 +1,21 @@
-import ts from '@shikijs/langs/ts';
-import tsx from '@shikijs/langs/tsx';
-import json from '@shikijs/langs/json';
-import md from '@shikijs/langs/md';
-import css from '@shikijs/langs/css';
-import html from '@shikijs/langs/html';
-import js from '@shikijs/langs/js';
-import go from '@shikijs/langs/go';
-import rs from '@shikijs/langs/rs';
-import githubDark from '@shikijs/themes/github-dark';
-import githubLight from '@shikijs/themes/github-light';
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
-import { createHighlighterCoreSync } from 'shiki/core';
+import ts from "@shikijs/langs/ts";
+import tsx from "@shikijs/langs/tsx";
+import json from "@shikijs/langs/json";
+import md from "@shikijs/langs/md";
+import css from "@shikijs/langs/css";
+import html from "@shikijs/langs/html";
+import js from "@shikijs/langs/js";
+import go from "@shikijs/langs/go";
+import rs from "@shikijs/langs/rs";
+import githubDark from "@shikijs/themes/github-dark";
+import githubLight from "@shikijs/themes/github-light";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { createHighlighterCoreSync } from "shiki/core";
 
-import type { NativeWindowTheme } from './appTheme';
-import type { IntralineSegment } from './intralineDiff';
+import type { NativeWindowTheme } from "./appTheme";
+import type { IntralineSegment } from "./intralineDiff";
 
-export type DiffSyntaxLanguage = 'ts' | 'tsx' | 'json' | 'md' | 'css' | 'html' | 'js' | 'go' | 'rs';
+export type DiffSyntaxLanguage = "ts" | "tsx" | "json" | "md" | "css" | "html" | "js" | "go" | "rs";
 export type DiffSyntaxTheme = NativeWindowTheme;
 
 export interface DiffSyntaxToken {
@@ -56,49 +56,64 @@ const lineCache = new Map<string, DiffSyntaxToken[]>();
 const MAX_CACHE_SIZE = 2000;
 const SHIKI_THEME_BY_DIFF_THEME = {
   light: githubLight,
-  dark: githubDark
+  dark: githubDark,
 } as const;
 
-export function resolveDiffSyntaxLanguage(filePath: string | null | undefined): DiffSyntaxLanguage | null {
+export function resolveDiffSyntaxLanguage(
+  filePath: string | null | undefined,
+): DiffSyntaxLanguage | null {
   if (!filePath) {
     return null;
   }
 
   const normalized = filePath.toLowerCase();
-  if (normalized.endsWith('.tsx')) {
-    return 'tsx';
+  if (normalized.endsWith(".tsx")) {
+    return "tsx";
   }
 
-  if (normalized.endsWith('.ts') || normalized.endsWith('.cts') || normalized.endsWith('.mts')) {
-    return 'ts';
+  if (normalized.endsWith(".ts") || normalized.endsWith(".cts") || normalized.endsWith(".mts")) {
+    return "ts";
   }
 
-  if (normalized.endsWith('.json') || normalized.endsWith('.jsonc') || normalized.endsWith('.json5')) {
-    return 'json';
+  if (
+    normalized.endsWith(".json") ||
+    normalized.endsWith(".jsonc") ||
+    normalized.endsWith(".json5")
+  ) {
+    return "json";
   }
 
-  if (normalized.endsWith('.md') || normalized.endsWith('.markdown') || normalized.endsWith('.mdx')) {
-    return 'md';
+  if (
+    normalized.endsWith(".md") ||
+    normalized.endsWith(".markdown") ||
+    normalized.endsWith(".mdx")
+  ) {
+    return "md";
   }
 
-  if (normalized.endsWith('.css')) {
-    return 'css';
+  if (normalized.endsWith(".css")) {
+    return "css";
   }
 
-  if (normalized.endsWith('.html') || normalized.endsWith('.htm')) {
-    return 'html';
+  if (normalized.endsWith(".html") || normalized.endsWith(".htm")) {
+    return "html";
   }
 
-  if (normalized.endsWith('.js') || normalized.endsWith('.cjs') || normalized.endsWith('.mjs') || normalized.endsWith('.jsx')) {
-    return 'js';
+  if (
+    normalized.endsWith(".js") ||
+    normalized.endsWith(".cjs") ||
+    normalized.endsWith(".mjs") ||
+    normalized.endsWith(".jsx")
+  ) {
+    return "js";
   }
 
-  if (normalized.endsWith('.go')) {
-    return 'go';
+  if (normalized.endsWith(".go")) {
+    return "go";
   }
 
-  if (normalized.endsWith('.rs')) {
-    return 'rs';
+  if (normalized.endsWith(".rs")) {
+    return "rs";
   }
 
   return null;
@@ -108,24 +123,26 @@ export function buildDiffSyntaxTokens(
   content: string,
   language: DiffSyntaxLanguage | null,
   segments: IntralineSegment[] | null,
-  theme: DiffSyntaxTheme
+  theme: DiffSyntaxTheme,
 ): DiffSyntaxDisplayToken[] {
   if (!content) {
     return [];
   }
 
-  const baseTokens = language ? highlightDiffSyntaxLineSync(content, language, theme) : [{ content }];
+  const baseTokens = language
+    ? highlightDiffSyntaxLineSync(content, language, theme)
+    : [{ content }];
   return buildDiffSyntaxDisplayTokens(baseTokens, content, segments);
 }
 
 export function resolveDiffSyntaxTheme(themeId: string | null | undefined): DiffSyntaxTheme {
-  return themeId === 'default-dark' ? 'dark' : 'light';
+  return themeId === "default-dark" ? "dark" : "light";
 }
 
 export function buildDiffSyntaxDisplayTokens(
   baseTokens: DiffSyntaxToken[],
   content: string,
-  segments: IntralineSegment[] | null
+  segments: IntralineSegment[] | null,
 ): DiffSyntaxDisplayToken[] {
   if (!content) {
     return [];
@@ -136,7 +153,10 @@ export function buildDiffSyntaxDisplayTokens(
     return baseTokens.map((token) => ({ ...token, emphasized: false }));
   }
 
-  const splitTokens = splitTokensAtBreakpoints(baseTokens, collectSegmentBreakpoints(normalizedSegments));
+  const splitTokens = splitTokensAtBreakpoints(
+    baseTokens,
+    collectSegmentBreakpoints(normalizedSegments),
+  );
   const displayTokens: DiffSyntaxDisplayToken[] = [];
 
   let segmentIndex = 0;
@@ -151,7 +171,7 @@ export function buildDiffSyntaxDisplayTokens(
 
     displayTokens.push({
       ...token,
-      emphasized: normalizedSegments[segmentIndex]?.emphasized ?? false
+      emphasized: normalizedSegments[segmentIndex]?.emphasized ?? false,
     });
     consumed += token.content.length;
   }
@@ -159,11 +179,19 @@ export function buildDiffSyntaxDisplayTokens(
   return displayTokens;
 }
 
-export function getDiffSyntaxCacheKey(theme: DiffSyntaxTheme, language: DiffSyntaxLanguage, content: string): string {
+export function getDiffSyntaxCacheKey(
+  theme: DiffSyntaxTheme,
+  language: DiffSyntaxLanguage,
+  content: string,
+): string {
   return `${theme}\u0000${language}\u0000${content}`;
 }
 
-export function highlightDiffSyntaxLineSync(content: string, language: DiffSyntaxLanguage, theme: DiffSyntaxTheme): DiffSyntaxToken[] {
+export function highlightDiffSyntaxLineSync(
+  content: string,
+  language: DiffSyntaxLanguage,
+  theme: DiffSyntaxTheme,
+): DiffSyntaxToken[] {
   const cacheKey = getDiffSyntaxCacheKey(theme, language, content);
   const cached = lineCache.get(cacheKey);
   if (cached) {
@@ -174,7 +202,7 @@ export function highlightDiffSyntaxLineSync(content: string, language: DiffSynta
     lang: language,
     theme: SHIKI_THEME_BY_DIFF_THEME[theme],
     tokenizeMaxLineLength: 4000,
-    tokenizeTimeLimit: 100
+    tokenizeTimeLimit: 100,
   });
 
   const normalized = normalizeHighlightedTokens(tokens, content);
@@ -191,7 +219,7 @@ function getHighlighter(): ReturnType<typeof createHighlighterCoreSync> {
     highlighter = createHighlighterCoreSync({
       engine: createJavaScriptRegexEngine(),
       langs: [ts, tsx, json, md, css, html, js, go, rs],
-      themes: [githubLight, githubDark]
+      themes: [githubLight, githubDark],
     });
   }
 
@@ -200,7 +228,7 @@ function getHighlighter(): ReturnType<typeof createHighlighterCoreSync> {
 
 function normalizeHighlightedTokens(
   tokens: Array<{ content: string; color?: string; bgColor?: string; fontStyle?: number }>,
-  content: string
+  content: string,
 ): DiffSyntaxToken[] {
   const normalized = tokens
     .filter((token) => token.content.length > 0)
@@ -208,26 +236,30 @@ function normalizeHighlightedTokens(
       content: token.content,
       color: token.color,
       bgColor: token.bgColor,
-      fontStyle: typeof token.fontStyle === 'number' && token.fontStyle >= 0 ? token.fontStyle : undefined
+      fontStyle:
+        typeof token.fontStyle === "number" && token.fontStyle >= 0 ? token.fontStyle : undefined,
     }));
 
   if (normalized.length === 0) {
     return [{ content }];
   }
 
-  if (normalized.map((token) => token.content).join('') !== content) {
+  if (normalized.map((token) => token.content).join("") !== content) {
     return [{ content }];
   }
 
   return normalized;
 }
 
-function normalizeSegments(content: string, segments: IntralineSegment[] | null): IntralineSegment[] {
+function normalizeSegments(
+  content: string,
+  segments: IntralineSegment[] | null,
+): IntralineSegment[] {
   if (!segments || segments.length === 0) {
     return [{ text: content, emphasized: false }];
   }
 
-  if (segments.map((segment) => segment.text).join('') !== content) {
+  if (segments.map((segment) => segment.text).join("") !== content) {
     return [{ text: content, emphasized: false }];
   }
 
@@ -246,7 +278,10 @@ function collectSegmentBreakpoints(segments: IntralineSegment[]): number[] {
   return breakpoints;
 }
 
-function splitTokensAtBreakpoints(tokens: DiffSyntaxToken[], breakpoints: number[]): DiffSyntaxToken[] {
+function splitTokensAtBreakpoints(
+  tokens: DiffSyntaxToken[],
+  breakpoints: number[],
+): DiffSyntaxToken[] {
   if (breakpoints.length === 0) {
     return tokens;
   }
@@ -270,7 +305,7 @@ function splitTokensAtBreakpoints(tokens: DiffSyntaxToken[], breakpoints: number
           content,
           color: token.color,
           bgColor: token.bgColor,
-          fontStyle: token.fontStyle
+          fontStyle: token.fontStyle,
         });
       }
 

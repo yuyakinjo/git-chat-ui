@@ -1,10 +1,10 @@
-import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
-import { api } from '../lib/api';
-import type { CommitDetail, CommitFileDiffDetail } from '../types';
-import { CopyableShaButton } from './CopyableShaButton';
-import { SplitDiffViewer } from './SplitDiffViewer';
+import { api } from "../lib/api";
+import type { CommitDetail, CommitFileDiffDetail } from "../types";
+import { CopyableShaButton } from "./CopyableShaButton";
+import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface CommitDiffOverlayProps {
   repoPath: string;
@@ -14,8 +14,14 @@ interface CommitDiffOverlayProps {
   onNotify: (message: string) => void;
 }
 
-export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotify }: CommitDiffOverlayProps): JSX.Element {
-  const title = detail.body.split('\n')[0] || 'No title';
+export function CommitDiffOverlay({
+  repoPath,
+  detail,
+  filePath,
+  onClose,
+  onNotify,
+}: CommitDiffOverlayProps): JSX.Element {
+  const title = detail.body.split("\n")[0] || "No title";
   const [activeFilePath, setActiveFilePath] = useState<string | null>(filePath);
   const [activeFileHasInlineDiff, setActiveFileHasInlineDiff] = useState<boolean | null>(null);
   const [fileDiffCache, setFileDiffCache] = useState<Record<string, CommitFileDiffDetail>>({});
@@ -39,22 +45,25 @@ export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotif
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
 
-  const activeFileDiff = activeFilePath ? fileDiffCache[activeFilePath] ?? null : null;
-  const activeFileError = activeFilePath ? fileErrors[activeFilePath] ?? null : null;
-  const commitDiffViewerDiff = activeFileDiff?.diff ?? detail.diff ?? '';
+  const activeFileDiff = activeFilePath ? (fileDiffCache[activeFilePath] ?? null) : null;
+  const activeFileError = activeFilePath ? (fileErrors[activeFilePath] ?? null) : null;
+  const commitDiffViewerDiff = activeFileDiff?.diff ?? detail.diff ?? "";
   const showActiveFileLoading =
-    Boolean(activeFilePath) && activeFileHasInlineDiff === false && !activeFileDiff && !activeFileError;
+    Boolean(activeFilePath) &&
+    activeFileHasInlineDiff === false &&
+    !activeFileDiff &&
+    !activeFileError;
 
   useEffect(() => {
     if (!activeFilePath || activeFileHasInlineDiff !== false || activeFileDiff || activeFileError) {
@@ -74,7 +83,7 @@ export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotif
 
         setFileDiffCache((current) => ({
           ...current,
-          [activeFilePath]: nextDetail
+          [activeFilePath]: nextDetail,
         }));
         setFileErrors((current) => {
           if (!(activeFilePath in current)) {
@@ -92,7 +101,7 @@ export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotif
 
         setFileErrors((current) => ({
           ...current,
-          [activeFilePath]: '差分の取得に失敗しました。'
+          [activeFilePath]: "差分の取得に失敗しました。",
         }));
       } finally {
         if (commitDiffFileRequestKeyRef.current === requestKey) {
@@ -100,12 +109,22 @@ export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotif
         }
       }
     })();
-  }, [activeFileDiff, activeFileError, activeFileHasInlineDiff, activeFilePath, detail.sha, repoPath]);
+  }, [
+    activeFileDiff,
+    activeFileError,
+    activeFileHasInlineDiff,
+    activeFilePath,
+    detail.sha,
+    repoPath,
+  ]);
 
-  const handleActiveFileChange = useCallback((nextFilePath: string | null, hasInlineDiff: boolean): void => {
-    setActiveFilePath(nextFilePath);
-    setActiveFileHasInlineDiff(hasInlineDiff);
-  }, []);
+  const handleActiveFileChange = useCallback(
+    (nextFilePath: string | null, hasInlineDiff: boolean): void => {
+      setActiveFilePath(nextFilePath);
+      setActiveFileHasInlineDiff(hasInlineDiff);
+    },
+    [],
+  );
 
   return (
     <div className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs">
@@ -137,7 +156,10 @@ export function CommitDiffOverlay({ repoPath, detail, filePath, onClose, onNotif
             files={detail.files}
             preferredFilePath={activeFilePath}
             showFileList={detail.files.length > 1}
-            activeFileLoading={showActiveFileLoading || (Boolean(activeFilePath) && loadingFilePath === activeFilePath)}
+            activeFileLoading={
+              showActiveFileLoading ||
+              (Boolean(activeFilePath) && loadingFilePath === activeFilePath)
+            }
             activeFileError={activeFileError}
             activeFileLoadingMessage="差分を読み込み中..."
             onActiveFileChange={handleActiveFileChange}

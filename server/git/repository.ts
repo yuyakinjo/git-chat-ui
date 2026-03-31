@@ -1,19 +1,23 @@
-import { createHash } from 'node:crypto';
-import type { Dirent } from 'node:fs';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import type { Repository } from '../types.js';
+import type { Repository } from "../types.js";
 
-import { ensureRepoPath, runGit, SKIP_DIRS } from './command.js';
-import { normalizeGithubRemoteUrl } from './pullRequest.js';
+import { getBranchUpstream, getCurrentBranch } from "./branch.js";
+import { ensureRepoPath, runGit, SKIP_DIRS } from "./command.js";
+import { normalizeGithubRemoteUrl } from "./pullRequest.js";
 
-function sortRepositoriesByRecency(repositories: Repository[], recentMap: Map<string, string>): Repository[] {
+function sortRepositoriesByRecency(
+  repositories: Repository[],
+  recentMap: Map<string, string>,
+): Repository[] {
   return repositories
     .map((repo) => ({
       ...repo,
-      recentlyUsedAt: recentMap.get(repo.path)
+      recentlyUsedAt: recentMap.get(repo.path),
     }))
     .sort((left, right) => {
       if (left.recentlyUsedAt && right.recentlyUsedAt) {
@@ -57,12 +61,12 @@ export async function discoverRepositories(options: {
       return;
     }
 
-    const hasGitDirectory = entries.some((entry) => entry.name === '.git' && entry.isDirectory());
+    const hasGitDirectory = entries.some((entry) => entry.name === ".git" && entry.isDirectory());
 
     if (hasGitDirectory) {
       const repository: Repository = {
         name: path.basename(currentPath),
-        path: currentPath
+        path: currentPath,
       };
 
       const lowercaseName = repository.name.toLowerCase();
@@ -82,7 +86,7 @@ export async function discoverRepositories(options: {
         continue;
       }
 
-      if (entry.name.startsWith('.') && entry.name !== '.config') {
+      if (entry.name.startsWith(".") && entry.name !== ".config") {
         continue;
       }
 
@@ -112,7 +116,7 @@ export async function resolveRepositories(repoPaths: string[]): Promise<Reposito
   const seen = new Set<string>();
 
   for (const candidate of repoPaths) {
-    if (typeof candidate !== 'string') {
+    if (typeof candidate !== "string") {
       continue;
     }
 
@@ -135,7 +139,7 @@ export async function resolveRepositories(repoPaths: string[]): Promise<Reposito
     seen.add(repoPath);
     resolved.push({
       name: path.basename(repoPath),
-      path: repoPath
+      path: repoPath,
     });
   }
 
@@ -146,7 +150,7 @@ export async function getRepositoryGithubUrl(repoPath: string): Promise<string |
   await ensureRepoPath(repoPath);
 
   try {
-    const remoteUrl = await runGit(['remote', 'get-url', 'origin'], repoPath);
+    const remoteUrl = await runGit(["remote", "get-url", "origin"], repoPath);
     return normalizeGithubRemoteUrl(remoteUrl);
   } catch {
     return null;
@@ -156,8 +160,20 @@ export async function getRepositoryGithubUrl(repoPath: string): Promise<string |
 export async function getRepositoryFingerprint(repoPath: string): Promise<string> {
   await ensureRepoPath(repoPath);
 
-  const head = await runGit(['rev-parse', 'HEAD'], repoPath);
-  const status = await runGit(['status', '--porcelain=v1'], repoPath);
+  const [head, currentBranch, status] = await Promise.all([
+    runGit(["rev-parse", "HEAD"], repoPath),
+    getCurrentBranch(repoPath),
+    runGit(["status", "--porcelain=v1"], repoPath),
+  ]);
+  const upstreamName =
+    currentBranch && currentBranch !== "HEAD"
+      ? await getBranchUpstream(repoPath, currentBranch)
+      : null;
+  const upstreamHead = upstreamName
+    ? await runGit(["rev-parse", "--verify", upstreamName], repoPath).catch(() => "")
+    : "";
 
-  return createHash('sha1').update(`${head}\n${status}`).digest('hex');
+  return createHash("sha1")
+    .update(`${head}\n${currentBranch}\n${upstreamName ?? ""}\n${upstreamHead}\n${status}`)
+    .digest("hex");
 }

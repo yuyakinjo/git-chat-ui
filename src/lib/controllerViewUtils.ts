@@ -1,5 +1,5 @@
-import type { ControllerPanelId } from './controllerPanelOrder';
-import type { Branch, BranchResponse } from '../types';
+import type { ControllerPanelId } from "./controllerPanelOrder";
+import type { Branch, BranchResponse } from "../types";
 
 export function resolveDefaultBranch(branches: BranchResponse | null): Branch | undefined {
   if (!branches) {
@@ -8,8 +8,8 @@ export function resolveDefaultBranch(branches: BranchResponse | null): Branch | 
 
   const localBranches = branches.local;
   const candidate =
-    localBranches.find((branch) => branch.name === 'main') ??
-    localBranches.find((branch) => branch.name === 'master') ??
+    localBranches.find((branch) => branch.name === "main") ??
+    localBranches.find((branch) => branch.name === "master") ??
     localBranches.find((branch) => branch.name === branches.current) ??
     localBranches[0];
 
@@ -31,13 +31,13 @@ export function resolveDefaultBranchRef(branches: BranchResponse | null): string
 
 export function resolveLogRef(targetRef: string, branches: BranchResponse | null): string {
   const normalizedTarget = targetRef.trim();
-  if (!branches || normalizedTarget !== 'HEAD') {
-    return normalizedTarget || 'HEAD';
+  if (!branches || normalizedTarget !== "HEAD") {
+    return normalizedTarget || "HEAD";
   }
 
   const currentLocal = branches.local.find((branch) => branch.name === branches.current);
   if (!currentLocal) {
-    return 'HEAD';
+    return "HEAD";
   }
 
   return currentLocal.fullRef || currentLocal.name;
@@ -62,33 +62,35 @@ export function isHeadDecoration(decoration: string): boolean {
   }
 
   const body =
-    trimmed.startsWith('(') && trimmed.endsWith(')') ? trimmed.slice(1, Math.max(trimmed.length - 1, 1)) : trimmed;
+    trimmed.startsWith("(") && trimmed.endsWith(")")
+      ? trimmed.slice(1, Math.max(trimmed.length - 1, 1))
+      : trimmed;
   return body
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
-    .some((entry) => entry === 'HEAD' || entry.startsWith('HEAD -> '));
+    .some((entry) => entry === "HEAD" || entry.startsWith("HEAD -> "));
 }
 
-export const CONTROLLER_PANEL_ORDER_STORAGE_KEY = 'git-chat-ui.controller-panel-order';
+export const CONTROLLER_PANEL_ORDER_STORAGE_KEY = "git-chat-ui.controller-panel-order";
 export const PANEL_DRAG_THRESHOLD_PX = 6;
 export const CONTROLLER_PANEL_DRAG_IGNORE_SELECTOR = [
   '[data-controller-panel-drag-ignore="true"]',
   '[data-working-tree-no-drag="true"]',
-  'button',
-  'input',
-  'textarea',
-  'select',
-  'option',
-  'label',
-  'a',
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "option",
+  "label",
+  "a",
   '[role="button"]',
   '[role="link"]',
-  '[contenteditable="true"]'
-].join(', ');
+  '[contenteditable="true"]',
+].join(", ");
 export const controllerPanelLabels: Record<ControllerPanelId, string> = {
-  commitGraph: 'Commit Graph',
-  gitOperations: 'Git Operations',
-  commitDetail: 'Commit Detail'
+  commitGraph: "Commit Graph",
+  gitOperations: "Git Operations",
+  commitDetail: "Commit Detail",
 };
 
 export function resolveControllerPanelDragTarget(target: EventTarget | null): Element | null {

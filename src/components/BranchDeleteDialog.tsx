@@ -1,9 +1,9 @@
-import { Trash2, X } from 'lucide-react';
-import { useEffect, type JSX } from 'react';
+import { Trash2, X } from "lucide-react";
+import { useEffect, type JSX } from "react";
 
 interface BranchDeleteDialogProps {
   branchName: string;
-  branchType: 'local' | 'remote';
+  branchType: "local" | "remote";
   busy: boolean;
   forceDelete: boolean;
   onClose: () => void;
@@ -18,22 +18,22 @@ export function BranchDeleteDialog({
   forceDelete,
   onClose,
   onForceDeleteChange,
-  onDelete
+  onDelete,
 }: BranchDeleteDialogProps): JSX.Element {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === "Escape" && !busy) {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [busy, onClose]);
 
-  const isRemoteBranch = branchType === 'remote';
+  const isRemoteBranch = branchType === "remote";
 
   return (
     <div
@@ -50,8 +50,8 @@ export function BranchDeleteDialog({
               <div className="truncate text-base font-semibold text-ink">{branchName}</div>
               <div className="mt-1 text-sm leading-6 text-ink-subtle">
                 {isRemoteBranch
-                  ? 'remote branch を削除します。remote 上の参照を削除し、local の remote-tracking ref も prune します。'
-                  : 'local branch を削除します。通常は safe delete を行い、未 merge の場合は Git が拒否します。'}
+                  ? "remote branch を削除します。remote 上の参照を削除し、local の remote-tracking ref も prune します。"
+                  : "local branch を削除します。通常は safe delete を行い、未 merge の場合は Git が拒否します。"}
               </div>
             </div>
 
@@ -75,10 +75,10 @@ export function BranchDeleteDialog({
             <div className="mt-2 leading-6">
               <span className="font-medium">{branchName}</span> を branch list から削除します。
               {isRemoteBranch
-                ? ' 必要なら push して remote branch を作り直してください。'
+                ? " 必要なら push して remote branch を作り直してください。"
                 : forceDelete
-                  ? ' squash / rebase 後の掃除など、本当に履歴ごと消して問題ない場合だけ force delete を使ってください。'
-                  : ' 必要なら先に merge するか、squash / rebase 後なら force delete を選んでください。'}
+                  ? " squash / rebase 後の掃除など、本当に履歴ごと消して問題ない場合だけ force delete を使ってください。"
+                  : " 必要なら先に merge するか、squash / rebase 後なら force delete を選んでください。"}
             </div>
           </div>
 
@@ -91,21 +91,25 @@ export function BranchDeleteDialog({
                 onChange={(event) => onForceDeleteChange(event.target.checked)}
               />
               <span className="leading-6">
-                <span className="font-medium">Force delete を使う</span>
-                {' '}
-                squash merge や rebase merge のあとに `git branch -d` が拒否する branch を消したいときだけ有効にします。
+                <span className="font-medium">Force delete を使う</span> squash merge や rebase
+                merge のあとに `git branch -d` が拒否する branch を消したいときだけ有効にします。
               </span>
             </label>
           ) : null}
         </div>
 
         <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t border-black/8 pt-4">
-          <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={onClose}
+            disabled={busy}
+          >
             Cancel
           </button>
           <button type="button" className="button button-danger" onClick={onDelete} disabled={busy}>
             <Trash2 size={14} />
-            {forceDelete && !isRemoteBranch ? 'Force Delete Branch' : 'Delete Branch'}
+            {forceDelete && !isRemoteBranch ? "Force Delete Branch" : "Delete Branch"}
           </button>
         </div>
       </section>

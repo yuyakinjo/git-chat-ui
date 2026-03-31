@@ -1,6 +1,6 @@
-export type DiffCellKind = 'context' | 'add' | 'delete';
-export type ParsedDiffRowKind = 'context' | 'change' | 'add' | 'delete';
-export type ParsedDiffFileKind = 'modified' | 'added' | 'deleted' | 'renamed';
+export type DiffCellKind = "context" | "add" | "delete";
+export type ParsedDiffRowKind = "context" | "change" | "add" | "delete";
+export type ParsedDiffFileKind = "modified" | "added" | "deleted" | "renamed";
 
 export interface ParsedDiffCell {
   kind: DiffCellKind;
@@ -53,11 +53,11 @@ function normalizeDiffPath(value: string | null): string | null {
   }
 
   const normalized = unquote(value.trim());
-  if (!normalized || normalized === '/dev/null') {
+  if (!normalized || normalized === "/dev/null") {
     return null;
   }
 
-  if (normalized.startsWith('a/') || normalized.startsWith('b/')) {
+  if (normalized.startsWith("a/") || normalized.startsWith("b/")) {
     return normalized.slice(2);
   }
 
@@ -66,34 +66,38 @@ function normalizeDiffPath(value: string | null): string | null {
 
 function resolveFileKind(oldPath: string | null, newPath: string | null): ParsedDiffFileKind {
   if (!oldPath && newPath) {
-    return 'added';
+    return "added";
   }
 
   if (oldPath && !newPath) {
-    return 'deleted';
+    return "deleted";
   }
 
   if (oldPath && newPath && oldPath !== newPath) {
-    return 'renamed';
+    return "renamed";
   }
 
-  return 'modified';
+  return "modified";
 }
 
 function resolveDisplayPath(oldPath: string | null, newPath: string | null): string {
-  return newPath ?? oldPath ?? 'Unknown file';
+  return newPath ?? oldPath ?? "Unknown file";
 }
 
-function createWorkingFile(keyIndex: number, oldPath: string | null, newPath: string | null): ParsedDiffFile {
+function createWorkingFile(
+  keyIndex: number,
+  oldPath: string | null,
+  newPath: string | null,
+): ParsedDiffFile {
   return {
-    key: `${keyIndex}:${newPath ?? oldPath ?? 'unknown'}`,
+    key: `${keyIndex}:${newPath ?? oldPath ?? "unknown"}`,
     kind: resolveFileKind(oldPath, newPath),
     oldPath,
     newPath,
     displayPath: resolveDisplayPath(oldPath, newPath),
     previousPath: null,
     meta: [],
-    hunks: []
+    hunks: [],
   };
 }
 
@@ -104,17 +108,19 @@ function finalizeFile(file: ParsedDiffFile): ParsedDiffFile {
     ...file,
     kind,
     displayPath: resolveDisplayPath(file.oldPath, file.newPath),
-    previousPath: kind === 'renamed' ? file.oldPath : null
+    previousPath: kind === "renamed" ? file.oldPath : null,
   };
 }
 
-function parseDiffGitHeader(line: string): { oldPath: string | null; newPath: string | null } | null {
-  if (!line.startsWith('diff --git ')) {
+function parseDiffGitHeader(
+  line: string,
+): { oldPath: string | null; newPath: string | null } | null {
+  if (!line.startsWith("diff --git ")) {
     return null;
   }
 
-  const body = line.slice('diff --git '.length).trim();
-  const newPathIndex = body.lastIndexOf(' b/');
+  const body = line.slice("diff --git ".length).trim();
+  const newPathIndex = body.lastIndexOf(" b/");
   if (newPathIndex === -1) {
     return { oldPath: null, newPath: null };
   }
@@ -124,7 +130,7 @@ function parseDiffGitHeader(line: string): { oldPath: string | null; newPath: st
 
   return {
     oldPath: normalizeDiffPath(oldToken),
-    newPath: normalizeDiffPath(newToken)
+    newPath: normalizeDiffPath(newToken),
   };
 }
 
@@ -132,7 +138,9 @@ function parsePatchPath(line: string, prefix: string): string | null {
   return normalizeDiffPath(line.slice(prefix.length).trim());
 }
 
-function parseHunkHeader(line: string): { header: string; oldStart: number; newStart: number } | null {
+function parseHunkHeader(
+  line: string,
+): { header: string; oldStart: number; newStart: number } | null {
   const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(line);
   if (!match) {
     return null;
@@ -141,7 +149,7 @@ function parseHunkHeader(line: string): { header: string; oldStart: number; newS
   return {
     header: line.trim(),
     oldStart: Number(match[1]),
-    newStart: Number(match[2])
+    newStart: Number(match[2]),
   };
 }
 
@@ -185,13 +193,13 @@ function flushPendingRows(hunk: WorkingHunk): void {
     const left = hunk.pendingDeletes[index] ?? null;
     const right = hunk.pendingAdds[index] ?? null;
 
-    let kind: ParsedDiffRowKind = 'context';
+    let kind: ParsedDiffRowKind = "context";
     if (left && right) {
-      kind = 'change';
+      kind = "change";
     } else if (left) {
-      kind = 'delete';
+      kind = "delete";
     } else if (right) {
-      kind = 'add';
+      kind = "add";
     }
 
     hunk.rows.push({ kind, left, right });
@@ -204,17 +212,17 @@ function flushPendingRows(hunk: WorkingHunk): void {
 function pushContextRow(hunk: WorkingHunk, content: string): void {
   flushPendingRows(hunk);
   hunk.rows.push({
-    kind: 'context',
+    kind: "context",
     left: {
-      kind: 'context',
+      kind: "context",
       lineNumber: hunk.oldLine,
-      content
+      content,
     },
     right: {
-      kind: 'context',
+      kind: "context",
       lineNumber: hunk.newLine,
-      content
-    }
+      content,
+    },
   });
   hunk.oldLine += 1;
   hunk.newLine += 1;
@@ -222,18 +230,18 @@ function pushContextRow(hunk: WorkingHunk, content: string): void {
 
 function pushDeleteRow(hunk: WorkingHunk, content: string): void {
   hunk.pendingDeletes.push({
-    kind: 'delete',
+    kind: "delete",
     lineNumber: hunk.oldLine,
-    content
+    content,
   });
   hunk.oldLine += 1;
 }
 
 function pushAddRow(hunk: WorkingHunk, content: string): void {
   hunk.pendingAdds.push({
-    kind: 'add',
+    kind: "add",
     lineNumber: hunk.newLine,
-    content
+    content,
   });
   hunk.newLine += 1;
 }
@@ -248,18 +256,18 @@ function finalizeHunk(file: ParsedDiffFile, hunk: WorkingHunk | null): void {
     header: hunk.header,
     oldStart: hunk.oldStart,
     newStart: hunk.newStart,
-    rows: hunk.rows
+    rows: hunk.rows,
   });
 }
 
 export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
-  const normalized = diff.replace(/\r\n?/g, '\n').trimEnd();
+  const normalized = diff.replace(/\r\n?/g, "\n").trimEnd();
   if (!normalized) {
     return [];
   }
 
   const files: ParsedDiffFile[] = [];
-  const lines = normalized.split('\n');
+  const lines = normalized.split("\n");
 
   let fileIndex = 0;
   let currentFile: ParsedDiffFile | null = null;
@@ -306,51 +314,51 @@ export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
         newLine: parsedHunkHeader.newStart,
         rows: [],
         pendingDeletes: [],
-        pendingAdds: []
+        pendingAdds: [],
       };
       continue;
     }
 
     if (currentHunk) {
-      if (line.startsWith('\\ ')) {
+      if (line.startsWith("\\ ")) {
         appendMarkerToLatestCell(currentHunk, line.slice(2).trim());
         continue;
       }
 
-      if (line.startsWith('+')) {
+      if (line.startsWith("+")) {
         pushAddRow(currentHunk, line.slice(1));
         continue;
       }
 
-      if (line.startsWith('-')) {
+      if (line.startsWith("-")) {
         pushDeleteRow(currentHunk, line.slice(1));
         continue;
       }
 
-      if (line.startsWith(' ')) {
+      if (line.startsWith(" ")) {
         pushContextRow(currentHunk, line.slice(1));
         continue;
       }
     }
 
-    if (line.startsWith('--- ')) {
-      file.oldPath = parsePatchPath(line, '--- ');
+    if (line.startsWith("--- ")) {
+      file.oldPath = parsePatchPath(line, "--- ");
       continue;
     }
 
-    if (line.startsWith('+++ ')) {
-      file.newPath = parsePatchPath(line, '+++ ');
+    if (line.startsWith("+++ ")) {
+      file.newPath = parsePatchPath(line, "+++ ");
       continue;
     }
 
-    if (line.startsWith('rename from ')) {
-      file.oldPath = normalizeDiffPath(line.slice('rename from '.length).trim());
+    if (line.startsWith("rename from ")) {
+      file.oldPath = normalizeDiffPath(line.slice("rename from ".length).trim());
       file.meta.push(line.trim());
       continue;
     }
 
-    if (line.startsWith('rename to ')) {
-      file.newPath = normalizeDiffPath(line.slice('rename to '.length).trim());
+    if (line.startsWith("rename to ")) {
+      file.newPath = normalizeDiffPath(line.slice("rename to ".length).trim());
       file.meta.push(line.trim());
       continue;
     }

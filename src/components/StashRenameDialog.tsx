@@ -1,5 +1,5 @@
-import { Archive, Pencil, X } from 'lucide-react';
-import { useEffect, useState, type JSX } from 'react';
+import { Archive, Pencil, X } from "lucide-react";
+import { useEffect, useState, type JSX } from "react";
 
 interface StashRenameDialogProps {
   stashId: string;
@@ -14,7 +14,7 @@ export function StashRenameDialog({
   initialMessage,
   busy,
   onClose,
-  onRename
+  onRename,
 }: StashRenameDialogProps): JSX.Element {
   const [message, setMessage] = useState(initialMessage);
   const normalizedMessage = message.trim();
@@ -25,14 +25,14 @@ export function StashRenameDialog({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === "Escape" && !busy) {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [busy, onClose]);
 
@@ -99,19 +99,31 @@ export function StashRenameDialog({
                 disabled={busy}
               />
               <div className="mt-1.5 text-xs leading-5 text-ink-subtle sm:mt-2">
-                識別子 <span className="font-mono">stash@{'{'}n{'}'}</span> は変わらず、一覧表示される message
-                だけ更新します。
+                識別子{" "}
+                <span className="font-mono">
+                  stash@{"{"}n{"}"}
+                </span>{" "}
+                は変わらず、一覧表示される message だけ更新します。
               </div>
             </div>
           </div>
 
           <div className="mt-3 flex items-center justify-end gap-2 pt-1 sm:mt-4 sm:pt-2">
-            <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={onClose}
+              disabled={busy}
+            >
               Cancel
             </button>
-            <button type="submit" className="button button-primary" disabled={busy || !normalizedMessage}>
+            <button
+              type="submit"
+              className="button button-primary"
+              disabled={busy || !normalizedMessage}
+            >
               <Pencil size={14} />
-              {busy ? 'Renaming...' : 'Rename Stash'}
+              {busy ? "Renaming..." : "Rename Stash"}
             </button>
           </div>
         </form>

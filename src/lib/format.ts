@@ -10,8 +10,8 @@ export function formatRelativeDate(iso: string): string {
   }
 
   const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -20,7 +20,7 @@ export function shortSha(sha: string): string {
 }
 
 export function formatFileCountLabel(count: number): string {
-  return `${count} file${count === 1 ? '' : 's'}`;
+  return `${count} file${count === 1 ? "" : "s"}`;
 }
 
 export function compactPath(fullPath: string): string {

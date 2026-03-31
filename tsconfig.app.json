@@ -17,5 +17,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client", "bun"]
   },
-  "include": ["src", "test/src"]
+  "include": ["src", "shared", "test/src"]
 }

@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useSyncExternalStore } from 'react';
+import { type RefObject, useCallback, useSyncExternalStore } from "react";
 
 export function useContainerWidth(ref: RefObject<HTMLElement | null>): number {
   const subscribe = useCallback(
@@ -6,9 +6,9 @@ export function useContainerWidth(ref: RefObject<HTMLElement | null>): number {
       const el = ref.current;
       if (!el) return () => {};
 
-      if (typeof ResizeObserver === 'undefined') {
-        window.addEventListener('resize', callback);
-        return () => window.removeEventListener('resize', callback);
+      if (typeof ResizeObserver === "undefined") {
+        window.addEventListener("resize", callback);
+        return () => window.removeEventListener("resize", callback);
       }
 
       const observer = new ResizeObserver(callback);

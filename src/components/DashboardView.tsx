@@ -1,7 +1,7 @@
-import { FolderGit2, Search } from 'lucide-react';
+import { FolderGit2, Search } from "lucide-react";
 
-import { compactPath } from '../lib/format';
-import type { Repository } from '../types';
+import { compactPath } from "../lib/format";
+import type { Repository } from "../types";
 
 import type { JSX } from "react";
 
@@ -43,7 +43,7 @@ export function DashboardView({
   query,
   loading,
   onQueryChange,
-  onSelectRepository
+  onSelectRepository,
 }: DashboardViewProps): JSX.Element {
   const recentlyUsed = repositories.filter((repository) => Boolean(repository.recentlyUsedAt));
   const rest = repositories.filter((repository) => !repository.recentlyUsedAt);
@@ -108,7 +108,8 @@ export function DashboardView({
 
         {!loading && repositories.length === 0 ? (
           <div className="rounded-xl bg-black/5 p-5 text-sm text-ink-subtle">
-            対象リポジトリが見つかりません。`$HOME` 配下に `.git` を含むディレクトリがあるか確認してください。
+            対象リポジトリが見つかりません。`$HOME` 配下に `.git`
+            を含むディレクトリがあるか確認してください。
           </div>
         ) : null}
       </div>

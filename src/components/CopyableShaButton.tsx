@@ -1,8 +1,8 @@
-import { Copy } from 'lucide-react';
-import type { JSX } from 'react';
+import { Copy } from "lucide-react";
+import type { JSX } from "react";
 
-import { copyTextToClipboard } from '../lib/clipboard';
-import { shortSha } from '../lib/format';
+import { copyTextToClipboard } from "../lib/clipboard";
+import { shortSha } from "../lib/format";
 
 interface CopyableShaButtonProps {
   sha: string;
@@ -17,7 +17,7 @@ export function CopyableShaButton({ sha, onNotify, prefix }: CopyableShaButtonPr
         onNotify(`${shortSha(sha)} をコピーしました。`);
       })
       .catch(() => {
-        onNotify('SHA のコピーに失敗しました。');
+        onNotify("SHA のコピーに失敗しました。");
       });
   };
 
@@ -27,7 +27,7 @@ export function CopyableShaButton({ sha, onNotify, prefix }: CopyableShaButtonPr
       className="badge diff-overlay__meta-badge inline-flex cursor-pointer items-center gap-1 border border-transparent transition hover:opacity-80 focus-visible:border-black/10 focus-visible:outline-none"
       onClick={handleCopy}
       title={`${sha} をコピー`}
-      aria-label={`${prefix ? `${prefix} ` : ''}${sha} をクリップボードにコピー`}
+      aria-label={`${prefix ? `${prefix} ` : ""}${sha} をクリップボードにコピー`}
     >
       {prefix ? <span>{prefix}</span> : null}
       <span>{shortSha(sha)}</span>

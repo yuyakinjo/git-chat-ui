@@ -1,30 +1,32 @@
-import { describe, expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, expect, test } from "bun:test";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import type { CodexAppServerNotification, ListThreadsOptions } from '../../server/codexAppServer';
+import type { CodexAppServerNotification, ListThreadsOptions } from "../../server/codexAppServer";
 import {
   ensureThreadTaskDirectory,
   getThreadTaskPaths,
-  type CodexThreadSummary
-} from '../../server/codexTaskFolders';
+  type CodexThreadSummary,
+} from "../../server/codexTaskFolders";
 import {
   ensureBackgroundThreadTaskWatcher,
   shouldSyncThreadTasksForNotification,
   watchThreadTaskDirectories,
-  type ThreadTaskWatcherClient
-} from '../../server/codexThreadTaskWatcher';
+  type ThreadTaskWatcherClient,
+} from "../../server/codexThreadTaskWatcher";
 
 async function createRepoRoot(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), 'git-chat-ui-codex-task-watcher-'));
+  return await fs.mkdtemp(path.join(os.tmpdir(), "git-chat-ui-codex-task-watcher-"));
 }
 
 class FakeThreadTaskWatcherClient implements ThreadTaskWatcherClient {
   activeThreads: CodexThreadSummary[] = [];
   archivedThreads: CodexThreadSummary[] = [];
   private readonly closeListeners = new Set<(error?: Error) => void>();
-  private readonly notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
+  private readonly notificationListeners = new Set<
+    (notification: CodexAppServerNotification) => void
+  >();
 
   async listThreads(options: ListThreadsOptions): Promise<CodexThreadSummary[]> {
     return options.archived ? [...this.archivedThreads] : [...this.activeThreads];
@@ -57,30 +59,32 @@ class FakeThreadTaskWatcherClient implements ThreadTaskWatcherClient {
   }
 }
 
-describe('shouldSyncThreadTasksForNotification', () => {
-  test('returns true for thread lifecycle updates that affect local task folders', () => {
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/started' })).toBe(true);
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/archived' })).toBe(true);
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/unarchived' })).toBe(true);
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/closed' })).toBe(true);
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/name/updated' })).toBe(true);
+describe("shouldSyncThreadTasksForNotification", () => {
+  test("returns true for thread lifecycle updates that affect local task folders", () => {
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/started" })).toBe(true);
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/archived" })).toBe(true);
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/unarchived" })).toBe(true);
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/closed" })).toBe(true);
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/name/updated" })).toBe(true);
   });
 
-  test('ignores high-frequency notifications that do not change task folder placement', () => {
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/status/changed' })).toBe(false);
-    expect(shouldSyncThreadTasksForNotification({ method: 'thread/tokenUsage/updated' })).toBe(false);
-    expect(shouldSyncThreadTasksForNotification({ method: 'turn/started' })).toBe(false);
+  test("ignores high-frequency notifications that do not change task folder placement", () => {
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/status/changed" })).toBe(false);
+    expect(shouldSyncThreadTasksForNotification({ method: "thread/tokenUsage/updated" })).toBe(
+      false,
+    );
+    expect(shouldSyncThreadTasksForNotification({ method: "turn/started" })).toBe(false);
   });
 });
 
-describe('watchThreadTaskDirectories', () => {
-  test('reuses a watcher with a fresh heartbeat instead of spawning a duplicate process', async () => {
+describe("watchThreadTaskDirectories", () => {
+  test("reuses a watcher with a fresh heartbeat instead of spawning a duplicate process", async () => {
     const repoRoot = await createRepoRoot();
 
     try {
-      const runtimeDir = path.join(repoRoot, 'tasks', '.codex-task-sync');
-      const statePath = path.join(runtimeDir, 'watcher.json');
-      const logPath = path.join(runtimeDir, 'watcher.log');
+      const runtimeDir = path.join(repoRoot, "tasks", ".codex-task-sync");
+      const statePath = path.join(runtimeDir, "watcher.json");
+      const logPath = path.join(runtimeDir, "watcher.log");
       await fs.mkdir(runtimeDir, { recursive: true });
       await fs.writeFile(
         statePath,
@@ -90,18 +94,18 @@ describe('watchThreadTaskDirectories', () => {
             intervalSeconds: 15,
             logPath,
             startedAt: new Date().toISOString(),
-            lastHeartbeatAt: new Date().toISOString()
+            lastHeartbeatAt: new Date().toISOString(),
           },
           null,
-          2
+          2,
         )}\n`,
-        'utf8'
+        "utf8",
       );
 
       const result = await ensureBackgroundThreadTaskWatcher({
         repoRoot,
         intervalSeconds: 15,
-        scriptPath: path.join(repoRoot, 'missing-script.ts')
+        scriptPath: path.join(repoRoot, "missing-script.ts"),
       });
 
       expect(result.started).toBe(false);
@@ -113,14 +117,14 @@ describe('watchThreadTaskDirectories', () => {
     }
   });
 
-  test('moves active task folders into tasks/archived after thread/archived notification', async () => {
+  test("moves active task folders into tasks/archived after thread/archived notification", async () => {
     const repoRoot = await createRepoRoot();
     const thread: CodexThreadSummary = {
-      id: 'thr_watch_archive',
-      name: 'Archive via notification',
-      preview: 'Move local task folder when Codex thread is archived',
+      id: "thr_watch_archive",
+      name: "Archive via notification",
+      preview: "Move local task folder when Codex thread is archived",
       createdAt: 1_743_380_000,
-      updatedAt: 1_743_380_120
+      updatedAt: 1_743_380_120,
     };
 
     try {
@@ -135,8 +139,8 @@ describe('watchThreadTaskDirectories', () => {
         intervalSeconds: 60,
         logger: {
           info() {},
-          error() {}
-        }
+          error() {},
+        },
       });
 
       await Bun.sleep(25);
@@ -144,15 +148,15 @@ describe('watchThreadTaskDirectories', () => {
       client.activeThreads = [];
       client.archivedThreads = [thread];
       client.emitNotification({
-        method: 'thread/archived',
+        method: "thread/archived",
         params: {
-          threadId: thread.id
-        }
+          threadId: thread.id,
+        },
       });
 
       const paths = getThreadTaskPaths(repoRoot);
       await waitFor(async () => {
-        await fs.stat(path.join(paths.archivedRoot, thread.id, 'todo.md'));
+        await fs.stat(path.join(paths.archivedRoot, thread.id, "todo.md"));
       });
 
       await expect(fs.stat(path.join(paths.activeRoot, thread.id))).rejects.toThrow();
@@ -178,5 +182,5 @@ async function waitFor(callback: () => Promise<void>, attempts = 25, delayMs = 2
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Timed out waiting for watcher sync.');
+  throw lastError instanceof Error ? lastError : new Error("Timed out waiting for watcher sync.");
 }

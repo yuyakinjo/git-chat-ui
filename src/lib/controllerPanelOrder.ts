@@ -1,4 +1,8 @@
-export const DEFAULT_CONTROLLER_PANEL_ORDER = ['commitGraph', 'gitOperations', 'commitDetail'] as const;
+export const DEFAULT_CONTROLLER_PANEL_ORDER = [
+  "commitGraph",
+  "gitOperations",
+  "commitDetail",
+] as const;
 
 export type ControllerPanelId = (typeof DEFAULT_CONTROLLER_PANEL_ORDER)[number];
 
@@ -9,7 +13,7 @@ export function isControllerPanelId(value: string): value is ControllerPanelId {
 }
 
 export function normalizeControllerPanelOrder(
-  input: readonly string[] | null | undefined
+  input: readonly string[] | null | undefined,
 ): ControllerPanelId[] {
   const seen = new Set<ControllerPanelId>();
   const normalized: ControllerPanelId[] = [];
@@ -48,7 +52,7 @@ export function canSwapControllerPanel(options: {
 export function swapControllerPanels(
   order: readonly ControllerPanelId[],
   sourceId: ControllerPanelId,
-  targetId: ControllerPanelId
+  targetId: ControllerPanelId,
 ): ControllerPanelId[] {
   if (sourceId === targetId) {
     return [...order];

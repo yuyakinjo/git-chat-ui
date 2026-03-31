@@ -1,28 +1,28 @@
-import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import fsPromises from 'node:fs/promises';
-import path from 'node:path';
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
+import path from "node:path";
 
-import { type CodexAppServerNotification, type ListThreadsOptions } from './codexAppServer';
+import { type CodexAppServerNotification, type ListThreadsOptions } from "./codexAppServer";
 import {
   type CodexThreadSummary,
   getThreadTaskPaths,
   syncThreadTaskDirectories,
-  type SyncThreadTaskDirectoriesResult
-} from './codexTaskFolders';
+  type SyncThreadTaskDirectoriesResult,
+} from "./codexTaskFolders";
 
 export const WATCH_DEFAULT_INTERVAL_SECONDS = 15;
 
 const THREAD_TASK_SYNC_NOTIFICATION_METHODS = new Set([
-  'thread/started',
-  'thread/archived',
-  'thread/unarchived',
-  'thread/closed',
-  'thread/name/updated'
+  "thread/started",
+  "thread/archived",
+  "thread/unarchived",
+  "thread/closed",
+  "thread/name/updated",
 ]);
-const WATCHER_RUNTIME_DIRNAME = '.codex-task-sync';
-const WATCHER_STATE_FILENAME = 'watcher.json';
-const WATCHER_LOG_FILENAME = 'watcher.log';
+const WATCHER_RUNTIME_DIRNAME = ".codex-task-sync";
+const WATCHER_STATE_FILENAME = "watcher.json";
+const WATCHER_LOG_FILENAME = "watcher.log";
 
 interface ThreadTaskWatcherLogger {
   info(message: string): void;
@@ -71,22 +71,22 @@ interface WatcherRuntimePaths {
 
 export async function runThreadTaskSync(
   client: ThreadTaskWatcherClient,
-  repoRoot: string
+  repoRoot: string,
 ): Promise<SyncThreadTaskDirectoriesResult> {
   const [activeThreads, archivedThreads] = await Promise.all([
     client.listThreads({ cwd: repoRoot, archived: false }),
-    client.listThreads({ cwd: repoRoot, archived: true })
+    client.listThreads({ cwd: repoRoot, archived: true }),
   ]);
 
   return await syncThreadTaskDirectories({
     repoRoot,
     activeThreads,
-    archivedThreads
+    archivedThreads,
   });
 }
 
 export function shouldSyncThreadTasksForNotification(
-  notification: Pick<CodexAppServerNotification, 'method'>
+  notification: Pick<CodexAppServerNotification, "method">,
 ): boolean {
   return THREAD_TASK_SYNC_NOTIFICATION_METHODS.has(notification.method);
 }
@@ -100,7 +100,10 @@ export function hasThreadTaskDirectoryChanges(result: SyncThreadTaskDirectoriesR
   );
 }
 
-export function formatThreadTaskSyncSummary(repoRoot: string, result: SyncThreadTaskDirectoriesResult): string[] {
+export function formatThreadTaskSyncSummary(
+  repoRoot: string,
+  result: SyncThreadTaskDirectoriesResult,
+): string[] {
   const paths = getThreadTaskPaths(repoRoot);
   return [
     `active root: ${paths.activeRoot}`,
@@ -108,15 +111,17 @@ export function formatThreadTaskSyncSummary(repoRoot: string, result: SyncThread
     `moved to archive: ${formatList(result.movedToArchive)}`,
     `orphaned to archive: ${formatList(result.orphanedToArchive)}`,
     `restored to active: ${formatList(result.restoredToActive)}`,
-    `unknown archived dirs: ${formatList(result.unknownArchived)}`
+    `unknown archived dirs: ${formatList(result.unknownArchived)}`,
   ];
 }
 
-export async function watchThreadTaskDirectories(options: WatchThreadTaskDirectoriesOptions): Promise<void> {
+export async function watchThreadTaskDirectories(
+  options: WatchThreadTaskDirectoriesOptions,
+): Promise<void> {
   const logger = options.logger ?? console;
   const initialResult = await runThreadTaskSync(options.client, options.repoRoot);
   await touchWatcherHeartbeat(options.repoRoot, options.intervalSeconds);
-  logSyncSummary(logger, options.repoRoot, 'startup', initialResult, true);
+  logSyncSummary(logger, options.repoRoot, "startup", initialResult, true);
 
   let syncInFlight = false;
   let queuedTrigger: string | null = null;
@@ -143,7 +148,7 @@ export async function watchThreadTaskDirectories(options: WatchThreadTaskDirecto
         }
       } catch (error) {
         logger.error(
-          `[codex-task-sync] sync failed: ${error instanceof Error ? error.message : String(error)}`
+          `[codex-task-sync] sync failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       } finally {
         syncInFlight = false;
@@ -165,7 +170,7 @@ export async function watchThreadTaskDirectories(options: WatchThreadTaskDirecto
   });
 
   const timer = setInterval(() => {
-    scheduleSync('interval');
+    scheduleSync("interval");
   }, options.intervalSeconds * 1000);
 
   try {
@@ -187,7 +192,7 @@ export async function watchThreadTaskDirectories(options: WatchThreadTaskDirecto
 }
 
 export async function ensureBackgroundThreadTaskWatcher(
-  options: EnsureBackgroundThreadTaskWatcherOptions
+  options: EnsureBackgroundThreadTaskWatcherOptions,
 ): Promise<EnsureBackgroundThreadTaskWatcherResult> {
   const runtimePaths = getWatcherRuntimePaths(options.repoRoot);
   await fsPromises.mkdir(runtimePaths.runtimeDir, { recursive: true });
@@ -198,27 +203,28 @@ export async function ensureBackgroundThreadTaskWatcher(
       started: false,
       pid: existingState.pid,
       logPath: existingState.logPath,
-      statePath: runtimePaths.statePath
+      statePath: runtimePaths.statePath,
     };
   }
 
-  const logFile = fs.openSync(runtimePaths.logPath, 'a');
-  const scriptPath = options.scriptPath ?? path.join(options.repoRoot, 'server', 'codexThreadTasks.ts');
+  const logFile = fs.openSync(runtimePaths.logPath, "a");
+  const scriptPath =
+    options.scriptPath ?? path.join(options.repoRoot, "server", "codexThreadTasks.ts");
 
   try {
     const child = spawn(
       process.execPath,
-      [scriptPath, 'watch', '--interval', String(options.intervalSeconds)],
+      [scriptPath, "watch", "--interval", String(options.intervalSeconds)],
       {
         cwd: options.repoRoot,
         detached: true,
-        stdio: ['ignore', logFile, logFile]
-      }
+        stdio: ["ignore", logFile, logFile],
+      },
     );
 
     const pid = child.pid;
     if (!pid) {
-      throw new Error('Failed to start Codex thread task watcher.');
+      throw new Error("Failed to start Codex thread task watcher.");
     }
 
     child.unref();
@@ -228,16 +234,20 @@ export async function ensureBackgroundThreadTaskWatcher(
       intervalSeconds: options.intervalSeconds,
       logPath: runtimePaths.logPath,
       lastHeartbeatAt: new Date().toISOString(),
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
     };
 
-    await fsPromises.writeFile(runtimePaths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    await fsPromises.writeFile(
+      runtimePaths.statePath,
+      `${JSON.stringify(state, null, 2)}\n`,
+      "utf8",
+    );
 
     return {
       started: true,
       pid,
       logPath: runtimePaths.logPath,
-      statePath: runtimePaths.statePath
+      statePath: runtimePaths.statePath,
     };
   } finally {
     fs.closeSync(logFile);
@@ -250,23 +260,25 @@ function getWatcherRuntimePaths(repoRoot: string): WatcherRuntimePaths {
   return {
     runtimeDir,
     statePath: path.join(runtimeDir, WATCHER_STATE_FILENAME),
-    logPath: path.join(runtimeDir, WATCHER_LOG_FILENAME)
+    logPath: path.join(runtimeDir, WATCHER_LOG_FILENAME),
   };
 }
 
-async function readWatcherState(statePath: string): Promise<BackgroundThreadTaskWatcherState | null> {
+async function readWatcherState(
+  statePath: string,
+): Promise<BackgroundThreadTaskWatcherState | null> {
   try {
-    const raw = await fsPromises.readFile(statePath, 'utf8');
+    const raw = await fsPromises.readFile(statePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<BackgroundThreadTaskWatcherState>;
-    if (typeof parsed.pid !== 'number' || !Number.isInteger(parsed.pid) || parsed.pid <= 0) {
+    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) {
       return null;
     }
 
-    if (typeof parsed.logPath !== 'string' || !parsed.logPath) {
+    if (typeof parsed.logPath !== "string" || !parsed.logPath) {
       return null;
     }
 
-    if (typeof parsed.intervalSeconds !== 'number' || parsed.intervalSeconds <= 0) {
+    if (typeof parsed.intervalSeconds !== "number" || parsed.intervalSeconds <= 0) {
       return null;
     }
 
@@ -274,8 +286,9 @@ async function readWatcherState(statePath: string): Promise<BackgroundThreadTask
       pid: parsed.pid,
       logPath: parsed.logPath,
       intervalSeconds: parsed.intervalSeconds,
-      lastHeartbeatAt: typeof parsed.lastHeartbeatAt === 'string' ? parsed.lastHeartbeatAt : undefined,
-      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : new Date().toISOString()
+      lastHeartbeatAt:
+        typeof parsed.lastHeartbeatAt === "string" ? parsed.lastHeartbeatAt : undefined,
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : new Date().toISOString(),
     };
   } catch {
     return null;
@@ -287,7 +300,7 @@ function logSyncSummary(
   repoRoot: string,
   trigger: string,
   result: SyncThreadTaskDirectoriesResult,
-  force: boolean
+  force: boolean,
 ): void {
   if (!force && !hasThreadTaskDirectoryChanges(result)) {
     return;
@@ -300,7 +313,7 @@ function logSyncSummary(
 }
 
 function formatList(values: string[]): string {
-  return values.length > 0 ? values.join(', ') : '-';
+  return values.length > 0 ? values.join(", ") : "-";
 }
 
 function isWatcherStateFresh(state: BackgroundThreadTaskWatcherState): boolean {
@@ -324,8 +337,12 @@ async function touchWatcherHeartbeat(repoRoot: string, intervalSeconds: number):
     intervalSeconds,
     logPath: existingState?.logPath ?? runtimePaths.logPath,
     lastHeartbeatAt: now,
-    startedAt: existingState?.startedAt ?? now
+    startedAt: existingState?.startedAt ?? now,
   };
 
-  await fsPromises.writeFile(runtimePaths.statePath, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
+  await fsPromises.writeFile(
+    runtimePaths.statePath,
+    `${JSON.stringify(nextState, null, 2)}\n`,
+    "utf8",
+  );
 }

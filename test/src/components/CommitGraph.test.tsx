@@ -1,31 +1,31 @@
-import { describe, expect, test } from 'bun:test';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
 
-import type { CommitListItem } from '../../../src/types';
+import type { CommitListItem } from "../../../src/types";
 
-import { CommitGraph } from '../../../src/components/CommitGraph';
+import { CommitGraph } from "../../../src/components/CommitGraph";
 
 const commits: CommitListItem[] = [
   {
-    sha: 'abc1234',
-    parentShas: ['def5678'],
-    author: 'kinjo',
-    date: '2026-03-29T12:00:00.000Z',
-    subject: 'feat: sample graph node',
-    decoration: '(HEAD -> main, origin/main)'
+    sha: "abc1234",
+    parentShas: ["def5678"],
+    author: "kinjo",
+    date: "2026-03-29T12:00:00.000Z",
+    subject: "feat: sample graph node",
+    decoration: "(HEAD -> main, origin/main)",
   },
   {
-    sha: 'def5678',
+    sha: "def5678",
     parentShas: [],
-    author: 'kinjo',
-    date: '2026-03-28T12:00:00.000Z',
-    subject: 'chore: base commit',
-    decoration: ''
-  }
+    author: "kinjo",
+    date: "2026-03-28T12:00:00.000Z",
+    subject: "chore: base commit",
+    decoration: "",
+  },
 ];
 
-describe('CommitGraph', () => {
-  test('renders the WIP marker as a dashed circle in detailed mode', () => {
+describe("CommitGraph", () => {
+  test("renders the WIP marker as a dashed circle in detailed mode", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
@@ -46,7 +46,7 @@ describe('CommitGraph', () => {
         onCheckoutCommit={() => {}}
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
-      />
+      />,
     );
 
     expect(html).toContain('class="wip-node-ring"');
@@ -55,10 +55,10 @@ describe('CommitGraph', () => {
     expect(html).toContain('class="wip-row__badge');
     expect(html).toContain('class="wip-row__primary');
     expect(html).toContain('class="wip-row__meta');
-    expect(html).toContain('commit-graph__header');
-    expect(html).toContain('commit-graph__cell--primary');
-    expect(html).toContain('commit-graph__ref-badge--head');
+    expect(html).toContain("commit-graph__header");
+    expect(html).toContain("commit-graph__cell--primary");
+    expect(html).toContain("commit-graph__ref-badge--head");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
-    expect(html).not.toContain('Detailed lane mode (branch / merge)');
+    expect(html).not.toContain("Detailed lane mode (branch / merge)");
   });
 });

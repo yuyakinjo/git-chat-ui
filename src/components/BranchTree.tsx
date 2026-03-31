@@ -1,4 +1,13 @@
-import { Archive, ChevronDown, ChevronRight, Download, Folder, GitBranch, Plus, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Folder,
+  GitBranch,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -7,12 +16,12 @@ import {
   useRef,
   useState,
   type JSX,
-} from 'react';
-import { createPortal } from 'react-dom';
+} from "react";
+import { createPortal } from "react-dom";
 
-import { getBranchDeleteDisabledReason } from '../lib/branchDelete';
-import { canDropBranchOnBranch } from '../lib/branchDragDrop';
-import type { Branch, BranchResponse, StashEntry } from '../types';
+import { getBranchDeleteDisabledReason } from "../lib/branchDelete";
+import { canDropBranchOnBranch } from "../lib/branchDragDrop";
+import type { Branch, BranchResponse, StashEntry } from "../types";
 
 import {
   buildTree,
@@ -26,7 +35,7 @@ import {
   SectionTitle,
   STASH_CONTEXT_MENU_HEIGHT_PX,
   type TreeNode,
-} from './BranchTreeHelpers';
+} from "./BranchTreeHelpers";
 
 interface BranchTreeProps {
   branches: BranchResponse | null;
@@ -60,23 +69,25 @@ export function BranchTree({
   onRequestApplyStash,
   onRequestPopStash,
   onRequestCreateBranch,
-  onRequestDeleteBranch
+  onRequestDeleteBranch,
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [isStashesExpanded, setIsStashesExpanded] = useState(true);
   const [draggedBranchName, setDraggedBranchName] = useState<string | null>(null);
   const [dropTargetBranchName, setDropTargetBranchName] = useState<string | null>(null);
-  const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const [contextMenu, setContextMenu] = useState<
     | {
-        kind: 'branch';
+        kind: "branch";
         branch: Branch;
         x: number;
         y: number;
         disabledReason: string | null;
       }
     | {
-        kind: 'stash';
+        kind: "stash";
         stash: StashEntry;
         x: number;
         y: number;
@@ -102,7 +113,7 @@ export function BranchTree({
   const remoteTree = useMemo(() => buildTree(branches?.remote ?? []), [branches]);
   const localBranchMap = useMemo(
     () => new Map((branches?.local ?? []).map((branch) => [branch.name, branch])),
-    [branches]
+    [branches],
   );
 
   const updateDraggedBranchName = (value: string | null): void => {
@@ -144,13 +155,13 @@ export function BranchTree({
   }, [branches, selectedBranchName, stashes]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') {
+    if (typeof document === "undefined") {
       return;
     }
 
-    document.body.classList.toggle('is-branch-dragging', Boolean(draggedBranchName));
+    document.body.classList.toggle("is-branch-dragging", Boolean(draggedBranchName));
     return () => {
-      document.body.classList.remove('is-branch-dragging');
+      document.body.classList.remove("is-branch-dragging");
     };
   }, [draggedBranchName]);
 
@@ -172,7 +183,7 @@ export function BranchTree({
           pendingClickRef.current = null;
         }
         onSelectBranch(branch);
-      }, SINGLE_CLICK_DELAY_MS)
+      }, SINGLE_CLICK_DELAY_MS),
     };
   };
 
@@ -229,19 +240,20 @@ export function BranchTree({
 
       setDragPreviewPosition({
         x: event.clientX,
-        y: event.clientY
+        y: event.clientY,
       });
 
       const element = document.elementFromPoint(event.clientX, event.clientY);
-      const targetName = element?.closest<HTMLElement>('[data-branch-drop-name]')?.dataset.branchDropName ?? null;
-      const targetBranch = targetName ? localBranchMap.get(targetName) ?? null : null;
+      const targetName =
+        element?.closest<HTMLElement>("[data-branch-drop-name]")?.dataset.branchDropName ?? null;
+      const targetBranch = targetName ? (localBranchMap.get(targetName) ?? null) : null;
 
       if (
         targetBranch &&
         canDropBranchOnBranch({
           busy,
-          source: { branchName: dragPointer.branchName, branchType: 'local' },
-          target: targetBranch
+          source: { branchName: dragPointer.branchName, branchType: "local" },
+          target: targetBranch,
         })
       ) {
         updateDropTargetBranchName(targetBranch.name);
@@ -259,7 +271,7 @@ export function BranchTree({
 
       const sourceBranch = localBranchMap.get(dragPointer.branchName) ?? null;
       const targetBranch = dropTargetBranchNameRef.current
-        ? localBranchMap.get(dropTargetBranchNameRef.current) ?? null
+        ? (localBranchMap.get(dropTargetBranchNameRef.current) ?? null)
         : null;
       const didDrag = draggedBranchNameRef.current === dragPointer.branchName;
 
@@ -270,7 +282,7 @@ export function BranchTree({
         canDropBranchOnBranch({
           busy,
           source: { branchName: sourceBranch.name, branchType: sourceBranch.type },
-          target: targetBranch
+          target: targetBranch,
         })
       ) {
         onBranchDrop(sourceBranch, targetBranch);
@@ -283,14 +295,14 @@ export function BranchTree({
       clearDragState();
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [busy, localBranchMap, onBranchDrop]);
 
@@ -313,32 +325,35 @@ export function BranchTree({
     };
 
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         setContextMenu(null);
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('resize', handleClose);
-    window.addEventListener('scroll', handleClose, true);
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("resize", handleClose);
+    window.addEventListener("scroll", handleClose, true);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('resize', handleClose);
-      window.removeEventListener('scroll', handleClose, true);
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("resize", handleClose);
+      window.removeEventListener("scroll", handleClose, true);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [contextMenu]);
 
-  const handleBranchPointerDown = (event: ReactPointerEvent<HTMLButtonElement>, branch: Branch): void => {
+  const handleBranchPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    branch: Branch,
+  ): void => {
     if (busy) {
       return;
     }
 
     setContextMenu(null);
 
-    if (branch.type !== 'local' || event.button !== 0) {
+    if (branch.type !== "local" || event.button !== 0) {
       return;
     }
 
@@ -346,11 +361,14 @@ export function BranchTree({
       branchName: branch.name,
       pointerId: event.pointerId,
       startX: event.clientX,
-      startY: event.clientY
+      startY: event.clientY,
     };
   };
 
-  const handleBranchContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, branch: Branch): void => {
+  const handleBranchContextMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    branch: Branch,
+  ): void => {
     event.preventDefault();
 
     if (busy) {
@@ -362,29 +380,40 @@ export function BranchTree({
       pendingClickRef.current = null;
     }
 
-    const position = clampContextMenuPosition(event.clientX, event.clientY, getContextMenuHeight(branch));
+    const position = clampContextMenuPosition(
+      event.clientX,
+      event.clientY,
+      getContextMenuHeight(branch),
+    );
     setContextMenu({
-      kind: 'branch',
+      kind: "branch",
       branch,
       x: position.x,
       y: position.y,
-      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName)
+      disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName),
     });
   };
 
-  const handleStashContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, stash: StashEntry): void => {
+  const handleStashContextMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    stash: StashEntry,
+  ): void => {
     event.preventDefault();
 
     if (busy) {
       return;
     }
 
-    const position = clampContextMenuPosition(event.clientX, event.clientY, STASH_CONTEXT_MENU_HEIGHT_PX);
+    const position = clampContextMenuPosition(
+      event.clientX,
+      event.clientY,
+      STASH_CONTEXT_MENU_HEIGHT_PX,
+    );
     setContextMenu({
-      kind: 'stash',
+      kind: "stash",
       stash,
       x: position.x,
-      y: position.y
+      y: position.y,
     });
   };
 
@@ -419,8 +448,12 @@ export function BranchTree({
   };
 
   const renderNode = (node: TreeNode, prefix: string, depth: number): JSX.Element => {
-    const children = [...node.children.entries()].sort(([left], [right]) => left.localeCompare(right));
-    const leaves = [...node.leaves].sort((left, right) => left.displayName.localeCompare(right.displayName));
+    const children = [...node.children.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    const leaves = [...node.leaves].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName),
+    );
 
     return (
       <div className="space-y-1">
@@ -446,7 +479,7 @@ export function BranchTree({
 
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
-          const isLocalBranch = leaf.branch.type === 'local';
+          const isLocalBranch = leaf.branch.type === "local";
           const isDragActive = draggedBranchName !== null;
           const isDropTarget = dropTargetBranchName === leaf.branch.name;
           const isDragSource = draggedBranchName === leaf.branch.name;
@@ -456,17 +489,21 @@ export function BranchTree({
             draggedBranchName !== leaf.branch.name &&
             canDropBranchOnBranch({
               busy,
-              source: draggedBranchName ? { branchName: draggedBranchName, branchType: 'local' } : null,
-              target: leaf.branch
+              source: draggedBranchName
+                ? { branchName: draggedBranchName, branchType: "local" }
+                : null,
+              target: leaf.branch,
             });
           const statusLabel = isDropTarget
-            ? 'Drop to open Merge / PR'
+            ? "Drop to open Merge / PR"
             : isDragSource
-              ? 'Dragging branch'
+              ? "Dragging branch"
               : isDropCandidate
-                ? 'Drop target'
+                ? "Drop target"
                 : null;
-          const draggedDisplayName = draggedBranchName ? getBranchDisplayName(draggedBranchName) : '';
+          const draggedDisplayName = draggedBranchName
+            ? getBranchDisplayName(draggedBranchName)
+            : "";
 
           return (
             <button
@@ -474,7 +511,7 @@ export function BranchTree({
               type="button"
               data-branch-drop-name={isLocalBranch ? leaf.branch.name : undefined}
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
-              className={`list-item w-full text-left ${isCurrent ? 'active' : ''} ${isLocalBranch ? 'is-draggable' : ''} ${isDropCandidate ? 'is-drop-candidate' : ''} ${isDropTarget ? 'is-drop-target is-split-preview' : ''} ${isDragSource ? 'is-drag-source' : ''}`}
+              className={`list-item w-full text-left ${isCurrent ? "active" : ""} ${isLocalBranch ? "is-draggable" : ""} ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target is-split-preview" : ""} ${isDragSource ? "is-drag-source" : ""}`}
               onClick={() => handleBranchClick(leaf.branch)}
               onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
               onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
@@ -505,7 +542,9 @@ export function BranchTree({
                   <GitBranch size={13} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium">{leaf.displayName}</div>
-                    {statusLabel ? <div className="branch-list-item__status">{statusLabel}</div> : null}
+                    {statusLabel ? (
+                      <div className="branch-list-item__status">{statusLabel}</div>
+                    ) : null}
                   </div>
                 </>
               )}
@@ -519,29 +558,31 @@ export function BranchTree({
   const dragHint = draggedBranchName
     ? dropTargetBranchName
       ? `${dropTargetBranchName} にドロップして Merge / PR を開く`
-      : '別の local branch にドロップ'
+      : "別の local branch にドロップ"
     : null;
 
   const contextMenuPortal =
-    contextMenu && typeof document !== 'undefined'
+    contextMenu && typeof document !== "undefined"
       ? createPortal(
           <div
             ref={contextMenuRef}
             className="branch-context-menu"
             role="menu"
-            aria-label={contextMenu.kind === 'branch' ? 'branch context menu' : 'stash context menu'}
+            aria-label={
+              contextMenu.kind === "branch" ? "branch context menu" : "stash context menu"
+            }
             style={{
               left: `${contextMenu.x}px`,
-              top: `${contextMenu.y}px`
+              top: `${contextMenu.y}px`,
             }}
           >
-            {contextMenu.kind === 'branch' ? (
+            {contextMenu.kind === "branch" ? (
               <>
-                {contextMenu.branch.type === 'local' ? (
+                {contextMenu.branch.type === "local" ? (
                   <button
                     type="button"
                     role="menuitem"
-                    className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                    className={`branch-context-menu__item ${busy ? "is-disabled" : ""}`}
                     disabled={busy}
                     onClick={() => handleCreateRequestFromTree(contextMenu.branch)}
                   >
@@ -552,7 +593,7 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item ${contextMenu.disabledReason ? 'is-disabled' : 'is-danger'}`}
+                  className={`branch-context-menu__item ${contextMenu.disabledReason ? "is-disabled" : "is-danger"}`}
                   disabled={busy || Boolean(contextMenu.disabledReason)}
                   onClick={() => handleDeleteRequestFromTree(contextMenu.branch)}
                 >
@@ -568,7 +609,7 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                  className={`branch-context-menu__item ${busy ? "is-disabled" : ""}`}
                   disabled={busy}
                   onClick={() => handleApplyStashRequestFromTree(contextMenu.stash)}
                 >
@@ -578,7 +619,7 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item is-danger ${busy ? 'is-disabled' : ''}`}
+                  className={`branch-context-menu__item is-danger ${busy ? "is-disabled" : ""}`}
                   disabled={busy}
                   onClick={() => handlePopStashRequestFromTree(contextMenu.stash)}
                 >
@@ -588,7 +629,7 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item ${busy ? 'is-disabled' : ''}`}
+                  className={`branch-context-menu__item ${busy ? "is-disabled" : ""}`}
                   disabled={busy}
                   onClick={() => handleRenameStashRequestFromTree(contextMenu.stash)}
                 >
@@ -599,23 +640,29 @@ export function BranchTree({
               </>
             )}
           </div>,
-          document.body
+          document.body,
         )
       : null;
 
   return (
     <>
-      <section className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? 'is-dragging' : ''}`}>
+      <section
+        className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? "is-dragging" : ""}`}
+      >
         <div className="px-2 pb-2">
           <div className="section-title">Branch List</div>
-          {dragHint ? <div className={`branch-tree__hint ${draggedBranchName ? 'is-active' : ''}`}>{dragHint}</div> : null}
+          {dragHint ? (
+            <div className={`branch-tree__hint ${draggedBranchName ? "is-active" : ""}`}>
+              {dragHint}
+            </div>
+          ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <SectionTitle>Local</SectionTitle>
-          <div className="mt-1">{renderNode(localTree, 'local', 0)}</div>
+          <div className="mt-1">{renderNode(localTree, "local", 0)}</div>
 
           <SectionTitle>Remote</SectionTitle>
-          <div className="mt-1">{renderNode(remoteTree, 'remote', 0)}</div>
+          <div className="mt-1">{renderNode(remoteTree, "remote", 0)}</div>
 
           <div className="mt-4 border-t border-black/5 pt-3">
             <button
@@ -634,7 +681,12 @@ export function BranchTree({
             </button>
 
             {isStashesExpanded ? (
-              <div id="branch-tree-stashes" className="branch-tree__stash-list" role="list" aria-label="stashes">
+              <div
+                id="branch-tree-stashes"
+                className="branch-tree__stash-list"
+                role="list"
+                aria-label="stashes"
+              >
                 {stashes.length === 0 ? (
                   <div className="branch-tree__empty">No stashes</div>
                 ) : (
@@ -643,17 +695,19 @@ export function BranchTree({
                       key={stash.id}
                       type="button"
                       className="branch-tree__stash-item"
-                      role="listitem"
                       title={`${getStashPrimaryLabel(stash)} • ${getStashMetaLabel(stash)}`}
-                      aria-haspopup="dialog"
                       onClick={() => handleStashClick(stash)}
                       onContextMenu={(event) => handleStashContextMenu(event, stash)}
                       disabled={busy}
                     >
                       <Archive size={13} className="shrink-0 text-ink-subtle" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-ink">{getStashPrimaryLabel(stash)}</div>
-                        <div className="branch-tree__stash-meta truncate">{getStashMetaLabel(stash)}</div>
+                        <div className="truncate text-[13px] font-medium text-ink">
+                          {getStashPrimaryLabel(stash)}
+                        </div>
+                        <div className="branch-tree__stash-meta truncate">
+                          {getStashMetaLabel(stash)}
+                        </div>
                       </div>
                     </button>
                   ))
@@ -668,7 +722,7 @@ export function BranchTree({
             className="branch-drag-preview"
             style={{
               left: `${dragPreviewPosition.x + 18}px`,
-              top: `${dragPreviewPosition.y + 18}px`
+              top: `${dragPreviewPosition.y + 18}px`,
             }}
           >
             <div className="branch-drag-preview__title">

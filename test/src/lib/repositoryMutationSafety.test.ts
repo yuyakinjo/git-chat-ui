@@ -1,69 +1,71 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import type { Branch, RepositoryMutationSafety } from '../../../src/types';
+import type { Branch, RepositoryMutationSafety } from "../../../src/types";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
-  getSelfMutationBlockedReason
-} from '../../../src/lib/repositoryMutationSafety';
+  getSelfMutationBlockedReason,
+} from "../../../src/lib/repositoryMutationSafety";
 
 const currentBranch: Branch = {
-  name: 'main',
-  fullRef: 'refs/heads/main',
-  type: 'local',
-  commit: 'abc123'
+  name: "main",
+  fullRef: "refs/heads/main",
+  type: "local",
+  commit: "abc123",
 };
 
 const sameCommitTarget: Branch = {
-  name: 'feature/new-branch',
-  fullRef: 'refs/heads/feature/new-branch',
-  type: 'local',
-  commit: 'abc123'
+  name: "feature/new-branch",
+  fullRef: "refs/heads/feature/new-branch",
+  type: "local",
+  commit: "abc123",
 };
 
 const differentCommitTarget: Branch = {
-  name: 'feature/other',
-  fullRef: 'refs/heads/feature/other',
-  type: 'local',
-  commit: 'def456'
+  name: "feature/other",
+  fullRef: "refs/heads/feature/other",
+  type: "local",
+  commit: "def456",
 };
 
 const remoteTarget: Branch = {
-  name: 'origin/main',
-  fullRef: 'refs/remotes/origin/main',
-  type: 'remote',
-  commit: 'abc123'
+  name: "origin/main",
+  fullRef: "refs/remotes/origin/main",
+  type: "remote",
+  commit: "abc123",
 };
 
-describe('getSelfMutationBlockedReason', () => {
-  test('returns a reason only for the app repository in dev mode', () => {
+describe("getSelfMutationBlockedReason", () => {
+  test("returns a reason only for the app repository in dev mode", () => {
     const mutationSafety: RepositoryMutationSafety = { isSelfRepository: true };
 
-    expect(getSelfMutationBlockedReason(true, mutationSafety)).toContain('checkout / merge');
+    expect(getSelfMutationBlockedReason(true, mutationSafety)).toContain("checkout / merge");
     expect(getSelfMutationBlockedReason(false, mutationSafety)).toBeNull();
     expect(getSelfMutationBlockedReason(true, { isSelfRepository: false })).toBeNull();
   });
 });
 
-describe('canCheckoutBranchWithoutWorkingTreeChange', () => {
-  test('allows branch checkout when the target points to the same commit', () => {
+describe("canCheckoutBranchWithoutWorkingTreeChange", () => {
+  test("allows branch checkout when the target points to the same commit", () => {
     expect(canCheckoutBranchWithoutWorkingTreeChange(currentBranch, sameCommitTarget)).toBe(true);
   });
 
-  test('blocks branch checkout when the target commit differs or current branch is unknown', () => {
-    expect(canCheckoutBranchWithoutWorkingTreeChange(currentBranch, differentCommitTarget)).toBe(false);
+  test("blocks branch checkout when the target commit differs or current branch is unknown", () => {
+    expect(canCheckoutBranchWithoutWorkingTreeChange(currentBranch, differentCommitTarget)).toBe(
+      false,
+    );
     expect(canCheckoutBranchWithoutWorkingTreeChange(null, sameCommitTarget)).toBe(false);
   });
 });
 
-describe('canMergeBranchWithoutWorkingTreeChange', () => {
-  test('allows merge when the target branch is not currently checked out', () => {
-    expect(canMergeBranchWithoutWorkingTreeChange('feature/new-branch', currentBranch)).toBe(true);
+describe("canMergeBranchWithoutWorkingTreeChange", () => {
+  test("allows merge when the target branch is not currently checked out", () => {
+    expect(canMergeBranchWithoutWorkingTreeChange("feature/new-branch", currentBranch)).toBe(true);
   });
 
-  test('blocks merge when the target branch is current, unknown, or remote', () => {
-    expect(canMergeBranchWithoutWorkingTreeChange('main', currentBranch)).toBe(false);
+  test("blocks merge when the target branch is current, unknown, or remote", () => {
+    expect(canMergeBranchWithoutWorkingTreeChange("main", currentBranch)).toBe(false);
     expect(canMergeBranchWithoutWorkingTreeChange(null, currentBranch)).toBe(false);
-    expect(canMergeBranchWithoutWorkingTreeChange('feature/new-branch', remoteTarget)).toBe(false);
+    expect(canMergeBranchWithoutWorkingTreeChange("feature/new-branch", remoteTarget)).toBe(false);
   });
 });

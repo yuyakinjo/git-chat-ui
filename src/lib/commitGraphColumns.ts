@@ -22,6 +22,6 @@ export function resolveCommitGraphColumnLayout(input: {
     displayedRefsColumnWidth,
     templateColumns: isCompact
       ? `${input.graphColumnWidth}px ${displayedRefsColumnWidth}px minmax(0,1fr) 96px`
-      : `${input.graphColumnWidth}px ${displayedRefsColumnWidth}px 140px minmax(0,1fr) 130px 96px`
+      : `${input.graphColumnWidth}px ${displayedRefsColumnWidth}px 140px minmax(0,1fr) 130px 96px`,
   };
 }

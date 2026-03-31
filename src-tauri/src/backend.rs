@@ -24,6 +24,8 @@ const MIN_WINDOW_HEIGHT: u32 = 760;
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(300);
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
+const NO_STAGED_CHANGES_ERROR: &str = "No staged changes are available for commit message generation.";
+const NO_AI_PROVIDER_ERROR: &str = "No AI provider is configured for commit message generation.";
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
@@ -330,6 +332,19 @@ pub struct PullRequestResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PullStatusResponse {
+    pub branch_name: Option<String>,
+    pub upstream_name: Option<String>,
+    pub remote_name: Option<String>,
+    pub remote_branch_name: Option<String>,
+    pub ahead_count: usize,
+    pub behind_count: usize,
+    pub can_pull: bool,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveConfigResponse {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -356,6 +371,26 @@ pub struct SaveConfigInput {
     pub commit_title_prompt: Option<String>,
     pub commit_graph_mode: Option<CommitGraphMode>,
     pub repository_scan_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateTitleInput {
+    pub repo_path: String,
+    pub changed_files: Vec<String>,
+    pub open_ai_token: Option<String>,
+    pub open_ai_model: Option<String>,
+    pub claude_code_token: Option<String>,
+    pub selected_ai_provider: Option<AiProvider>,
+    pub commit_title_prompt: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderAttemptResult {
+    attempted: bool,
+    provider: &'static str,
+    error: Option<String>,
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -1129,6 +1164,140 @@ fn rebuild_stash_reflog(
     Ok(())
 }
 
+fn read_stash_reflog_entries(
+    stash_log_path: &Path,
+    stash_id_for_error: &str,
+) -> Result<Vec<StashReflogEntryRecord>, String> {
+    let stash_log = fs::read_to_string(stash_log_path)
+        .map_err(|_| format!("{stash_id_for_error} was not found."))?;
+
+    Ok(stash_log
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(parse_stash_reflog_line)
+        .collect())
+}
+
+fn validate_append_file(repo_path: &str, file: &str) -> Result<String, String> {
+    let normalized_file = file.trim().to_string();
+    if normalized_file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    run_git(
+        &["ls-files", "--error-unmatch", "--", normalized_file.as_str()],
+        repo_path,
+    )?;
+
+    Ok(normalized_file)
+}
+
+fn collect_append_file_patches(repo_path: &str, file: &str) -> Result<(String, String), String> {
+    let staged_patch = run_git(&["diff", "--binary", "--cached", "--", file], repo_path)?;
+    let unstaged_patch = run_git(&["diff", "--binary", "--", file], repo_path)?;
+
+    if staged_patch.trim().is_empty() && unstaged_patch.trim().is_empty() {
+        return Err(format!(
+            "No staged or unstaged changes were found for '{file}'."
+        ));
+    }
+
+    Ok((staged_patch, unstaged_patch))
+}
+
+fn apply_patch_file(
+    worktree_path: &str,
+    temp_root_path: &Path,
+    name: &str,
+    patch: &str,
+    apply_to_index: bool,
+) -> Result<(), String> {
+    if patch.trim().is_empty() {
+        return Ok(());
+    }
+
+    let patch_path = temp_root_path.join(name);
+    fs::write(&patch_path, format!("{patch}\n")).map_err(|error| error.to_string())?;
+    let patch_path_str = patch_path.to_string_lossy().to_string();
+
+    let mut args = vec!["apply".to_string()];
+    if apply_to_index {
+        args.push("--index".to_string());
+    }
+    args.push("--binary".to_string());
+    args.push("--whitespace=nowarn".to_string());
+    args.push(patch_path_str);
+
+    run_git_owned(&args, worktree_path).map(|_| ())
+}
+
+fn create_replacement_stash_commit(
+    repo_path: &str,
+    stash_id: &str,
+    stash_message: &str,
+    staged_patch: &str,
+    unstaged_patch: &str,
+) -> Result<String, String> {
+    let temp_root_path = create_temporary_directory("stash-append")?;
+    let worktree_path = temp_root_path.join("worktree");
+    let worktree_path_str = worktree_path.to_string_lossy().to_string();
+
+    let operation_result = (|| {
+        run_git(
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                worktree_path_str.as_str(),
+                "HEAD",
+            ],
+            repo_path,
+        )?;
+        run_git(
+            &["stash", "apply", "--index", stash_id],
+            worktree_path_str.as_str(),
+        )?;
+        apply_patch_file(
+            worktree_path_str.as_str(),
+            &temp_root_path,
+            "staged.patch",
+            staged_patch,
+            true,
+        )?;
+        apply_patch_file(
+            worktree_path_str.as_str(),
+            &temp_root_path,
+            "unstaged.patch",
+            unstaged_patch,
+            false,
+        )?;
+
+        let replacement_oid = run_git(
+            &["stash", "create", stash_message],
+            worktree_path_str.as_str(),
+        )?;
+        let replacement_oid = replacement_oid.trim().to_string();
+        if replacement_oid.is_empty() {
+            return Err("Failed to create replacement stash.".to_string());
+        }
+
+        Ok(replacement_oid)
+    })();
+
+    let cleanup_result = remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path);
+
+    match operation_result {
+        Ok(replacement_oid) => {
+            cleanup_result?;
+            Ok(replacement_oid)
+        }
+        Err(error) => {
+            let _ = cleanup_result;
+            Err(error)
+        }
+    }
+}
+
 fn run_gh(args: &[&str], repo_path: &str) -> Result<String, String> {
     run_command("gh", args, repo_path)
 }
@@ -1485,6 +1654,65 @@ fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
     .filter(|value| !value.trim().is_empty())
 }
 
+fn parse_commit_count(value: &str) -> usize {
+    value.trim().parse::<usize>().unwrap_or(0)
+}
+
+fn resolve_pull_status_state(ahead_count: usize, behind_count: usize) -> &'static str {
+    if behind_count > 0 && ahead_count == 0 {
+        return "behind";
+    }
+
+    if ahead_count > 0 && behind_count == 0 {
+        return "ahead";
+    }
+
+    if ahead_count > 0 && behind_count > 0 {
+        return "diverged";
+    }
+
+    "upToDate"
+}
+
+fn sync_upstream_tracking_ref_to_branch_head(
+    repo_path: &str,
+    branch_name: &str,
+) -> Result<(), String> {
+    let Some(upstream) = get_branch_upstream(repo_path, branch_name) else {
+        return Ok(());
+    };
+
+    if parse_remote_branch_name(&upstream).is_err() {
+        return Ok(());
+    }
+
+    let head = run_git(
+        &["rev-parse", "--verify", &format!("refs/heads/{branch_name}")],
+        repo_path,
+    )?;
+    run_git(
+        &[
+            "update-ref",
+            "-m",
+            &format!("sync tracking ref for {branch_name}"),
+            &format!("refs/remotes/{upstream}"),
+            head.as_str(),
+        ],
+        repo_path,
+    )?;
+
+    Ok(())
+}
+
+fn sync_current_branch_upstream_tracking_ref(repo_path: &str) -> Result<(), String> {
+    let branch_name = get_current_branch(repo_path)?;
+    if branch_name.trim().is_empty() || branch_name == "HEAD" {
+        return Ok(());
+    }
+
+    sync_upstream_tracking_ref_to_branch_head(repo_path, &branch_name)
+}
+
 fn is_push_required(repo_path: &str, branch_name: &str) -> Result<bool, String> {
     let Some(upstream) = get_branch_upstream(repo_path, branch_name) else {
         return Ok(true);
@@ -1502,6 +1730,8 @@ fn push_branch_to_origin(repo_path: &str, branch_name: &str) -> Result<(), Strin
     } else {
         run_git(&["push", "-u", "origin", branch_name], repo_path)?;
     }
+
+    sync_upstream_tracking_ref_to_branch_head(repo_path, branch_name)?;
 
     Ok(())
 }
@@ -2304,21 +2534,50 @@ fn generate_ai_user_prompt(changed_files: &[String], diff_snippet: &str) -> Stri
     )
 }
 
+fn build_commit_generation_failure_message(results: &[ProviderAttemptResult]) -> String {
+    let providers = results
+        .iter()
+        .map(|result| result.provider)
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let details = results
+        .iter()
+        .map(|result| {
+            format!(
+                "{}: {}",
+                result.provider,
+                result
+                    .error
+                    .as_deref()
+                    .unwrap_or("Unknown failure.")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    format!("Commit message generation failed for {providers}. {details}")
+}
+
 fn generate_with_openai(
     token: &str,
     model: &str,
     system_prompt: &str,
     changed_files: &[String],
     diff_snippet: &str,
-) -> Option<String> {
+) -> ProviderAttemptResult {
     let normalized_token = token.trim();
     if normalized_token.is_empty() {
-        return None;
+        return ProviderAttemptResult {
+            attempted: false,
+            provider: "OpenAI",
+            error: None,
+            message: None,
+        };
     }
 
     let prompt = generate_ai_user_prompt(changed_files, diff_snippet);
 
-    let json = run_curl_json(
+    let Some(json) = run_curl_json(
         "https://api.openai.com/v1/responses",
         &[
             format!("Authorization: Bearer {normalized_token}"),
@@ -2338,15 +2597,28 @@ fn generate_with_openai(
                 }
             ]
         }),
-    )?;
+    ) else {
+        return ProviderAttemptResult {
+            attempted: true,
+            provider: "OpenAI",
+            error: Some("OpenAI request failed.".to_string()),
+            message: None,
+        };
+    };
 
     if let Some(text) = json.get("output_text").and_then(Value::as_str) {
         if !text.trim().is_empty() {
-            return Some(text.to_string());
+            return ProviderAttemptResult {
+                attempted: true,
+                provider: "OpenAI",
+                error: None,
+                message: Some(text.to_string()),
+            };
         }
     }
 
-    json.get("output")
+    let message = json
+        .get("output")
         .and_then(Value::as_array)
         .and_then(|output| output.first())
         .and_then(|first| first.get("content"))
@@ -2354,7 +2626,24 @@ fn generate_with_openai(
         .and_then(|content| content.first())
         .and_then(|item| item.get("text"))
         .and_then(Value::as_str)
-        .map(ToString::to_string)
+        .and_then(|text| {
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        });
+
+    ProviderAttemptResult {
+        attempted: true,
+        provider: "OpenAI",
+        error: if message.is_some() {
+            None
+        } else {
+            Some("OpenAI API returned no text.".to_string())
+        },
+        message,
+    }
 }
 
 fn generate_with_claude(
@@ -2362,12 +2651,18 @@ fn generate_with_claude(
     system_prompt: &str,
     changed_files: &[String],
     diff_snippet: &str,
-) -> Option<String> {
+) -> ProviderAttemptResult {
     if token.trim().is_empty() {
-        return None;
+        return ProviderAttemptResult {
+            attempted: false,
+            provider: "Claude Code",
+            error: None,
+            message: None,
+        };
     }
 
     let prompt = generate_ai_user_prompt(changed_files, diff_snippet);
+    let mut failure_message = "Claude Code request failed.".to_string();
 
     for mut headers in get_claude_auth_header_variants(token) {
         headers.push(format!("anthropic-version: {ANTHROPIC_API_VERSION}"));
@@ -2405,56 +2700,81 @@ fn generate_with_claude(
                     if is_text {
                         item.get("text")
                             .and_then(Value::as_str)
-                            .map(ToString::to_string)
+                            .and_then(|text| {
+                                if text.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(text.to_string())
+                                }
+                            })
                     } else {
                         None
                     }
                 })
             })
         {
-            return Some(message);
+            return ProviderAttemptResult {
+                attempted: true,
+                provider: "Claude Code",
+                error: None,
+                message: Some(message),
+            };
         }
+
+        failure_message = "Claude Code API returned no text.".to_string();
     }
 
-    None
+    ProviderAttemptResult {
+        attempted: true,
+        provider: "Claude Code",
+        error: Some(failure_message),
+        message: None,
+    }
 }
 
 fn generate_commit_title_internal(
     config: &AppConfig,
     changed_files: &[String],
     diff_snippet: &str,
-) -> TitleResponse {
-    let fallback = build_heuristic_title(changed_files);
-    let limited_diff: String = diff_snippet.chars().take(4000).collect();
-    let system_prompt = resolve_commit_title_prompt(&config.commit_title_prompt);
-    let provider_order = match config.selected_ai_provider {
-        AiProvider::OpenAi => [AiProvider::OpenAi, AiProvider::ClaudeCode],
-        AiProvider::ClaudeCode => [AiProvider::ClaudeCode, AiProvider::OpenAi],
-    };
-
-    for provider in provider_order {
-        let message = match provider {
-            AiProvider::OpenAi => generate_with_openai(
-                &config.open_ai_token,
-                &config.open_ai_model,
-                &system_prompt,
-                changed_files,
-                &limited_diff,
-            ),
-            AiProvider::ClaudeCode => generate_with_claude(
-                &config.claude_code_token,
-                &system_prompt,
-                changed_files,
-                &limited_diff,
-            ),
-        };
-
-        if let Some(message) = message {
-            return normalize_generated_commit_message(&message, &fallback);
-        }
+) -> Result<TitleResponse, String> {
+    let changed_files = changed_files
+        .iter()
+        .map(|file| file.trim().to_string())
+        .filter(|file| !file.is_empty())
+        .collect::<Vec<_>>();
+    if changed_files.is_empty() {
+        return Err(NO_STAGED_CHANGES_ERROR.to_string());
     }
 
-    normalize_generated_commit_message("", &fallback)
+    let fallback = build_heuristic_title(&changed_files);
+    let limited_diff: String = diff_snippet.chars().take(4000).collect();
+    let system_prompt = resolve_commit_title_prompt(&config.commit_title_prompt);
+
+    let provider_result = match config.selected_ai_provider {
+        AiProvider::OpenAi => generate_with_openai(
+            &config.open_ai_token,
+            &config.open_ai_model,
+            &system_prompt,
+            &changed_files,
+            &limited_diff,
+        ),
+        AiProvider::ClaudeCode => generate_with_claude(
+            &config.claude_code_token,
+            &system_prompt,
+            &changed_files,
+            &limited_diff,
+        ),
+    };
+
+    if let Some(message) = provider_result.message.as_deref() {
+        return Ok(normalize_generated_commit_message(message, &fallback));
+    }
+
+    if !provider_result.attempted {
+        return Err(NO_AI_PROVIDER_ERROR.to_string());
+    }
+
+    Err(build_commit_generation_failure_message(&[provider_result]))
 }
 
 #[tauri::command]
@@ -3054,6 +3374,54 @@ pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String>
 }
 
 #[tauri::command]
+pub fn append_file_to_stash(
+    repo_path: String,
+    stash_id: String,
+    file: String,
+) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    let file = validate_append_file(&repo_path, &file)?;
+    let stash_index = parse_stash_index(&stash_id)?;
+    let stash_log_path = resolve_git_path(&repo_path, "logs/refs/stash")?;
+    let entries = read_stash_reflog_entries(&stash_log_path, &stash_id)?;
+
+    if entries.is_empty() || stash_index >= entries.len() {
+        return Err(format!("{stash_id} was not found."));
+    }
+
+    let target_log_index = entries.len() - 1 - stash_index;
+    let target_entry = entries[target_log_index].clone();
+    let (staged_patch, unstaged_patch) = collect_append_file_patches(&repo_path, &file)?;
+    let replacement_oid = create_replacement_stash_commit(
+        &repo_path,
+        &stash_id,
+        &target_entry.message,
+        &staged_patch,
+        &unstaged_patch,
+    )?;
+    let replaced_entries: Vec<StashReflogEntryRecord> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let mut next = entry.clone();
+            if index == target_log_index {
+                next.new_oid = replacement_oid.clone();
+            }
+            next
+        })
+        .collect();
+
+    if let Err(error) = rebuild_stash_reflog(&repo_path, &stash_log_path, &replaced_entries) {
+        let _ = rebuild_stash_reflog(&repo_path, &stash_log_path, &entries);
+        return Err(error);
+    }
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
 pub fn get_stash_diff_detail(
     repo_path: String,
     stash_id: String,
@@ -3177,14 +3545,7 @@ pub fn rename_stash(
 
     let stash_index = parse_stash_index(&stash_id)?;
     let stash_log_path = resolve_git_path(&repo_path, "logs/refs/stash")?;
-    let stash_log =
-        fs::read_to_string(&stash_log_path).map_err(|_| format!("{stash_id} was not found."))?;
-
-    let entries: Vec<StashReflogEntryRecord> = stash_log
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(parse_stash_reflog_line)
-        .collect();
+    let entries = read_stash_reflog_entries(&stash_log_path, &stash_id)?;
 
     if entries.is_empty() || stash_index >= entries.len() {
         return Err(format!("{stash_id} was not found."));
@@ -3290,6 +3651,62 @@ pub fn create_branch(
 }
 
 #[tauri::command]
+pub fn get_pull_status(repo_path: String) -> Result<PullStatusResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let branch_name = get_current_branch(&repo_path)?;
+    if branch_name.trim().is_empty() || branch_name == "HEAD" {
+        return Ok(PullStatusResponse {
+            branch_name: None,
+            upstream_name: None,
+            remote_name: None,
+            remote_branch_name: None,
+            ahead_count: 0,
+            behind_count: 0,
+            can_pull: false,
+            state: "detached".to_string(),
+        });
+    }
+
+    let Some(upstream_name) = get_branch_upstream(&repo_path, &branch_name) else {
+        return Ok(PullStatusResponse {
+            branch_name: Some(branch_name),
+            upstream_name: None,
+            remote_name: None,
+            remote_branch_name: None,
+            ahead_count: 0,
+            behind_count: 0,
+            can_pull: false,
+            state: "noUpstream".to_string(),
+        });
+    };
+
+    let ahead_count = parse_commit_count(&run_git(
+        &["rev-list", "--count", &format!("{upstream_name}..{branch_name}")],
+        &repo_path,
+    )?);
+    let behind_count = parse_commit_count(&run_git(
+        &["rev-list", "--count", &format!("{branch_name}..{upstream_name}")],
+        &repo_path,
+    )?);
+    let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
+    let (remote_name, remote_branch_name) = parse_remote_branch_name(&upstream_name)
+        .map(|(remote_name, remote_branch_name)| (Some(remote_name), Some(remote_branch_name)))
+        .unwrap_or((None, None));
+
+    Ok(PullStatusResponse {
+        branch_name: Some(branch_name),
+        upstream_name: Some(upstream_name),
+        remote_name,
+        remote_branch_name,
+        ahead_count,
+        behind_count,
+        can_pull: state == "behind",
+        state,
+    })
+}
+
+#[tauri::command]
 pub fn merge_branches(
     repo_path: String,
     source_branch: String,
@@ -3304,6 +3721,29 @@ pub fn merge_branches(
     } else {
         merge_branch_without_checkout(&repo_path, &source_branch, &target_branch)?;
     }
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn pull_current_branch(repo_path: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let branch_name = get_current_branch(&repo_path)?;
+    if branch_name.trim().is_empty() || branch_name == "HEAD" {
+        return Err("Cannot pull while HEAD is detached.".to_string());
+    }
+
+    if get_branch_upstream(&repo_path, &branch_name).is_none() {
+        return Err(format!("Current branch '{branch_name}' has no upstream branch."));
+    }
+
+    let args = vec!["pull".to_string(), "--ff-only".to_string()];
+    run_git_owned_with_env(
+        &args,
+        &repo_path,
+        &[("GIT_TERMINAL_PROMPT", "0".to_string())],
+    )?;
 
     Ok(OkResponse { ok: true })
 }
@@ -3460,6 +3900,7 @@ pub fn push(repo_path: String) -> Result<OkResponse, String> {
     ensure_repo_path(&repo_path)?;
 
     run_git(&["push"], &repo_path)?;
+    sync_current_branch_upstream_tracking_ref(&repo_path)?;
 
     Ok(OkResponse { ok: true })
 }
@@ -3483,6 +3924,19 @@ pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String>
 
     let mut snapshot = String::new();
     snapshot.push_str(&head);
+    let current_branch = get_current_branch(&repo_path)?;
+    snapshot.push('\n');
+    snapshot.push_str(&current_branch);
+    if current_branch != "HEAD" {
+        if let Some(upstream_name) = get_branch_upstream(&repo_path, &current_branch) {
+            snapshot.push('\n');
+            snapshot.push_str(&upstream_name);
+            let upstream_head = run_git(&["rev-parse", "--verify", upstream_name.as_str()], &repo_path)
+                .unwrap_or_default();
+            snapshot.push('\n');
+            snapshot.push_str(&upstream_head);
+        }
+    }
 
     for entry in statuses.iter() {
         snapshot.push('\n');
@@ -3537,19 +3991,27 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
 }
 
 #[tauri::command]
-pub fn generate_title(
-    repo_path: String,
-    changed_files: Vec<String>,
-) -> Result<TitleResponse, String> {
-    ensure_repo_path(&repo_path)?;
+pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String> {
+    ensure_repo_path(&input.repo_path)?;
 
-    let config = read_config()?;
-    let diff_snippet = get_diff_snippet(&repo_path, &changed_files)?;
-    Ok(generate_commit_title_internal(
-        &config,
-        &changed_files,
-        &diff_snippet,
-    ))
+    let current = read_config()?;
+    let config = AppConfig {
+        open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
+        open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
+        claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
+        selected_ai_provider: input
+            .selected_ai_provider
+            .unwrap_or(current.selected_ai_provider),
+        commit_title_prompt: input
+            .commit_title_prompt
+            .unwrap_or(current.commit_title_prompt),
+        commit_graph_mode: current.commit_graph_mode,
+        repository_scan_depth: current.repository_scan_depth,
+        recently_used: current.recently_used,
+        window_state: current.window_state,
+    };
+    let diff_snippet = get_diff_snippet(&input.repo_path, &input.changed_files)?;
+    generate_commit_title_internal(&config, &input.changed_files, &diff_snippet)
 }
 
 #[cfg(test)]
@@ -3746,6 +4208,64 @@ mod tests {
             root_dir,
             repo_path: repo_path_str,
         }
+    }
+
+    fn create_pull_fixture() -> (TestRepoFixture, String) {
+        let root_dir = create_temporary_directory("tauri-pull-fixture")
+            .expect("temporary root dir should be created");
+        let origin_path = root_dir.join("origin.git");
+        let repo_path = root_dir.join("local");
+        let root_dir_str = root_dir.to_string_lossy().to_string();
+        let origin_path_str = origin_path.to_string_lossy().to_string();
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "--bare", &origin_path_str], &root_dir_str)
+            .expect("bare origin should be created");
+        run_command("git", &["clone", &origin_path_str, &repo_path_str], &root_dir_str)
+            .expect("local clone should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        run_command("git", &["checkout", "-b", "main"], &repo_path_str)
+            .expect("main branch should be created");
+        fs::write(repo_path.join("README.md"), "root\n").expect("README should be written");
+        run_command("git", &["add", "README.md"], &repo_path_str).expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+        run_command("git", &["push", "-u", "origin", "main"], &repo_path_str)
+            .expect("git push should succeed");
+        run_command("git", &["symbolic-ref", "HEAD", "refs/heads/main"], &origin_path_str)
+            .expect("origin head should be updated");
+        run_command("git", &["remote", "set-head", "origin", "--auto"], &repo_path_str)
+            .expect("origin head should be detected locally");
+
+        let collaborator_path = root_dir.join("collaborator");
+        let collaborator_path_str = collaborator_path.to_string_lossy().to_string();
+        run_command("git", &["clone", &origin_path_str, &collaborator_path_str], &root_dir_str)
+            .expect("collaborator clone should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &collaborator_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &collaborator_path_str,
+        )
+        .expect("git user.email config should succeed");
+        run_command("git", &["checkout", "main"], &collaborator_path_str)
+            .expect("collaborator should track main");
+
+        (
+            TestRepoFixture {
+                root_dir,
+                repo_path: repo_path_str,
+            },
+            collaborator_path_str,
+        )
     }
 
     fn create_branch_diff_fixture() -> TestRepoFixture {
@@ -3946,6 +4466,30 @@ mod tests {
     }
 
     #[test]
+    fn generate_commit_title_internal_rejects_when_no_staged_changes_are_provided() {
+        let config = AppConfig::default();
+
+        assert_eq!(
+            generate_commit_title_internal(&config, &[], "")
+                .expect_err("empty changed files should be rejected"),
+            NO_STAGED_CHANGES_ERROR
+        );
+    }
+
+    #[test]
+    fn generate_commit_title_internal_does_not_fallback_to_the_other_provider() {
+        let mut config = AppConfig::default();
+        config.claude_code_token = "cc-live-token".to_string();
+        config.selected_ai_provider = AiProvider::OpenAi;
+
+        assert_eq!(
+            generate_commit_title_internal(&config, &["src/App.tsx".to_string()], "+ change")
+                .expect_err("selected provider without token should not fallback"),
+            NO_AI_PROVIDER_ERROR
+        );
+    }
+
+    #[test]
     fn clamp_window_state_to_area_keeps_top_left_visible() {
         let area = tauri::PhysicalRect {
             position: tauri::PhysicalPosition::new(100, 200),
@@ -4136,6 +4680,54 @@ mod tests {
     }
 
     #[test]
+    fn append_file_to_stash_replaces_selected_entry_with_combined_diff() {
+        let fixture = create_stash_fixture();
+        fs::write(
+            Path::new(&fixture.repo_path).join("README.md"),
+            "root\nappended line\n",
+        )
+        .expect("README update should be written");
+
+        append_file_to_stash(
+            fixture.repo_path.clone(),
+            "stash@{1}".to_string(),
+            "README.md".to_string(),
+        )
+        .expect("append to stash should succeed");
+
+        let stashes = get_stashes(fixture.repo_path.clone()).expect("stashes should be returned");
+        let messages: Vec<String> = stashes.stashes.iter().map(|stash| stash.message.clone()).collect();
+        assert_eq!(
+            messages,
+            vec![
+                "On main: second stash".to_string(),
+                "On main: first stash".to_string()
+            ]
+        );
+        assert_eq!(stashes.stashes[0].files, vec!["beta.txt".to_string()]);
+
+        let mut replaced_files = stashes.stashes[1].files.clone();
+        replaced_files.sort();
+        assert_eq!(
+            replaced_files,
+            vec!["README.md".to_string(), "alpha.txt".to_string()]
+        );
+
+        let detail = get_stash_diff_detail(fixture.repo_path.clone(), "stash@{1}".to_string())
+            .expect("combined stash diff should be returned");
+        let mut detail_files: Vec<String> = detail.files.iter().map(|file| file.file.clone()).collect();
+        detail_files.sort();
+        assert_eq!(
+            detail_files,
+            vec!["README.md".to_string(), "alpha.txt".to_string()]
+        );
+        assert!(detail.diff.contains("diff --git a/README.md b/README.md"));
+        assert!(detail.diff.contains("+appended line"));
+        assert!(detail.diff.contains("diff --git a/alpha.txt b/alpha.txt"));
+        assert!(detail.diff.contains("+alpha updated"));
+    }
+
+    #[test]
     fn create_branch_creates_new_local_branch_without_switching_head() {
         let fixture = create_working_tree_diff_fixture();
         run_command(
@@ -4222,5 +4814,67 @@ mod tests {
         assert_eq!(current_branch, "feature/dnd-merge");
         assert_eq!(main_sha, feature_sha);
         assert_eq!(feature_file, "feature\n");
+    }
+
+    #[test]
+    fn get_pull_status_reports_behind_tracking_branch() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command("git", &["commit", "-am", "remote update"], &collaborator_path)
+            .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+        run_command("git", &["fetch", "origin"], &fixture.repo_path)
+            .expect("local fetch should succeed");
+
+        let status = get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+
+        assert_eq!(status.branch_name.as_deref(), Some("main"));
+        assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
+        assert_eq!(status.remote_name.as_deref(), Some("origin"));
+        assert_eq!(status.remote_branch_name.as_deref(), Some("main"));
+        assert_eq!(status.ahead_count, 0);
+        assert_eq!(status.behind_count, 1);
+        assert!(status.can_pull);
+        assert_eq!(status.state, "behind");
+    }
+
+    #[test]
+    fn pull_current_branch_fast_forwards_to_upstream() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command("git", &["commit", "-am", "remote update"], &collaborator_path)
+            .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+
+        pull_current_branch(fixture.repo_path.clone()).expect("pull should succeed");
+
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let head = run_command("git", &["rev-parse", "HEAD"], &fixture.repo_path)
+            .expect("head should resolve");
+        let upstream_head = run_command("git", &["rev-parse", "origin/main"], &fixture.repo_path)
+            .expect("upstream head should resolve");
+        let readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
+            .expect("README should be readable");
+        let status = get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+
+        assert_eq!(current_branch, "main");
+        assert_eq!(head, upstream_head);
+        assert!(readme.contains("remote update"));
+        assert_eq!(status.behind_count, 0);
+        assert!(!status.can_pull);
+        assert_eq!(status.state, "upToDate");
     }
 }

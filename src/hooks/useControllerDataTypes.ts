@@ -6,13 +6,14 @@ import type {
   CommitDetail,
   CommitGraphMode,
   CommitListItem,
+  PullStatus,
   StashDiffDetail,
   StashEntry,
   WorkingTreeDiffArea,
   WorkingTreeDiffDetail,
-  WorkingTreeStatus
-} from '../types';
-import type { UiError } from '../lib/errors';
+  WorkingTreeStatus,
+} from "../types";
+import type { UiError } from "../lib/errors";
 
 export interface UseControllerDataParams {
   repoPath: string;
@@ -69,6 +70,7 @@ export interface UseControllerDataResult {
 
   workingStatus: WorkingTreeStatus | null;
   stashes: StashEntry[];
+  pullStatus: PullStatus | null;
 
   operationBusy: boolean;
   setOperationBusy: (busy: boolean) => void;
@@ -103,6 +105,7 @@ export interface UseControllerDataResult {
   }) => Promise<void>;
   loadWorkingState: () => Promise<void>;
   loadBranches: () => Promise<BranchResponse | null>;
+  loadPullStatus: () => Promise<void>;
   refreshAll: (refOverride?: string) => Promise<void>;
   reloadAfterBranchMutation: (preferredBranchName?: string) => Promise<void>;
   mutateAndReload: (
@@ -110,6 +113,6 @@ export interface UseControllerDataResult {
     options?: {
       reloadCommits?: boolean;
       onSuccess?: () => void | Promise<void>;
-    }
+    },
   ) => Promise<void>;
 }

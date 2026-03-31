@@ -1,7 +1,7 @@
-import type { JSX } from 'react';
+import type { JSX } from "react";
 
-import { formatFileCountLabel } from '../lib/format';
-import type { Branch, StashEntry } from '../types';
+import { formatFileCountLabel } from "../lib/format";
+import type { Branch, StashEntry } from "../types";
 
 export interface TreeNode {
   children: Map<string, TreeNode>;
@@ -13,54 +13,58 @@ export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 112;
 export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 156;
 export const STASH_CONTEXT_MENU_HEIGHT_PX = 188;
 
-export function clampContextMenuPosition(x: number, y: number, height: number): { x: number; y: number } {
-  if (typeof window === 'undefined') {
+export function clampContextMenuPosition(
+  x: number,
+  y: number,
+  height: number,
+): { x: number; y: number } {
+  if (typeof window === "undefined") {
     return { x, y };
   }
 
   return {
     x: Math.min(Math.max(12, x), Math.max(12, window.innerWidth - CONTEXT_MENU_WIDTH_PX - 12)),
-    y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - height - 12))
+    y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - height - 12)),
   };
 }
 
 export function getContextMenuHeight(branch: Branch): number {
-  return branch.type === 'local' ? LOCAL_CONTEXT_MENU_HEIGHT_PX : REMOTE_CONTEXT_MENU_HEIGHT_PX;
+  return branch.type === "local" ? LOCAL_CONTEXT_MENU_HEIGHT_PX : REMOTE_CONTEXT_MENU_HEIGHT_PX;
 }
 
 export function getContextMenuHint(branch: Branch, deleteDisabledReason: string | null): string {
-  if (branch.type === 'local') {
+  if (branch.type === "local") {
     if (deleteDisabledReason) {
       return `${deleteDisabledReason} この branch を起点に新しい local branch を作成できます。`;
     }
 
-    return 'この branch を起点に新しい local branch を作成できます。削除は確認ダイアログを開いてから実行します。';
+    return "この branch を起点に新しい local branch を作成できます。削除は確認ダイアログを開いてから実行します。";
   }
 
-  return deleteDisabledReason ?? '確認ダイアログを開いてから削除します。';
+  return deleteDisabledReason ?? "確認ダイアログを開いてから削除します。";
 }
 
 export function getStashContextMenuHint(): string {
-  return 'Apply は stash を残し、Pop は適用後に取り除きます。Rename は message だけを更新します。';
+  return "Apply は stash を残し、Pop は適用後に取り除きます。Rename は message だけを更新します。";
 }
 
 export function getBranchDisplayName(branchName: string): string {
-  const parts = branchName.split('/').filter(Boolean);
+  const parts = branchName.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? branchName;
 }
 
 export function buildTree(items: Branch[]): TreeNode {
   const root: TreeNode = {
     children: new Map<string, TreeNode>(),
-    leaves: []
+    leaves: [],
   };
 
   for (const branch of items) {
-    const parts = branch.name.split('/').filter(Boolean);
+    const parts = branch.name.split("/").filter(Boolean);
     if (parts.length <= 1) {
       root.leaves.push({
         branch,
-        displayName: branch.name
+        displayName: branch.name,
       });
       continue;
     }
@@ -76,7 +80,7 @@ export function buildTree(items: Branch[]): TreeNode {
       } else {
         const created: TreeNode = {
           children: new Map<string, TreeNode>(),
-          leaves: []
+          leaves: [],
         };
         currentNode.children.set(segment, created);
         currentNode = created;
@@ -85,7 +89,7 @@ export function buildTree(items: Branch[]): TreeNode {
 
     currentNode.leaves.push({
       branch,
-      displayName: parts[parts.length - 1]
+      displayName: parts[parts.length - 1],
     });
   }
 
@@ -104,7 +108,7 @@ export function getStashMetaLabel(stash: StashEntry): string {
     parts.push(relativeDate);
   }
 
-  return parts.join(' • ');
+  return parts.join(" • ");
 }
 
 export function SectionTitle({ children }: { children: string }): JSX.Element {

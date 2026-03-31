@@ -1,9 +1,15 @@
-import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 
-import { api } from '../lib/api';
-import { DEFAULT_COMMIT_TITLE_PROMPT } from '../lib/commitTitlePrompt';
-import type { AiGenerationConfig, AiProvider, AppConfig, CommitGraphMode, TokenValidationResult } from '../types';
+import { api } from "../lib/api";
+import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "../lib/commitTitlePrompt";
+import type {
+  AiGenerationConfig,
+  AiProvider,
+  AppConfig,
+  CommitGraphMode,
+  TokenValidationResult,
+} from "../types";
 
 interface ConfigViewProps {
   onNotify: (message: string) => void;
@@ -12,11 +18,10 @@ interface ConfigViewProps {
   onAiGenerationConfigChange: (config: AiGenerationConfig) => void;
 }
 
-export type TokenValidationState = 'idle' | 'checking' | 'valid' | 'invalid';
+export type TokenValidationState = "idle" | "checking" | "valid" | "invalid";
 
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
-const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
 const COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX = 128;
 
 function normalizeDepth(value: number): number {
@@ -24,7 +29,10 @@ function normalizeDepth(value: number): number {
     return 4;
   }
 
-  return Math.min(Math.max(Math.round(value), MIN_REPOSITORY_SCAN_DEPTH), MAX_REPOSITORY_SCAN_DEPTH);
+  return Math.min(
+    Math.max(Math.round(value), MIN_REPOSITORY_SCAN_DEPTH),
+    MAX_REPOSITORY_SCAN_DEPTH,
+  );
 }
 
 function applyConfigToState(config: AppConfig): {
@@ -43,7 +51,7 @@ function applyConfigToState(config: AppConfig): {
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
     commitGraphMode: config.commitGraphMode,
-    repositoryScanDepth: normalizeDepth(config.repositoryScanDepth)
+    repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
   };
 }
 
@@ -51,7 +59,10 @@ function hasConfiguredToken(token: string): boolean {
   return token.trim().length > 0;
 }
 
-export function buildOpenAiModelOptions(availableModels: string[], selectedModel: string): string[] {
+export function buildOpenAiModelOptions(
+  availableModels: string[],
+  selectedModel: string,
+): string[] {
   const merged = new Set<string>();
   const normalizedSelectedModel = selectedModel.trim();
 
@@ -92,17 +103,17 @@ export function buildOpenAiModelOptions(availableModels: string[], selectedModel
 export function resolveSelectedAiProvider(
   currentProvider: AiProvider,
   openAiToken: string,
-  claudeCodeToken: string
+  claudeCodeToken: string,
 ): AiProvider {
   const hasOpenAiToken = hasConfiguredToken(openAiToken);
   const hasClaudeCodeToken = hasConfiguredToken(claudeCodeToken);
 
-  if (currentProvider === 'claudeCode' && !hasClaudeCodeToken && hasOpenAiToken) {
-    return 'openAi';
+  if (currentProvider === "claudeCode" && !hasClaudeCodeToken && hasOpenAiToken) {
+    return "openAi";
   }
 
-  if (currentProvider === 'openAi' && !hasOpenAiToken && hasClaudeCodeToken) {
-    return 'claudeCode';
+  if (currentProvider === "openAi" && !hasOpenAiToken && hasClaudeCodeToken) {
+    return "claudeCode";
   }
 
   return currentProvider;
@@ -110,9 +121,9 @@ export function resolveSelectedAiProvider(
 
 function useTokenValidation(
   token: string,
-  validateToken: (token: string) => Promise<TokenValidationResult>
+  validateToken: (token: string) => Promise<TokenValidationResult>,
 ): TokenValidationState {
-  const [validationState, setValidationState] = useState<TokenValidationState>('idle');
+  const [validationState, setValidationState] = useState<TokenValidationState>("idle");
   const validationRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -121,11 +132,11 @@ function useTokenValidation(
     const requestId = validationRequestIdRef.current;
 
     if (!normalizedToken) {
-      setValidationState('idle');
+      setValidationState("idle");
       return;
     }
 
-    setValidationState('checking');
+    setValidationState("checking");
     let cancelled = false;
 
     const timer = setTimeout(() => {
@@ -136,13 +147,13 @@ function useTokenValidation(
             return;
           }
 
-          setValidationState(result.valid ? 'valid' : 'invalid');
+          setValidationState(result.valid ? "valid" : "invalid");
         } catch {
           if (cancelled || validationRequestIdRef.current !== requestId) {
             return;
           }
 
-          setValidationState('invalid');
+          setValidationState("invalid");
         }
       })();
     }, 350);
@@ -158,16 +169,16 @@ function useTokenValidation(
 
 export function TokenValidationIndicator({
   providerName,
-  validationState
+  validationState,
 }: {
   providerName: string;
   validationState: TokenValidationState;
 }): JSX.Element | null {
-  if (validationState === 'idle') {
+  if (validationState === "idle") {
     return null;
   }
 
-  if (validationState === 'checking') {
+  if (validationState === "checking") {
     return (
       <span
         className="inline-flex items-center text-ink-subtle"
@@ -180,7 +191,7 @@ export function TokenValidationIndicator({
     );
   }
 
-  if (validationState === 'valid') {
+  if (validationState === "valid") {
     return (
       <span
         className="inline-flex items-center text-(--success)"
@@ -209,36 +220,47 @@ export function ConfigView({
   onNotify,
   config,
   onConfigSaved,
-  onAiGenerationConfigChange
+  onAiGenerationConfigChange,
 }: ConfigViewProps): JSX.Element {
   const initialConfigState = config ? applyConfigToState(config) : null;
-  const [openAiToken, setOpenAiToken] = useState(initialConfigState?.openAiToken ?? '');
-  const [openAiModel, setOpenAiModel] = useState(initialConfigState?.openAiModel ?? DEFAULT_OPENAI_MODEL);
-  const [claudeCodeToken, setClaudeCodeToken] = useState(initialConfigState?.claudeCodeToken ?? '');
+  const [openAiToken, setOpenAiToken] = useState(initialConfigState?.openAiToken ?? "");
+  const [openAiModel, setOpenAiModel] = useState(
+    initialConfigState?.openAiModel ?? DEFAULT_OPENAI_MODEL,
+  );
+  const [claudeCodeToken, setClaudeCodeToken] = useState(initialConfigState?.claudeCodeToken ?? "");
   const [selectedAiProvider, setSelectedAiProvider] = useState<AiProvider>(
     initialConfigState
       ? resolveSelectedAiProvider(
           initialConfigState.selectedAiProvider,
           initialConfigState.openAiToken,
-          initialConfigState.claudeCodeToken
+          initialConfigState.claudeCodeToken,
         )
-      : 'openAi'
+      : "openAi",
   );
-  const [commitTitlePrompt, setCommitTitlePrompt] = useState(initialConfigState?.commitTitlePrompt ?? '');
-  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>(initialConfigState?.commitGraphMode ?? 'detailed');
-  const [repositoryScanDepth, setRepositoryScanDepth] = useState(initialConfigState?.repositoryScanDepth ?? 4);
+  const [commitTitlePrompt, setCommitTitlePrompt] = useState(
+    initialConfigState?.commitTitlePrompt ?? "",
+  );
+  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>(
+    initialConfigState?.commitGraphMode ?? "detailed",
+  );
+  const [repositoryScanDepth, setRepositoryScanDepth] = useState(
+    initialConfigState?.repositoryScanDepth ?? 4,
+  );
   const [loading, setLoading] = useState(config === null);
   const [saving, setSaving] = useState(false);
   const [openAiModels, setOpenAiModels] = useState<string[]>([]);
   const [loadingOpenAiModels, setLoadingOpenAiModels] = useState(false);
   const [openAiModelsError, setOpenAiModelsError] = useState<string | null>(null);
   const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
-  const claudeCodeTokenValidation = useTokenValidation(claudeCodeToken, api.validateClaudeCodeToken);
+  const claudeCodeTokenValidation = useTokenValidation(
+    claudeCodeToken,
+    api.validateClaudeCodeToken,
+  );
   const openAiModelsRequestIdRef = useRef(0);
   const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, openAiModel),
-    [openAiModel, openAiModels]
+    [openAiModel, openAiModels],
   );
   const isDefaultCommitTitlePrompt = commitTitlePrompt === DEFAULT_COMMIT_TITLE_PROMPT;
 
@@ -249,14 +271,14 @@ export function ConfigView({
     }
 
     const resizeTextarea = (): void => {
-      textarea.style.height = '0px';
+      textarea.style.height = "0px";
       textarea.style.height = `${Math.max(textarea.scrollHeight, COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX)}px`;
     };
 
     resizeTextarea();
-    window.addEventListener('resize', resizeTextarea);
+    window.addEventListener("resize", resizeTextarea);
     return () => {
-      window.removeEventListener('resize', resizeTextarea);
+      window.removeEventListener("resize", resizeTextarea);
     };
   }, [commitTitlePrompt]);
 
@@ -269,7 +291,9 @@ export function ConfigView({
     setOpenAiToken(next.openAiToken);
     setOpenAiModel(next.openAiModel);
     setClaudeCodeToken(next.claudeCodeToken);
-    setSelectedAiProvider(resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken));
+    setSelectedAiProvider(
+      resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken),
+    );
     setCommitTitlePrompt(next.commitTitlePrompt);
     setCommitGraphMode(next.commitGraphMode);
     setRepositoryScanDepth(next.repositoryScanDepth);
@@ -294,14 +318,20 @@ export function ConfigView({
         setOpenAiToken(next.openAiToken);
         setOpenAiModel(next.openAiModel);
         setClaudeCodeToken(next.claudeCodeToken);
-        setSelectedAiProvider(resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken));
+        setSelectedAiProvider(
+          resolveSelectedAiProvider(
+            next.selectedAiProvider,
+            next.openAiToken,
+            next.claudeCodeToken,
+          ),
+        );
         setCommitTitlePrompt(next.commitTitlePrompt);
         setCommitGraphMode(next.commitGraphMode);
         setRepositoryScanDepth(next.repositoryScanDepth);
         onConfigSaved(loadedConfig);
       } catch (error) {
         if (active) {
-          onNotify(error instanceof Error ? error.message : '設定を読み込めませんでした。');
+          onNotify(error instanceof Error ? error.message : "設定を読み込めませんでした。");
         }
       } finally {
         if (active) {
@@ -316,7 +346,9 @@ export function ConfigView({
   }, [config, onConfigSaved, onNotify]);
 
   useEffect(() => {
-    setSelectedAiProvider((current) => resolveSelectedAiProvider(current, openAiToken, claudeCodeToken));
+    setSelectedAiProvider((current) =>
+      resolveSelectedAiProvider(current, openAiToken, claudeCodeToken),
+    );
   }, [claudeCodeToken, openAiToken]);
 
   useEffect(() => {
@@ -324,7 +356,7 @@ export function ConfigView({
     openAiModelsRequestIdRef.current += 1;
     const requestId = openAiModelsRequestIdRef.current;
 
-    if (!normalizedToken || openAiTokenValidation !== 'valid') {
+    if (!normalizedToken || openAiTokenValidation !== "valid") {
       setLoadingOpenAiModels(false);
       setOpenAiModels([]);
       setOpenAiModelsError(null);
@@ -349,7 +381,9 @@ export function ConfigView({
         }
 
         setOpenAiModels([]);
-        setOpenAiModelsError(error instanceof Error ? error.message : 'OpenAI モデル一覧を取得できませんでした。');
+        setOpenAiModelsError(
+          error instanceof Error ? error.message : "OpenAI モデル一覧を取得できませんでした。",
+        );
       } finally {
         if (active && openAiModelsRequestIdRef.current === requestId) {
           setLoadingOpenAiModels(false);
@@ -372,9 +406,17 @@ export function ConfigView({
       openAiModel,
       claudeCodeToken,
       selectedAiProvider,
-      commitTitlePrompt
+      commitTitlePrompt,
     });
-  }, [claudeCodeToken, commitTitlePrompt, loading, onAiGenerationConfigChange, openAiModel, openAiToken, selectedAiProvider]);
+  }, [
+    claudeCodeToken,
+    commitTitlePrompt,
+    loading,
+    onAiGenerationConfigChange,
+    openAiModel,
+    openAiToken,
+    selectedAiProvider,
+  ]);
 
   const handleProviderCheckboxChange = (provider: AiProvider, checked: boolean): void => {
     if (checked) {
@@ -387,12 +429,12 @@ export function ConfigView({
         return current;
       }
 
-      if (provider === 'openAi' && hasConfiguredToken(claudeCodeToken)) {
-        return 'claudeCode';
+      if (provider === "openAi" && hasConfiguredToken(claudeCodeToken)) {
+        return "claudeCode";
       }
 
-      if (provider === 'claudeCode' && hasConfiguredToken(openAiToken)) {
-        return 'openAi';
+      if (provider === "claudeCode" && hasConfiguredToken(openAiToken)) {
+        return "openAi";
       }
 
       return provider;
@@ -411,7 +453,7 @@ export function ConfigView({
         selectedAiProvider,
         commitTitlePrompt,
         commitGraphMode,
-        repositoryScanDepth: normalizedDepth
+        repositoryScanDepth: normalizedDepth,
       });
 
       const nextConfig = response.config ?? (await api.getConfig());
@@ -419,16 +461,20 @@ export function ConfigView({
       setOpenAiModel(nextConfig.openAiModel);
       setClaudeCodeToken(nextConfig.claudeCodeToken);
       setSelectedAiProvider(
-        resolveSelectedAiProvider(nextConfig.selectedAiProvider, nextConfig.openAiToken, nextConfig.claudeCodeToken)
+        resolveSelectedAiProvider(
+          nextConfig.selectedAiProvider,
+          nextConfig.openAiToken,
+          nextConfig.claudeCodeToken,
+        ),
       );
       setCommitTitlePrompt(nextConfig.commitTitlePrompt);
       onConfigSaved(nextConfig);
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitGraphMode(nextConfig.commitGraphMode);
 
-      onNotify('Config を保存しました。');
+      onNotify("Config を保存しました。");
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : 'Config 保存に失敗しました。');
+      onNotify(error instanceof Error ? error.message : "Config 保存に失敗しました。");
     } finally {
       setSaving(false);
     }
@@ -442,7 +488,9 @@ export function ConfigView({
     <section className="panel mx-auto h-full w-full max-w-3xl p-6">
       <div className="mb-4">
         <h2 className="text-2xl font-semibold text-ink">Config</h2>
-        <p className="text-sm text-ink-soft">トークン、コミットグラフ表示、リポジトリ探索設定を管理します。</p>
+        <p className="text-sm text-ink-soft">
+          トークン、コミットグラフ表示、リポジトリ探索設定を管理します。
+        </p>
       </div>
 
       {loading ? (
@@ -483,7 +531,8 @@ export function ConfigView({
                 onBlur={() => setRepositoryScanDepth((current) => normalizeDepth(current))}
               />
               <p className="mt-1 text-xs text-ink-subtle">
-                `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} - {MAX_REPOSITORY_SCAN_DEPTH}）。
+                `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} -{" "}
+                {MAX_REPOSITORY_SCAN_DEPTH}）。
               </p>
             </div>
           </div>
@@ -491,15 +540,22 @@ export function ConfigView({
           <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
             <div>
               <div className="mb-1 flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">OpenAI Token</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  OpenAI Token
+                </div>
                 <div className="flex items-center gap-3">
-                  <TokenValidationIndicator providerName="OpenAI" validationState={openAiTokenValidation} />
+                  <TokenValidationIndicator
+                    providerName="OpenAI"
+                    validationState={openAiTokenValidation}
+                  />
                   <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
                     <input
                       type="checkbox"
-                      checked={selectedAiProvider === 'openAi'}
+                      checked={selectedAiProvider === "openAi"}
                       disabled={!hasConfiguredToken(openAiToken)}
-                      onChange={(event) => handleProviderCheckboxChange('openAi', event.target.checked)}
+                      onChange={(event) =>
+                        handleProviderCheckboxChange("openAi", event.target.checked)
+                      }
                     />
                     使用
                   </label>
@@ -520,7 +576,7 @@ export function ConfigView({
                 <select
                   className="input"
                   value={openAiModel}
-                  disabled={openAiTokenValidation !== 'valid' || loadingOpenAiModels}
+                  disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
                   onChange={(event) => setOpenAiModel(event.target.value)}
                 >
                   {openAiModelOptions.map((modelId) => (
@@ -530,28 +586,35 @@ export function ConfigView({
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-ink-subtle">
-                  {openAiTokenValidation !== 'valid'
-                    ? '有効な OpenAI token を入力すると利用可能モデルを取得します。'
+                  {openAiTokenValidation !== "valid"
+                    ? "有効な OpenAI token を入力すると利用可能モデルを取得します。"
                     : loadingOpenAiModels
-                      ? 'OpenAI の利用可能モデルを取得中です。'
+                      ? "OpenAI の利用可能モデルを取得中です。"
                       : openAiModelsError
                         ? openAiModelsError
-                        : '取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。'}
+                        : "取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。"}
                 </p>
               </div>
             </div>
 
             <div>
               <div className="mb-1 flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">Claude Code Token</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  Claude Code Token
+                </div>
                 <div className="flex items-center gap-3">
-                  <TokenValidationIndicator providerName="Claude Code" validationState={claudeCodeTokenValidation} />
+                  <TokenValidationIndicator
+                    providerName="Claude Code"
+                    validationState={claudeCodeTokenValidation}
+                  />
                   <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
                     <input
                       type="checkbox"
-                      checked={selectedAiProvider === 'claudeCode'}
+                      checked={selectedAiProvider === "claudeCode"}
                       disabled={!hasConfiguredToken(claudeCodeToken)}
-                      onChange={(event) => handleProviderCheckboxChange('claudeCode', event.target.checked)}
+                      onChange={(event) =>
+                        handleProviderCheckboxChange("claudeCode", event.target.checked)
+                      }
                     />
                     使用
                   </label>
@@ -588,13 +651,19 @@ export function ConfigView({
                 onChange={(event) => setCommitTitlePrompt(event.target.value)}
               />
               <p className="mt-1 text-xs text-ink-subtle">
-                AIでタイトル生成を押したときの instruction です。右のボタンか、空で保存すると既定プロンプトに戻ります。
+                AIでタイトル生成を押したときの instruction
+                です。右のボタンか、空で保存すると既定プロンプトに戻ります。
               </p>
             </div>
           </div>
 
-          <button type="button" className="button button-primary" disabled={saving} onClick={handleSave}>
-            {saving ? 'Saving...' : 'Save Config'}
+          <button
+            type="button"
+            className="button button-primary"
+            disabled={saving}
+            onClick={handleSave}
+          >
+            {saving ? "Saving..." : "Save Config"}
           </button>
         </div>
       )}

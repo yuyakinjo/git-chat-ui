@@ -1,9 +1,9 @@
-import type { Request } from 'express';
+import type { Request } from "express";
 
-import type { AppConfig } from '../types.js';
+import type { AppConfig } from "../types.js";
 
 export function getRequiredString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${field} is required.`);
   }
 
@@ -11,19 +11,19 @@ export function getRequiredString(value: unknown, field: string): string {
 }
 
 export function getRepoPathFromQuery(request: Request): string {
-  return getRequiredString(request.query.repoPath, 'repoPath');
+  return getRequiredString(request.query.repoPath, "repoPath");
 }
 
-export function parseCommitGraphMode(value: unknown): AppConfig['commitGraphMode'] | null {
-  if (value === 'simple' || value === 'detailed') {
+export function parseCommitGraphMode(value: unknown): AppConfig["commitGraphMode"] | null {
+  if (value === "simple" || value === "detailed") {
     return value;
   }
 
   return null;
 }
 
-export function parseSelectedAiProvider(value: unknown): AppConfig['selectedAiProvider'] | null {
-  if (value === 'openAi' || value === 'claudeCode') {
+export function parseSelectedAiProvider(value: unknown): AppConfig["selectedAiProvider"] | null {
+  if (value === "openAi" || value === "claudeCode") {
     return value;
   }
 
@@ -31,11 +31,11 @@ export function parseSelectedAiProvider(value: unknown): AppConfig['selectedAiPr
 }
 
 export function parseRepositoryScanDepth(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
 
-  if (typeof value === 'string' && value.trim()) {
+  if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       return parsed;
@@ -45,10 +45,10 @@ export function parseRepositoryScanDepth(value: unknown): number | null {
   return null;
 }
 
-export function parseWorkingTreeDiffArea(value: unknown): 'staged' | 'unstaged' {
-  if (value === 'staged' || value === 'unstaged') {
+export function parseWorkingTreeDiffArea(value: unknown): "staged" | "unstaged" {
+  if (value === "staged" || value === "unstaged") {
     return value;
   }
 
-  throw new Error('area must be staged or unstaged.');
+  throw new Error("area must be staged or unstaged.");
 }

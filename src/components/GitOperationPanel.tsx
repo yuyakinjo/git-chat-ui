@@ -1,31 +1,38 @@
-import { GripVertical, LoaderCircle, Sparkles, UploadCloud } from 'lucide-react';
+import { GripVertical, LoaderCircle, Sparkles, UploadCloud } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
   useState,
   type JSX,
-} from 'react';
+} from "react";
 
-import { useContainerWidth } from '../hooks/useContainerWidth';
-import { createPortal } from 'react-dom';
+import { useContainerWidth } from "../hooks/useContainerWidth";
+import { createPortal } from "react-dom";
 
-import { getCommitMessageFiles } from '../lib/commitMessage';
-import { resolveGitOperationPanelColumnCount } from '../lib/controllerPanelLayout';
+import { getCommitMessageFiles } from "../lib/commitMessage";
+import { resolveGitOperationPanelColumnCount } from "../lib/controllerPanelLayout";
 import {
   canDropWorkingTreeFile,
   getWorkingTreeDropActionLabel,
   getWorkingTreeDropZoneLabel,
   type WorkingTreeDragPayload,
   type WorkingTreeDragSource,
-  type WorkingTreeDropZone
-} from '../lib/workingTreeDragDrop';
-import type { StashEntry, WorkingFile, WorkingTreeDiffArea, WorkingTreeStatus } from '../types';
-import { GitFilePathLabel, getWorkingFileStatusPresentation } from './GitFilePresentation';
+  type WorkingTreeDropZone,
+} from "../lib/workingTreeDragDrop";
+import type {
+  PullStatus,
+  StashEntry,
+  WorkingFile,
+  WorkingTreeDiffArea,
+  WorkingTreeStatus,
+} from "../types";
+import { GitFilePathLabel, getWorkingFileStatusPresentation } from "./GitFilePresentation";
 
 interface GitOperationPanelProps {
   status: WorkingTreeStatus | null;
   stashes: StashEntry[];
+  pullStatus?: PullStatus | null;
   commitTitle: string;
   commitDescription: string;
   busy: boolean;
@@ -42,19 +49,72 @@ interface GitOperationPanelProps {
   onGenerateCommitMessage: () => void;
   onCommit: () => void;
   onPush: () => void;
+  onPull?: () => void;
   headerAccessory?: JSX.Element | null;
 }
 
 const DRAG_THRESHOLD_PX = 6;
 const COMMIT_TITLE_SOFT_LIMIT = 72;
+const GIT_OPERATION_PANEL_COMPACT_HEIGHT_THRESHOLD = 360;
 
 function isWorkingTreeDropZone(value: string | undefined): value is WorkingTreeDropZone {
-  return value === 'staged' || value === 'unstaged' || value === 'stash';
+  return value === "staged" || value === "unstaged" || value === "stash";
+}
+
+function formatCommitLabel(count: number): string {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+
+function getPullStatusCopy(
+  pullStatus: PullStatus,
+  workingTreeDirty: boolean,
+): {
+  title: string;
+  detail: string;
+} {
+  const branchLabel = pullStatus.branchName ?? "HEAD";
+  const upstreamLabel = pullStatus.upstreamName ?? "upstream";
+
+  switch (pullStatus.state) {
+    case "detached":
+      return {
+        title: "Detached HEAD",
+        detail: "branch を checkout していないため pull できません。",
+      };
+    case "noUpstream":
+      return {
+        title: `${branchLabel} has no upstream`,
+        detail: `${branchLabel} に tracking branch がないため pull できません。`,
+      };
+    case "upToDate":
+      return {
+        title: `${branchLabel} is in sync`,
+        detail: `${branchLabel} と ${upstreamLabel} は同じ commit を指しています。`,
+      };
+    case "behind":
+      return {
+        title: `${upstreamLabel} is ahead`,
+        detail: workingTreeDirty
+          ? `${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。Pull の前に commit / stash してください。`
+          : `${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。${branchLabel} を同じ状態にしたい場合は Pull を押してください。`,
+      };
+    case "ahead":
+      return {
+        title: `${branchLabel} is ahead`,
+        detail: `${branchLabel} が ${formatCommitLabel(pullStatus.aheadCount)} ahead です。pull は不要です。必要なら Push を使ってください。`,
+      };
+    case "diverged":
+      return {
+        title: "History has diverged",
+        detail: `${branchLabel} が ${formatCommitLabel(pullStatus.aheadCount)} ahead、${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。fast-forward pull はできません。`,
+      };
+  }
 }
 
 export function GitOperationPanel({
   status,
   stashes,
+  pullStatus = null,
   commitTitle,
   commitDescription,
   busy,
@@ -71,12 +131,16 @@ export function GitOperationPanel({
   onGenerateCommitMessage,
   onCommit,
   onPush,
-  headerAccessory
+  onPull,
+  headerAccessory,
 }: GitOperationPanelProps): JSX.Element {
   const rootRef = useRef<HTMLElement | null>(null);
   const [draggedFile, setDraggedFile] = useState<WorkingTreeDragPayload | null>(null);
   const [dropZone, setDropZone] = useState<WorkingTreeDropZone | null>(null);
-  const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const containerWidth = useContainerWidth(rootRef);
   const draggedFileRef = useRef<WorkingTreeDragPayload | null>(null);
   const dropZoneRef = useRef<WorkingTreeDropZone | null>(null);
@@ -89,18 +153,21 @@ export function GitOperationPanel({
 
   const unstaged = status?.unstaged ?? [];
   const staged = status?.staged ?? [];
+  const workingTreeDirty = unstaged.length + staged.length > 0;
   const canGenerateCommitMessage = getCommitMessageFiles(status).length > 0;
   const showGenerateCommitMessageButton = generatingCommitMessage || canGenerateCommitMessage;
-  const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, ' ');
+  const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, " ");
   const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
   const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
-  const generateCommitMessageTitle = generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成';
+  const generateCommitMessageTitle = generatingCommitMessage
+    ? "AIでコミット文を生成中"
+    : "AIでタイトル生成";
   const generateCommitMessageButtonClassName = [
-    'git-operation-panel__title-action',
-    generatingCommitMessage ? 'git-operation-panel__title-action--generating' : null
+    "git-operation-panel__title-action",
+    generatingCommitMessage ? "git-operation-panel__title-action--generating" : null,
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(" ");
 
   const updateDraggedFile = (value: WorkingTreeDragPayload | null): void => {
     draggedFileRef.current = value;
@@ -125,19 +192,47 @@ export function GitOperationPanel({
     }
   }, [busy]);
 
+  useEffect(() => {
+    const rootNode = rootRef.current;
+    if (!rootNode) {
+      return;
+    }
+
+    const updateHeight = (): void => {
+      setContainerHeight(rootNode.clientHeight);
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateHeight);
+      return () => {
+        window.removeEventListener("resize", updateHeight);
+      };
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+    });
+    observer.observe(rootNode);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     clearDragState();
   }, [status, stashes]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') {
+    if (typeof document === "undefined") {
       return;
     }
 
-    document.body.classList.toggle('is-working-tree-dragging', Boolean(draggedFile));
+    document.body.classList.toggle("is-working-tree-dragging", Boolean(draggedFile));
     return () => {
-      document.body.classList.remove('is-working-tree-dragging');
+      document.body.classList.remove("is-working-tree-dragging");
     };
   }, [draggedFile]);
 
@@ -162,11 +257,12 @@ export function GitOperationPanel({
 
       setDragPreviewPosition({
         x: event.clientX,
-        y: event.clientY
+        y: event.clientY,
       });
 
       const element = document.elementFromPoint(event.clientX, event.clientY);
-      const rawTarget = element?.closest<HTMLElement>('[data-working-tree-drop-zone]')?.dataset.workingTreeDropZone;
+      const rawTarget = element?.closest<HTMLElement>("[data-working-tree-drop-zone]")?.dataset
+        .workingTreeDropZone;
       const target = isWorkingTreeDropZone(rawTarget) ? rawTarget : null;
 
       if (
@@ -174,7 +270,7 @@ export function GitOperationPanel({
         canDropWorkingTreeFile({
           busy,
           payload: dragPointer.payload,
-          target
+          target,
         })
       ) {
         updateDropZone(target);
@@ -201,12 +297,12 @@ export function GitOperationPanel({
         canDropWorkingTreeFile({
           busy,
           payload: dragPointer.payload,
-          target
+          target,
         })
       ) {
-        if (target === 'staged') {
+        if (target === "staged") {
           onStageFile(dragPointer.payload.file);
-        } else if (target === 'unstaged') {
+        } else if (target === "unstaged") {
           onUnstageFile(dragPointer.payload.file);
         } else {
           onStashFile(dragPointer.payload.file);
@@ -216,20 +312,20 @@ export function GitOperationPanel({
       clearDragState();
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [busy, onStageFile, onStashFile, onUnstageFile]);
 
   const handleFilePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
-    payload: WorkingTreeDragPayload
+    payload: WorkingTreeDragPayload,
   ): void => {
     if (busy || event.button !== 0) {
       return;
@@ -247,7 +343,7 @@ export function GitOperationPanel({
       payload,
       pointerId: event.pointerId,
       startX: event.clientX,
-      startY: event.clientY
+      startY: event.clientY,
     };
   };
 
@@ -269,8 +365,12 @@ export function GitOperationPanel({
           <span className="working-tree-drop-split__arrow">→</span>
         </div>
         <div className="working-tree-drop-split__pane working-tree-drop-split__pane--target">
-          <div className="working-tree-drop-split__eyebrow">{getWorkingTreeDropActionLabel(target)}</div>
-          <div className="working-tree-drop-split__title">{getWorkingTreeDropZoneLabel(target)}</div>
+          <div className="working-tree-drop-split__eyebrow">
+            {getWorkingTreeDropActionLabel(target)}
+          </div>
+          <div className="working-tree-drop-split__title">
+            {getWorkingTreeDropZoneLabel(target)}
+          </div>
         </div>
       </div>
     );
@@ -279,23 +379,25 @@ export function GitOperationPanel({
   const renderWorkingFileRow = (
     item: WorkingFile,
     source: WorkingTreeDragSource,
-    actionLabel: 'Stage' | 'Unstage',
-    onAction: (file: string) => void
+    actionLabel: "Stage" | "Unstage",
+    onAction: (file: string) => void,
   ): JSX.Element => {
     const isDragSource = draggedFile?.file === item.file && draggedFile.source === source;
-    const dragTitle = source === 'unstaged' ? 'Drag to stage or stash' : 'Drag to unstage or stash';
-    const area: WorkingTreeDiffArea = source === 'unstaged' ? 'unstaged' : 'staged';
-    const isActive = activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
+    const dragTitle = source === "unstaged" ? "Drag to stage or stash" : "Drag to unstage or stash";
+    const area: WorkingTreeDiffArea = source === "unstaged" ? "unstaged" : "staged";
+    const isActive =
+      activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
     const statusPresentation = getWorkingFileStatusPresentation(item);
 
     return (
+      /* oxlint-disable jsx-a11y/prefer-tag-over-role -- div used for drag-and-drop behavior */
       <div
         key={`${source}-${item.file}`}
         role="button"
         tabIndex={0}
         className={`git-operation-panel__file-row commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${
-          isDragSource ? 'is-drag-source' : ''
-        } ${isActive ? 'is-active text-white' : ''}`}
+          isDragSource ? "is-drag-source" : ""
+        } ${isActive ? "is-active text-white" : ""}`}
         onPointerDown={(event) => handleFilePointerDown(event, { file: item.file, source })}
         onClick={() => onOpenWorkingTreeDiff(item.file, area)}
         onKeyDown={(event) => {
@@ -303,7 +405,7 @@ export function GitOperationPanel({
             return;
           }
 
-          if (event.key === 'Enter' || event.key === ' ') {
+          if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             onOpenWorkingTreeDiff(item.file, area);
           }
@@ -318,7 +420,9 @@ export function GitOperationPanel({
           >
             {statusPresentation.icon}
           </span>
-          <div className={`git-operation-panel__file-name commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? 'text-white' : ''}`}>
+          <div
+            className={`git-operation-panel__file-name commit-detail-panel__file-name min-w-0 flex-1 text-xs font-medium ${isActive ? "text-white" : ""}`}
+          >
             <GitFilePathLabel path={item.file} />
           </div>
         </div>
@@ -337,35 +441,44 @@ export function GitOperationPanel({
           </button>
         </div>
       </div>
+      /* oxlint-enable jsx-a11y/prefer-tag-over-role */
     );
   };
 
   const unstagedDropCandidate = draggedFile
-    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: 'unstaged' })
+    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "unstaged" })
     : false;
   const stagedDropCandidate = draggedFile
-    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: 'staged' })
+    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "staged" })
     : false;
-  const stashDropCandidate = draggedFile
-    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: 'stash' })
-    : false;
+  const columnCount = resolveGitOperationPanelColumnCount(containerWidth);
+  const isMediumLayout = columnCount === 3;
+  const showStashBucket = !isMediumLayout;
+  const stashDropCandidate =
+    showStashBucket && draggedFile
+      ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "stash" })
+      : false;
 
   const dragHint = draggedFile
     ? dropZone
       ? `${draggedFile.file} を ${getWorkingTreeDropActionLabel(dropZone)} へドロップ`
-      : draggedFile.source === 'unstaged'
-        ? 'Staged Files または Stash Area にドロップ'
-        : 'Unstaged Files または Stash Area にドロップ'
+      : draggedFile.source === "unstaged"
+        ? showStashBucket
+          ? "Staged Files または Stash Area にドロップ"
+          : "Staged Files にドロップ"
+        : showStashBucket
+          ? "Unstaged Files または Stash Area にドロップ"
+          : "Unstaged Files にドロップ"
     : null;
 
   const dragPreviewPortal =
-    draggedFile && dragPreviewPosition && typeof document !== 'undefined'
+    draggedFile && dragPreviewPosition && typeof document !== "undefined"
       ? createPortal(
           <div
             className="working-tree-drag-preview"
             style={{
               left: `${dragPreviewPosition.x + 18}px`,
-              top: `${dragPreviewPosition.y + 18}px`
+              top: `${dragPreviewPosition.y + 18}px`,
             }}
           >
             <div className="working-tree-drag-preview__title">
@@ -374,179 +487,311 @@ export function GitOperationPanel({
             </div>
             <div className="working-tree-drag-preview__hint">{dragHint}</div>
           </div>,
-          document.body
+          document.body,
         )
       : null;
-  const columnCount = resolveGitOperationPanelColumnCount(containerWidth);
   const bucketGridClass =
     columnCount === 4
-      ? 'git-operation-panel__grid--4'
-      : columnCount === 2
-        ? 'git-operation-panel__grid--2'
-        : 'git-operation-panel__grid--1';
-  const stackedBucketClass = columnCount > 1 ? 'git-operation-panel__stacked-buckets--split' : '';
-  const commitColumnClass =
-    columnCount === 4
-      ? 'git-operation-panel__commit-column--span-2'
-      : columnCount === 2
-        ? 'git-operation-panel__commit-column--full'
-        : '';
+      ? "git-operation-panel__grid--4"
+      : columnCount === 3
+        ? "git-operation-panel__grid--3"
+        : "git-operation-panel__grid--1";
+  const shouldFitGridHeight = columnCount > 1;
+  const isCompactMediumLayout =
+    isMediumLayout &&
+    containerHeight > 0 &&
+    containerHeight <= GIT_OPERATION_PANEL_COMPACT_HEIGHT_THRESHOLD;
+  const bucketGridHeightClass = shouldFitGridHeight ? "git-operation-panel__grid--fit-height" : "";
+  const stackedBucketClass = columnCount === 4 ? "git-operation-panel__stacked-buckets--split" : "";
+  const commitColumnClass = columnCount === 4 ? "git-operation-panel__commit-column--span-2" : "";
+  const unstagedDropZoneMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
+  const stagedDropZoneMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
+  const stashDropZoneMinHeightClass = "min-h-[148px]";
+  const commitCardMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
+  const commitCardDensityClass = isCompactMediumLayout
+    ? "git-operation-panel__commit-card--compact"
+    : isMediumLayout
+      ? "git-operation-panel__commit-card--medium"
+      : "";
+  const commitDescriptionClass = isCompactMediumLayout
+    ? "git-operation-panel__description-input--compact"
+    : "";
+  const pullRelationshipLabel = pullStatus?.upstreamName
+    ? `${pullStatus.branchName ?? "HEAD"} ↔ ${pullStatus.upstreamName}`
+    : (pullStatus?.branchName ?? "HEAD");
+  const pullStatusCopy = pullStatus ? getPullStatusCopy(pullStatus, workingTreeDirty) : null;
+  const pullButtonDisabled =
+    busy || workingTreeDirty || !pullStatus?.canPull || typeof onPull !== "function";
+  const showCompactPullAction = isCompactMediumLayout && Boolean(pullStatus && pullStatusCopy);
+  const commitActionsClass = showCompactPullAction
+    ? "git-operation-panel__commit-actions--three"
+    : "git-operation-panel__commit-actions--two";
+
+  const renderUnstagedBucket = (): JSX.Element => (
+    <div className="flex min-h-0 min-w-0 flex-col">
+      <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
+        <span>Unstaged Files ({unstaged.length})</span>
+        {unstaged.length > 0 ? (
+          <button
+            className="button button-secondary px-2! py-1! text-[11px]"
+            type="button"
+            disabled={busy}
+            onClick={onStageAll}
+          >
+            Stage all
+          </button>
+        ) : null}
+      </div>
+      <div
+        data-working-tree-drop-zone="unstaged"
+        className={`drop-zone ${unstagedDropZoneMinHeightClass} flex-1 overflow-auto ${unstagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "unstaged" ? "is-drop-target" : ""}`}
+      >
+        {dropZone === "unstaged" ? (
+          renderDropPreview("unstaged")
+        ) : unstaged.length === 0 ? (
+          <div className="text-xs text-ink-subtle">未ステージの変更はありません。</div>
+        ) : (
+          unstaged.map((item) => renderWorkingFileRow(item, "unstaged", "Stage", onStageFile))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderStagedBucket = (): JSX.Element => (
+    <div className="flex min-h-0 min-w-0 flex-col">
+      <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
+        <span>Staged Files ({staged.length})</span>
+        {staged.length > 0 ? (
+          <button
+            className="button button-secondary px-2! py-1! text-[11px]"
+            type="button"
+            disabled={busy}
+            onClick={onUnstageAll}
+          >
+            Unstage all
+          </button>
+        ) : null}
+      </div>
+      <div
+        data-working-tree-drop-zone="staged"
+        className={`drop-zone ${stagedDropZoneMinHeightClass} flex-1 overflow-auto ${stagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "staged" ? "is-drop-target" : ""}`}
+      >
+        {dropZone === "staged" ? (
+          renderDropPreview("staged")
+        ) : staged.length === 0 ? (
+          <div className="text-xs text-ink-subtle">ステージされたファイルはありません。</div>
+        ) : (
+          staged.map((item) => renderWorkingFileRow(item, "staged", "Unstage", onUnstageFile))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderStackedBuckets = (): JSX.Element => (
+    <div className={`git-operation-panel__stacked-buckets min-h-0 min-w-0 ${stackedBucketClass}`}>
+      <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged min-h-0 min-w-0">
+        {renderStagedBucket()}
+      </div>
+      {showStashBucket ? renderStashBucket() : null}
+    </div>
+  );
+
+  const renderStashBucket = (): JSX.Element => (
+    <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex min-h-0 min-w-0 flex-col">
+      <div className="mb-1 px-1 text-xs text-ink-subtle">Stash Area</div>
+      <div
+        data-working-tree-drop-zone="stash"
+        className={`drop-zone ${stashDropZoneMinHeightClass} flex flex-1 flex-col ${stashDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "stash" ? "is-drop-target" : ""}`}
+      >
+        {dropZone === "stash" ? (
+          renderDropPreview("stash")
+        ) : (
+          <div className="flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
+            <UploadCloud size={16} />
+            ファイルをここにドロップしてスタッシュ
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderCommitColumn = (): JSX.Element => (
+    <div
+      className={`git-operation-panel__commit-column flex min-h-0 min-w-0 flex-col ${commitColumnClass}`.trim()}
+    >
+      <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center px-1 text-xs text-ink-subtle">
+        <span>Commit</span>
+      </div>
+      <div
+        className={`git-operation-panel__commit-card ${commitCardDensityClass} flex ${commitCardMinHeightClass} flex-1 flex-col gap-2 rounded-2xl border border-black/10 bg-white/65 p-3`.trim()}
+      >
+        <div className="git-operation-panel__commit-body">
+          <div className="git-operation-panel__title-row">
+            <textarea
+              className={`git-operation-panel__title-input input block ${commitTitleOverflowCount > 0 ? "is-over-limit" : ""}`}
+              placeholder="Commit summary"
+              value={commitTitle}
+              rows={1}
+              wrap="off"
+              spellCheck={false}
+              aria-invalid={commitTitleOverflowCount > 0}
+              onChange={(event) => onCommitTitleChange(event.target.value.replace(/\r?\n/g, " "))}
+            />
+            {showGenerateCommitMessageButton ? (
+              <button
+                type="button"
+                className={generateCommitMessageButtonClassName}
+                onClick={onGenerateCommitMessage}
+                disabled={busy || generatingCommitMessage}
+                title={generateCommitMessageTitle}
+                aria-label={generatingCommitMessage ? "AIでコミット文を生成中" : "AIでタイトル生成"}
+              >
+                {generatingCommitMessage ? (
+                  <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Sparkles size={16} aria-hidden="true" />
+                )}
+              </button>
+            ) : null}
+          </div>
+          <div
+            className={`git-operation-panel__commit-meta ${commitTitleOverflowCount > 0 ? "is-over-limit" : ""}`}
+          >
+            <span>
+              {commitTitleLength} / {COMMIT_TITLE_SOFT_LIMIT}
+            </span>
+            {commitTitleOverflowCount > 0 ? (
+              <span>{commitTitleOverflowCount} chars over</span>
+            ) : null}
+          </div>
+          <textarea
+            className={`input min-h-20 flex-1 resize-y ${commitDescriptionClass}`.trim()}
+            placeholder="Description"
+            value={commitDescription}
+            onChange={(event) => onCommitDescriptionChange(event.target.value)}
+          />
+          {pullStatus && pullStatusCopy ? (
+            isCompactMediumLayout ? (
+              <section className="git-operation-panel__pull-status-compact rounded-2xl border border-black/10 bg-[#f6f5ef] px-2.5 py-2 text-left">
+                <div className="truncate text-[11px] font-semibold text-ink">
+                  {pullRelationshipLabel}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-ink-subtle">
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
+                    ahead {pullStatus.aheadCount}
+                  </span>
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
+                    behind {pullStatus.behindCount}
+                  </span>
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
+                    {pullStatusCopy.title}
+                  </span>
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-black/10 bg-[#f6f5ef] px-3 py-3 text-left">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-subtle">
+                      Pull Status
+                    </div>
+                    <div className="mt-1 truncate text-sm font-semibold text-ink">
+                      {pullRelationshipLabel}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button-secondary shrink-0 px-3! py-1.5!"
+                    disabled={pullButtonDisabled}
+                    onClick={() => onPull?.()}
+                  >
+                    Pull
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-ink-subtle">
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
+                    ahead {pullStatus.aheadCount}
+                  </span>
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
+                    behind {pullStatus.behindCount}
+                  </span>
+                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
+                    {pullStatusCopy.title}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-ink-subtle">{pullStatusCopy.detail}</p>
+              </section>
+            )
+          ) : null}
+        </div>
+        <div className={`git-operation-panel__commit-actions ${commitActionsClass}`.trim()}>
+          {showCompactPullAction ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={pullButtonDisabled}
+              onClick={() => onPull?.()}
+            >
+              Pull
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="button button-primary"
+            disabled={busy || staged.length === 0 || !commitTitle.trim()}
+            onClick={onCommit}
+          >
+            Commit
+          </button>
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={busy}
+            onClick={onPush}
+          >
+            Push
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <>
       <section
         ref={rootRef}
-        className={`panel git-operation-panel flex h-full min-h-0 flex-col p-3 ${draggedFile ? 'is-dragging' : ''}`}
+        className={`panel git-operation-panel flex h-full min-h-0 flex-col p-3 ${draggedFile ? "is-dragging" : ""}`}
       >
         <div className="mb-2 flex items-center justify-between gap-2 px-2">
           <div className="section-title">Git Operations</div>
           {headerAccessory}
         </div>
 
-        {dragHint ? <div className={`git-operation-panel__hint px-2 ${draggedFile ? 'is-active' : ''}`}>{dragHint}</div> : null}
+        {dragHint ? (
+          <div className={`git-operation-panel__hint px-2 ${draggedFile ? "is-active" : ""}`}>
+            {dragHint}
+          </div>
+        ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2" data-controller-panel-drag-ignore="true">
-          <div className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass}`}>
-            <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
-                <span>Unstaged Files ({unstaged.length})</span>
-                {unstaged.length > 0 ? (
-                  <button
-                    className="button button-secondary px-2! py-1! text-[11px]"
-                    type="button"
-                    disabled={busy}
-                    onClick={onStageAll}
-                  >
-                    Stage all
-                  </button>
-                ) : null}
-              </div>
-              <div
-                data-working-tree-drop-zone="unstaged"
-                className={`drop-zone min-h-[148px] flex-1 overflow-auto ${unstagedDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'unstaged' ? 'is-drop-target' : ''}`}
-              >
-                {dropZone === 'unstaged' ? (
-                  renderDropPreview('unstaged')
-                ) : unstaged.length === 0 ? (
-                  <div className="text-xs text-ink-subtle">未ステージの変更はありません。</div>
-                ) : (
-                  unstaged.map((item) => renderWorkingFileRow(item, 'unstaged', 'Stage', onStageFile))
-                )}
-              </div>
-            </div>
-
-            <div className={`git-operation-panel__stacked-buckets min-h-0 min-w-0 ${stackedBucketClass}`}>
-              <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged flex min-h-0 min-w-0 flex-col">
-                <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
-                  <span>Staged Files ({staged.length})</span>
-                  {staged.length > 0 ? (
-                    <button
-                      className="button button-secondary px-2! py-1! text-[11px]"
-                      type="button"
-                      disabled={busy}
-                      onClick={onUnstageAll}
-                    >
-                      Unstage all
-                    </button>
-                  ) : null}
-                </div>
-                <div
-                  data-working-tree-drop-zone="staged"
-                  className={`drop-zone min-h-[148px] flex-1 overflow-auto ${stagedDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'staged' ? 'is-drop-target' : ''}`}
-                >
-                  {dropZone === 'staged' ? (
-                    renderDropPreview('staged')
-                  ) : staged.length === 0 ? (
-                    <div className="text-xs text-ink-subtle">ステージされたファイルはありません。</div>
-                  ) : (
-                    staged.map((item) => renderWorkingFileRow(item, 'staged', 'Unstage', onUnstageFile))
-                  )}
-                </div>
-              </div>
-
-              <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex min-h-0 min-w-0 flex-col">
-                <div className="mb-1 px-1 text-xs text-ink-subtle">Stash Area</div>
-                <div
-                  data-working-tree-drop-zone="stash"
-                  className={`drop-zone flex min-h-[148px] flex-1 flex-col ${stashDropCandidate ? 'is-drop-candidate' : ''} ${dropZone === 'stash' ? 'is-drop-target' : ''}`}
-                >
-                  {dropZone === 'stash' ? (
-                    renderDropPreview('stash')
-                  ) : (
-                    <div className="flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
-                      <UploadCloud size={16} />
-                      ファイルをここにドロップしてスタッシュ
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className={`git-operation-panel__commit-column flex min-h-0 min-w-0 flex-col ${commitColumnClass}`}>
-              <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center px-1 text-xs text-ink-subtle">
-                <span>Commit</span>
-              </div>
-              <div className="flex min-h-[148px] flex-1 flex-col gap-2 rounded-2xl border border-black/10 bg-white/65 p-3">
-                <div className="git-operation-panel__title-row">
-                  <textarea
-                    className={`git-operation-panel__title-input input block ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
-                    placeholder="Commit summary"
-                    value={commitTitle}
-                    rows={1}
-                    wrap="off"
-                    spellCheck={false}
-                    aria-invalid={commitTitleOverflowCount > 0}
-                    onChange={(event) => onCommitTitleChange(event.target.value.replace(/\r?\n/g, ' '))}
-                  />
-                  {showGenerateCommitMessageButton ? (
-                    <button
-                      type="button"
-                      className={generateCommitMessageButtonClassName}
-                      onClick={onGenerateCommitMessage}
-                      disabled={busy || generatingCommitMessage}
-                      title={generateCommitMessageTitle}
-                      aria-label={generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成'}
-                    >
-                      {generatingCommitMessage ? (
-                        <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Sparkles size={16} aria-hidden="true" />
-                      )}
-                    </button>
-                  ) : null}
-                </div>
-                <div className={`git-operation-panel__commit-meta ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}>
-                  <span>
-                    {commitTitleLength} / {COMMIT_TITLE_SOFT_LIMIT}
-                  </span>
-                  {commitTitleOverflowCount > 0 ? <span>{commitTitleOverflowCount} chars over</span> : null}
-                </div>
-                <textarea
-                  className="input min-h-20 flex-1 resize-y"
-                  placeholder="Description"
-                  value={commitDescription}
-                  onChange={(event) => onCommitDescriptionChange(event.target.value)}
-                />
-                <div className="mt-auto grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className="button button-primary"
-                    disabled={busy || staged.length === 0 || !commitTitle.trim()}
-                    onClick={onCommit}
-                  >
-                    Commit
-                  </button>
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    disabled={busy}
-                    onClick={onPush}
-                  >
-                    Push
-                  </button>
-                </div>
-              </div>
-            </div>
+        <div
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2"
+          data-controller-panel-drag-ignore="true"
+        >
+          <div
+            className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass} ${bucketGridHeightClass}`.trim()}
+          >
+            {renderUnstagedBucket()}
+            {isMediumLayout ? (
+              <>
+                {renderStagedBucket()}
+                {renderCommitColumn()}
+              </>
+            ) : (
+              <>
+                {renderStackedBuckets()}
+                {renderCommitColumn()}
+              </>
+            )}
           </div>
         </div>
       </section>

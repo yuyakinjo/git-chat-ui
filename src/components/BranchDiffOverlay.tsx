@@ -1,10 +1,10 @@
-import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
-import { api } from '../lib/api';
-import type { BranchDiffDetail, BranchDiffFileDetail } from '../types';
-import { CopyableShaButton } from './CopyableShaButton';
-import { SplitDiffViewer } from './SplitDiffViewer';
+import { api } from "../lib/api";
+import type { BranchDiffDetail, BranchDiffFileDetail } from "../types";
+import { CopyableShaButton } from "./CopyableShaButton";
+import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface BranchDiffOverlayProps {
   repoPath: string;
@@ -23,17 +23,20 @@ export function BranchDiffOverlay({
   baseBranchName,
   targetBranchName,
   onClose,
-  onNotify
+  onNotify,
 }: BranchDiffOverlayProps): JSX.Element {
-  const baseLabel = baseBranchName ?? detail?.baseRef ?? 'default';
-  const targetLabel = targetBranchName ?? detail?.targetRef ?? 'current';
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(detail?.files[0]?.file ?? null);
+  const baseLabel = baseBranchName ?? detail?.baseRef ?? "default";
+  const targetLabel = targetBranchName ?? detail?.targetRef ?? "current";
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(
+    detail?.files[0]?.file ?? null,
+  );
   const [activeFileHasInlineDiff, setActiveFileHasInlineDiff] = useState<boolean | null>(null);
   const [fileDiffCache, setFileDiffCache] = useState<Record<string, BranchDiffFileDetail>>({});
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const branchDiffFileRequestKeyRef = useRef<string | null>(null);
 
+  /* oxlint-disable react-hooks/exhaustive-deps -- reset state only when branch refs change, not when files array reference changes */
   useEffect(() => {
     setActiveFilePath(detail?.files[0]?.file ?? null);
     setActiveFileHasInlineDiff(null);
@@ -42,29 +45,40 @@ export function BranchDiffOverlay({
     setFileErrors({});
     branchDiffFileRequestKeyRef.current = null;
   }, [detail?.baseRef, detail?.targetRef, detail?.mergeBaseSha]);
+  /* oxlint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
 
-  const activeFileDiff = activeFilePath ? fileDiffCache[activeFilePath] ?? null : null;
-  const activeFileError = activeFilePath ? fileErrors[activeFilePath] ?? null : null;
-  const branchDiffViewerDiff = activeFileDiff?.diff ?? detail?.diff ?? '';
-  const branchDiffViewerTruncated = activeFileDiff?.isDiffTruncated ?? detail?.isDiffTruncated ?? false;
+  const activeFileDiff = activeFilePath ? (fileDiffCache[activeFilePath] ?? null) : null;
+  const activeFileError = activeFilePath ? (fileErrors[activeFilePath] ?? null) : null;
+  const branchDiffViewerDiff = activeFileDiff?.diff ?? detail?.diff ?? "";
+  const branchDiffViewerTruncated =
+    activeFileDiff?.isDiffTruncated ?? detail?.isDiffTruncated ?? false;
   const showActiveFileLoading =
-    Boolean(activeFilePath) && activeFileHasInlineDiff === false && !activeFileDiff && !activeFileError;
+    Boolean(activeFilePath) &&
+    activeFileHasInlineDiff === false &&
+    !activeFileDiff &&
+    !activeFileError;
 
   useEffect(() => {
-    if (!detail || !activeFilePath || activeFileHasInlineDiff !== false || activeFileDiff || activeFileError) {
+    if (
+      !detail ||
+      !activeFilePath ||
+      activeFileHasInlineDiff !== false ||
+      activeFileDiff ||
+      activeFileError
+    ) {
       return;
     }
 
@@ -74,14 +88,19 @@ export function BranchDiffOverlay({
 
     void (async () => {
       try {
-        const nextDetail = await api.getBranchDiffFileDetail(repoPath, detail.baseRef, detail.targetRef, activeFilePath);
+        const nextDetail = await api.getBranchDiffFileDetail(
+          repoPath,
+          detail.baseRef,
+          detail.targetRef,
+          activeFilePath,
+        );
         if (branchDiffFileRequestKeyRef.current !== requestKey) {
           return;
         }
 
         setFileDiffCache((current) => ({
           ...current,
-          [activeFilePath]: nextDetail
+          [activeFilePath]: nextDetail,
         }));
         setFileErrors((current) => {
           if (!(activeFilePath in current)) {
@@ -99,7 +118,7 @@ export function BranchDiffOverlay({
 
         setFileErrors((current) => ({
           ...current,
-          [activeFilePath]: '差分の取得に失敗しました。'
+          [activeFilePath]: "差分の取得に失敗しました。",
         }));
       } finally {
         if (branchDiffFileRequestKeyRef.current === requestKey) {
@@ -109,10 +128,13 @@ export function BranchDiffOverlay({
     })();
   }, [activeFileDiff, activeFileError, activeFileHasInlineDiff, activeFilePath, detail, repoPath]);
 
-  const handleActiveFileChange = useCallback((filePath: string | null, hasInlineDiff: boolean): void => {
-    setActiveFilePath(filePath);
-    setActiveFileHasInlineDiff(hasInlineDiff);
-  }, []);
+  const handleActiveFileChange = useCallback(
+    (filePath: string | null, hasInlineDiff: boolean): void => {
+      setActiveFilePath(filePath);
+      setActiveFileHasInlineDiff(hasInlineDiff);
+    },
+    [],
+  );
 
   return (
     <div
@@ -130,7 +152,13 @@ export function BranchDiffOverlay({
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
               <span className="badge bg-black/5! text-ink-soft!">Default branch diff</span>
-              {detail ? <CopyableShaButton sha={detail.mergeBaseSha} onNotify={onNotify} prefix="Merge base" /> : null}
+              {detail ? (
+                <CopyableShaButton
+                  sha={detail.mergeBaseSha}
+                  onNotify={onNotify}
+                  prefix="Merge base"
+                />
+              ) : null}
               {detail ? <span>{detail.files.length} files</span> : null}
             </div>
           </div>
@@ -146,7 +174,9 @@ export function BranchDiffOverlay({
           </button>
         </div>
 
-        {loading ? <div className="p-4 text-sm text-ink-subtle">ブランチ差分を読み込み中...</div> : null}
+        {loading ? (
+          <div className="p-4 text-sm text-ink-subtle">ブランチ差分を読み込み中...</div>
+        ) : null}
 
         {!loading && !detail ? (
           <div className="p-4 text-sm text-ink-subtle">ブランチ差分を表示できませんでした。</div>
@@ -161,7 +191,10 @@ export function BranchDiffOverlay({
               preferredFilePath={activeFilePath}
               enableFileFilter
               fileFilterPlaceholder="Filter changed files by path"
-              activeFileLoading={showActiveFileLoading || (Boolean(activeFilePath) && loadingFilePath === activeFilePath)}
+              activeFileLoading={
+                showActiveFileLoading ||
+                (Boolean(activeFilePath) && loadingFilePath === activeFilePath)
+              }
               activeFileError={activeFileError}
               activeFileLoadingMessage="差分を読み込み中..."
               onActiveFileChange={handleActiveFileChange}

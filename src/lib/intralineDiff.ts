@@ -17,7 +17,11 @@ function pushSegment(segments: IntralineSegment[], text: string, emphasized: boo
   segments.push({ text, emphasized });
 }
 
-function buildSegments(source: string, prefixLength: number, suffixStart: number): IntralineSegment[] {
+function buildSegments(
+  source: string,
+  prefixLength: number,
+  suffixStart: number,
+): IntralineSegment[] {
   const segments: IntralineSegment[] = [];
 
   pushSegment(segments, source.slice(0, prefixLength), false);
@@ -29,7 +33,7 @@ function buildSegments(source: string, prefixLength: number, suffixStart: number
 
 export function buildIntralineSegments(
   left: string,
-  right: string
+  right: string,
 ): {
   left: IntralineSegment[];
   right: IntralineSegment[];
@@ -37,7 +41,7 @@ export function buildIntralineSegments(
   if (left === right) {
     return {
       left: [{ text: left, emphasized: false }],
-      right: [{ text: right, emphasized: false }]
+      right: [{ text: right, emphasized: false }],
     };
   }
 
@@ -60,6 +64,6 @@ export function buildIntralineSegments(
 
   return {
     left: buildSegments(left, prefixLength, leftSuffixStart),
-    right: buildSegments(right, prefixLength, rightSuffixStart)
+    right: buildSegments(right, prefixLength, rightSuffixStart),
   };
 }

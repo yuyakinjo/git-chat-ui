@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
-import { api } from '../lib/api';
-import { getBranchDeleteDisabledReason, getBranchDeleteTargetName } from '../lib/branchDelete';
-import { resolveCompareRefs } from '../lib/controllerViewUtils';
-import { type UiError } from '../lib/errors';
+import { api } from "../lib/api";
+import { getBranchDeleteDisabledReason, getBranchDeleteTargetName } from "../lib/branchDelete";
+import { resolveCompareRefs } from "../lib/controllerViewUtils";
+import { type UiError } from "../lib/errors";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
-  canMergeBranchWithoutWorkingTreeChange
-} from '../lib/repositoryMutationSafety';
-import type { UseControllerDataResult } from './useControllerData';
-import { type BranchActionDialogStep } from '../components/BranchActionDialog';
-import type { Branch, CommitListItem, StashEntry } from '../types';
+  canMergeBranchWithoutWorkingTreeChange,
+} from "../lib/repositoryMutationSafety";
+import type { UseControllerDataResult } from "./useControllerData";
+import { type BranchActionDialogStep } from "../components/BranchActionDialog";
+import type { Branch, CommitListItem, StashEntry } from "../types";
 
 interface UseControllerBranchOpsParams {
   repoPath: string;
@@ -22,7 +22,9 @@ interface UseControllerBranchOpsParams {
 
 export interface UseControllerBranchOpsResult {
   branchAction: { source: Branch; target: Branch; step: BranchActionDialogStep } | null;
-  setBranchAction: React.Dispatch<React.SetStateAction<{ source: Branch; target: Branch; step: BranchActionDialogStep } | null>>;
+  setBranchAction: React.Dispatch<
+    React.SetStateAction<{ source: Branch; target: Branch; step: BranchActionDialogStep } | null>
+  >;
   branchCreateSource: Branch | null;
   setBranchCreateSource: (source: Branch | null) => void;
   branchDeleteTarget: Branch | null;
@@ -55,7 +57,7 @@ export function useControllerBranchOps({
   onNotify,
   data,
   setSelectedBranchForHover,
-  setPendingScrollCommitSha
+  setPendingScrollCommitSha,
 }: UseControllerBranchOpsParams): UseControllerBranchOpsResult {
   const [branchAction, setBranchAction] = useState<{
     source: Branch;
@@ -68,8 +70,14 @@ export function useControllerBranchOps({
   const [stashRenameTarget, setStashRenameTarget] = useState<StashEntry | null>(null);
 
   const handleCheckoutBranch = async (branch: Branch): Promise<void> => {
-    const canBypassSelfMutationBlock = canCheckoutBranchWithoutWorkingTreeChange(data.currentLocalBranch, branch);
-    if (!canBypassSelfMutationBlock && data.reportBlockedMutation('開発中のアプリ自身の repo は checkout できません')) {
+    const canBypassSelfMutationBlock = canCheckoutBranchWithoutWorkingTreeChange(
+      data.currentLocalBranch,
+      branch,
+    );
+    if (
+      !canBypassSelfMutationBlock &&
+      data.reportBlockedMutation("開発中のアプリ自身の repo は checkout できません")
+    ) {
       return;
     }
 
@@ -83,21 +91,21 @@ export function useControllerBranchOps({
       onNotify(`${branch.name} に切り替えました。`);
       await data.refreshAll(branchRefForLog);
     } catch (error) {
-      data.reportError(error, 'ブランチ切り替えに失敗しました。');
+      data.reportError(error, "ブランチ切り替えに失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
   };
 
   const handleCheckoutCommit = async (commit: CommitListItem): Promise<void> => {
-    if (data.reportBlockedMutation('開発中のアプリ自身の repo は checkout できません')) {
+    if (data.reportBlockedMutation("開発中のアプリ自身の repo は checkout できません")) {
       return;
     }
 
     if (
-      typeof window !== 'undefined' &&
+      typeof window !== "undefined" &&
       !window.confirm(
-        `このコミット ${commit.sha.slice(0, 7)} に checkout しますか？\n\nDetached HEAD になります。開いている作業内容によっては画面が再読み込みされたり不安定になる場合があります。`
+        `このコミット ${commit.sha.slice(0, 7)} に checkout しますか？\n\nDetached HEAD になります。開いている作業内容によっては画面が再読み込みされたり不安定になる場合があります。`,
       )
     ) {
       return;
@@ -110,13 +118,13 @@ export function useControllerBranchOps({
       setPendingScrollCommitSha(null);
       data.setShowBranchDiff(false);
       data.setActiveCompareRefs([]);
-      data.setActiveLogRef('HEAD');
+      data.setActiveLogRef("HEAD");
       await api.checkout(repoPath, commit.sha);
       data.setInlineError(null);
       onNotify(`${commit.sha.slice(0, 7)} にチェックアウトしました。`);
-      await data.refreshAll('HEAD');
+      await data.refreshAll("HEAD");
     } catch (error) {
-      data.reportError(error, 'コミットチェックアウトに失敗しました。');
+      data.reportError(error, "コミットチェックアウトに失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
@@ -133,12 +141,14 @@ export function useControllerBranchOps({
       offset: 0,
       ref: branchRefForLog,
       compareRefs,
-      focusCommitSha: branch.commit
+      focusCommitSha: branch.commit,
     });
   };
 
   const handleCheckoutBranchRef = (refName: string): void => {
-    const target = [...(data.branches?.local ?? []), ...(data.branches?.remote ?? [])].find((branch) => branch.name === refName);
+    const target = [...(data.branches?.local ?? []), ...(data.branches?.remote ?? [])].find(
+      (branch) => branch.name === refName,
+    );
     if (!target) {
       onNotify(`${refName} を checkout できませんでした。`);
       return;
@@ -161,7 +171,7 @@ export function useControllerBranchOps({
     setBranchAction({
       source: sourceBranch,
       target: targetBranch,
-      step: 'select-action'
+      step: "select-action",
     });
   };
 
@@ -169,8 +179,8 @@ export function useControllerBranchOps({
     const disabledReason = getBranchDeleteDisabledReason(branch, data.branches?.current ?? null);
     if (disabledReason) {
       const nextError: UiError = {
-        title: 'このブランチは削除できません',
-        detail: disabledReason
+        title: "このブランチは削除できません",
+        detail: disabledReason,
       };
       data.setInlineError(nextError);
       onNotify(nextError.title);
@@ -187,7 +197,7 @@ export function useControllerBranchOps({
   };
 
   const handleRequestCreateBranch = (branch: Branch): void => {
-    if (branch.type !== 'local') {
+    if (branch.type !== "local") {
       return;
     }
 
@@ -232,7 +242,7 @@ export function useControllerBranchOps({
       onNotify(`${newBranchName} を ${currentSource.name} から作成しました。`);
       await data.reloadAfterBranchMutation(newBranchName);
     } catch (error) {
-      data.reportError(error, 'ブランチ作成に失敗しました。');
+      data.reportError(error, "ブランチ作成に失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
@@ -246,9 +256,12 @@ export function useControllerBranchOps({
 
     const canBypassSelfMutationBlock = canMergeBranchWithoutWorkingTreeChange(
       data.currentBranchName,
-      currentAction.target
+      currentAction.target,
     );
-    if (!canBypassSelfMutationBlock && data.reportBlockedMutation('開発中のアプリ自身の repo は merge できません')) {
+    if (
+      !canBypassSelfMutationBlock &&
+      data.reportBlockedMutation("開発中のアプリ自身の repo は merge できません")
+    ) {
       return;
     }
 
@@ -262,13 +275,13 @@ export function useControllerBranchOps({
       onNotify(`${currentAction.source.name} を ${currentAction.target.name} に merge しました。`);
     } catch (error) {
       primaryError = true;
-      data.reportError(error, 'ブランチマージに失敗しました。');
+      data.reportError(error, "ブランチマージに失敗しました。");
     } finally {
       try {
         await data.reloadAfterBranchMutation(currentAction.target.name);
       } catch (refreshError) {
         if (!primaryError) {
-          data.reportError(refreshError, '画面の更新に失敗しました。');
+          data.reportError(refreshError, "画面の更新に失敗しました。");
         }
       } finally {
         data.setOperationBusy(false);
@@ -281,13 +294,16 @@ export function useControllerBranchOps({
     if (!currentTarget) {
       return;
     }
-    const shouldForceDelete = currentTarget.type === 'local' && branchDeleteForce;
+    const shouldForceDelete = currentTarget.type === "local" && branchDeleteForce;
 
-    const disabledReason = getBranchDeleteDisabledReason(currentTarget, data.branches?.current ?? null);
+    const disabledReason = getBranchDeleteDisabledReason(
+      currentTarget,
+      data.branches?.current ?? null,
+    );
     if (disabledReason) {
       const nextError: UiError = {
-        title: 'このブランチは削除できません',
-        detail: disabledReason
+        title: "このブランチは削除できません",
+        detail: disabledReason,
       };
       setBranchDeleteTarget(null);
       setBranchDeleteForce(false);
@@ -313,7 +329,7 @@ export function useControllerBranchOps({
     } catch (error) {
       setBranchDeleteTarget(null);
       setBranchDeleteForce(false);
-      data.reportError(error, 'ブランチ削除に失敗しました。');
+      data.reportError(error, "ブランチ削除に失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
@@ -334,18 +350,18 @@ export function useControllerBranchOps({
       onNotify(`${currentTarget.id} の stash message を更新しました。`);
       await data.loadWorkingState();
     } catch (error) {
-      data.reportError(error, 'stash の rename に失敗しました。');
+      data.reportError(error, "stash の rename に失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
   };
 
-  const handleApplyOrPopStash = async (stash: StashEntry, mode: 'apply' | 'pop'): Promise<void> => {
-    if (mode === 'apply') {
-      if (data.reportBlockedMutation('開発中のアプリ自身の repo は stash を apply できません')) {
+  const handleApplyOrPopStash = async (stash: StashEntry, mode: "apply" | "pop"): Promise<void> => {
+    if (mode === "apply") {
+      if (data.reportBlockedMutation("開発中のアプリ自身の repo は stash を apply できません")) {
         return;
       }
-    } else if (data.reportBlockedMutation('開発中のアプリ自身の repo は stash を pop できません')) {
+    } else if (data.reportBlockedMutation("開発中のアプリ自身の repo は stash を pop できません")) {
       return;
     }
 
@@ -353,7 +369,7 @@ export function useControllerBranchOps({
     let primaryError = false;
 
     try {
-      if (mode === 'apply') {
+      if (mode === "apply") {
         await api.applyStash(repoPath, stash.id);
         onNotify(`${stash.id} を apply しました。`);
       } else {
@@ -364,13 +380,16 @@ export function useControllerBranchOps({
       data.setInlineError(null);
     } catch (error) {
       primaryError = true;
-      data.reportError(error, mode === 'apply' ? 'stash の apply に失敗しました。' : 'stash の pop に失敗しました。');
+      data.reportError(
+        error,
+        mode === "apply" ? "stash の apply に失敗しました。" : "stash の pop に失敗しました。",
+      );
     } finally {
       try {
         await data.refreshAll();
       } catch (refreshError) {
         if (!primaryError) {
-          data.reportError(refreshError, '画面の更新に失敗しました。');
+          data.reportError(refreshError, "画面の更新に失敗しました。");
         }
       } finally {
         data.setOperationBusy(false);
@@ -379,11 +398,11 @@ export function useControllerBranchOps({
   };
 
   const handleApplyStash = async (stash: StashEntry): Promise<void> => {
-    await handleApplyOrPopStash(stash, 'apply');
+    await handleApplyOrPopStash(stash, "apply");
   };
 
   const handlePopStash = async (stash: StashEntry): Promise<void> => {
-    await handleApplyOrPopStash(stash, 'pop');
+    await handleApplyOrPopStash(stash, "pop");
   };
 
   const handleCreatePullRequest = async (pushSourceBranch: boolean): Promise<void> => {
@@ -399,14 +418,14 @@ export function useControllerBranchOps({
         repoPath,
         currentAction.source.name,
         currentAction.target.name,
-        pushSourceBranch
+        pushSourceBranch,
       );
       data.setInlineError(null);
       setBranchAction(null);
       onNotify(`Pull Request を作成しました: ${response.url}`);
       await data.refreshAll();
     } catch (error) {
-      data.reportError(error, 'Pull Request の作成に失敗しました。');
+      data.reportError(error, "Pull Request の作成に失敗しました。");
     } finally {
       data.setOperationBusy(false);
     }
@@ -422,7 +441,11 @@ export function useControllerBranchOps({
     let shouldCreateImmediately = false;
 
     try {
-      const response = await api.preparePullRequest(repoPath, currentAction.source.name, currentAction.target.name);
+      const response = await api.preparePullRequest(
+        repoPath,
+        currentAction.source.name,
+        currentAction.target.name,
+      );
       data.setInlineError(null);
 
       if (response.pushRequired) {
@@ -430,15 +453,15 @@ export function useControllerBranchOps({
           current &&
           current.source.name === currentAction.source.name &&
           current.target.name === currentAction.target.name
-            ? { ...current, step: 'confirm-push' }
-            : current
+            ? { ...current, step: "confirm-push" }
+            : current,
         );
         return;
       }
 
       shouldCreateImmediately = true;
     } catch (error) {
-      data.reportError(error, 'Pull Request の準備に失敗しました。');
+      data.reportError(error, "Pull Request の準備に失敗しました。");
       return;
     } finally {
       data.setOperationBusy(false);
@@ -476,6 +499,6 @@ export function useControllerBranchOps({
     handleDeleteBranch,
     handleRenameStash,
     handleCreatePullRequest,
-    handlePreparePullRequest
+    handlePreparePullRequest,
   };
 }

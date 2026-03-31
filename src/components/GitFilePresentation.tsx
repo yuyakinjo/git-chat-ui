@@ -1,23 +1,23 @@
-import { Circle, Minus, Pencil, Plus } from 'lucide-react';
+import { Circle, Minus, Pencil, Plus } from "lucide-react";
 
-import type { WorkingFile } from '../types';
+import type { WorkingFile } from "../types";
 
 import type { JSX } from "react";
 
-export type WorkingFileStatusTone = 'modified' | 'added' | 'deleted' | 'changed';
+export type WorkingFileStatusTone = "modified" | "added" | "deleted" | "changed";
 
 function splitGitFilePath(filePath: string): { directory: string | null; fileName: string } {
-  const lastSlashIndex = filePath.lastIndexOf('/');
+  const lastSlashIndex = filePath.lastIndexOf("/");
   if (lastSlashIndex < 0) {
     return {
       directory: null,
-      fileName: filePath
+      fileName: filePath,
     };
   }
 
   return {
     directory: filePath.slice(0, lastSlashIndex + 1),
-    fileName: filePath.slice(lastSlashIndex + 1)
+    fileName: filePath.slice(lastSlashIndex + 1),
   };
 }
 
@@ -32,38 +32,40 @@ export function GitFilePathLabel({ path }: { path: string }): JSX.Element {
   );
 }
 
-export function getWorkingFileStatusPresentation(item: Pick<WorkingFile, 'x' | 'y' | 'statusLabel'>): {
+export function getWorkingFileStatusPresentation(
+  item: Pick<WorkingFile, "x" | "y" | "statusLabel">,
+): {
   tone: WorkingFileStatusTone;
   label: string;
   icon: JSX.Element;
 } {
-  const code = item.x !== ' ' && item.x !== '?' ? item.x : item.y;
+  const code = item.x !== " " && item.x !== "?" ? item.x : item.y;
 
   switch (code) {
-    case 'M':
+    case "M":
       return {
-        tone: 'modified',
+        tone: "modified",
         label: item.statusLabel,
-        icon: <Pencil size={12} />
+        icon: <Pencil size={12} />,
       };
-    case 'A':
-    case '?':
+    case "A":
+    case "?":
       return {
-        tone: 'added',
+        tone: "added",
         label: item.statusLabel,
-        icon: <Plus size={13} strokeWidth={2.4} />
+        icon: <Plus size={13} strokeWidth={2.4} />,
       };
-    case 'D':
+    case "D":
       return {
-        tone: 'deleted',
+        tone: "deleted",
         label: item.statusLabel,
-        icon: <Minus size={13} strokeWidth={2.4} />
+        icon: <Minus size={13} strokeWidth={2.4} />,
       };
     default:
       return {
-        tone: 'changed',
+        tone: "changed",
         label: item.statusLabel,
-        icon: <Circle size={11} />
+        icon: <Circle size={11} />,
       };
   }
 }

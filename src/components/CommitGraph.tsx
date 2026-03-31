@@ -1,18 +1,11 @@
-import { animate, stagger } from 'animejs';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX,
-} from 'react';
+import { animate, stagger } from "animejs";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
-import { useContainerWidth } from '../hooks/useContainerWidth';
-import { resolveCommitGraphColumnLayout } from '../lib/commitGraphColumns';
-import { buildLaneRows } from '../lib/commitGraphLayout';
-import { formatRelativeDate, shortSha } from '../lib/format';
-import type { CommitGraphMode, CommitListItem } from '../types';
+import { useContainerWidth } from "../hooks/useContainerWidth";
+import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
+import { buildLaneRows } from "../lib/commitGraphLayout";
+import { formatRelativeDate, shortSha } from "../lib/format";
+import type { CommitGraphMode, CommitListItem } from "../types";
 import {
   clampColumnWidth,
   LANE_COLORS,
@@ -29,7 +22,7 @@ import {
   WIP_LINE_TOP,
   WIP_NODE_CENTER,
   WipNode,
-} from './CommitGraphHelpers';
+} from "./CommitGraphHelpers";
 
 interface CommitGraphProps {
   commits: CommitListItem[];
@@ -72,13 +65,13 @@ export function CommitGraph({
   onCheckoutCommit,
   onCheckoutBranchRef,
   onLoadMore,
-  headerAccessory
+  headerAccessory,
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
   const containerWidth = useContainerWidth(rootRef);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return REF_COLUMN_DEFAULT_WIDTH;
     }
 
@@ -94,15 +87,15 @@ export function CommitGraph({
   const laneLayout = useMemo(() => buildLaneRows(commits), [commits]);
   const refLabelBySha = useMemo(
     () => new Map(commits.map((commit) => [commit.sha, parseCommitRefLabels(commit.decoration)])),
-    [commits]
+    [commits],
   );
   const refsAutoWidth = useMemo(() => {
-    if (typeof document === 'undefined') {
+    if (typeof document === "undefined") {
       return REF_COLUMN_DEFAULT_WIDTH;
     }
 
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
     if (!context) {
       return REF_COLUMN_DEFAULT_WIDTH;
     }
@@ -125,7 +118,7 @@ export function CommitGraph({
       maxRowWidth = Math.max(maxRowWidth, rowWidth);
     }
 
-    const headerWidth = Math.ceil(context.measureText('REFS').width) + 24;
+    const headerWidth = Math.ceil(context.measureText("REFS").width) + 24;
     return clampColumnWidth(Math.max(REF_COLUMN_DEFAULT_WIDTH, maxRowWidth + 12, headerWidth));
   }, [refLabelBySha]);
 
@@ -145,34 +138,36 @@ export function CommitGraph({
       };
 
       const cleanup = (): void => {
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', cleanup);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", cleanup);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
         refsResizeCleanupRef.current = null;
       };
 
       refsResizeCleanupRef.current = cleanup;
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', cleanup);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", cleanup);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
     },
-    [refsColumnWidth]
+    [refsColumnWidth],
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return;
     }
 
     window.localStorage.setItem(REF_COLUMN_STORAGE_KEY, String(refsColumnWidth));
   }, [refsColumnWidth]);
 
-  useEffect(() => () => {
-    refsResizeCleanupRef.current?.();
-  }, []);
-
+  useEffect(
+    () => () => {
+      refsResizeCleanupRef.current?.();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!rootRef.current) {
@@ -184,7 +179,7 @@ export function CommitGraph({
       translateY: [6, 0],
       delay: stagger(18),
       duration: 250,
-      easing: 'linear'
+      easing: "linear",
     });
   }, [visibleCommits.length]);
 
@@ -193,26 +188,28 @@ export function CommitGraph({
       return;
     }
 
-    const targetRow = rootRef.current.querySelector<HTMLElement>(`[data-commit-sha="${scrollToCommitSha}"]`);
+    const targetRow = rootRef.current.querySelector<HTMLElement>(
+      `[data-commit-sha="${scrollToCommitSha}"]`,
+    );
     if (!targetRow) {
       return;
     }
 
     targetRow.scrollIntoView({
-      block: 'center',
-      behavior: 'smooth'
+      block: "center",
+      behavior: "smooth",
     });
     onScrollToCommitHandled(scrollToCommitSha);
   }, [onScrollToCommitHandled, scrollToCommitSha, visibleCommits.length]);
 
-  const isDetailedMode = mode === 'detailed';
+  const isDetailedMode = mode === "detailed";
   const graphColumnWidth = isDetailedMode
     ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
     : 22;
   const columnLayout = resolveCommitGraphColumnLayout({
     containerWidth,
     graphColumnWidth,
-    refsColumnWidth
+    refsColumnWidth,
   });
   const isCompactLayout = columnLayout.isCompact;
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
@@ -267,7 +264,9 @@ export function CommitGraph({
           {!isCompactLayout ? <span className="commit-id-column">SHA</span> : null}
         </div>
 
-        {loading ? <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div> : null}
+        {loading ? (
+          <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div>
+        ) : null}
 
         {(wipStagedCount > 0 || wipUnstagedCount > 0) && !loading ? (
           <div
@@ -302,7 +301,7 @@ export function CommitGraph({
                   className="absolute block"
                   style={{
                     left: `${laneX(0) - WIP_NODE_CENTER}px`,
-                    top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`
+                    top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
                   }}
                 />
               </div>
@@ -312,7 +311,7 @@ export function CommitGraph({
                   className="absolute w-[2px] bg-accent/20"
                   style={{
                     top: `${WIP_LINE_TOP}px`,
-                    height: `${ROW_HEIGHT - WIP_LINE_TOP + LINE_OVERDRAW}px`
+                    height: `${ROW_HEIGHT - WIP_LINE_TOP + LINE_OVERDRAW}px`,
                   }}
                 />
                 <WipNode />
@@ -325,15 +324,17 @@ export function CommitGraph({
             </div>
             {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
             <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
-              <span>// WIP</span>
+              <span>{"// WIP"}</span>
               <span className="wip-row__meta truncate text-xs font-normal">
-                {wipStagedCount > 0 ? `${wipStagedCount} staged` : ''}
-                {wipStagedCount > 0 && wipUnstagedCount > 0 ? ' · ' : ''}
-                {wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : ''}
+                {wipStagedCount > 0 ? `${wipStagedCount} staged` : ""}
+                {wipStagedCount > 0 && wipUnstagedCount > 0 ? " · " : ""}
+                {wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : ""}
               </span>
             </div>
             <div className="wip-row__meta truncate text-xs">—</div>
-            {!isCompactLayout ? <div className="wip-row__meta commit-id-column truncate text-xs">—</div> : null}
+            {!isCompactLayout ? (
+              <div className="wip-row__meta commit-id-column truncate text-xs">—</div>
+            ) : null}
           </div>
         ) : null}
 
@@ -347,14 +348,14 @@ export function CommitGraph({
             incomingLaneIndices: [0],
             outgoingLaneIndices: [0],
             primaryParentLaneIndex: null,
-            mergeTargetLaneIndices: []
+            mergeTargetLaneIndices: [],
           };
           const commitRefLabels = refLabelBySha.get(commit.sha) ?? [];
 
           return (
             <div
               key={commit.sha}
-              className={`commit-row ${isActive || isHighlighted ? 'active' : ''}`}
+              className={`commit-row ${isActive || isHighlighted ? "active" : ""}`}
               style={{ gridTemplateColumns }}
               data-animate="commit-enter"
               data-commit-sha={commit.sha}
@@ -388,7 +389,9 @@ export function CommitGraph({
                       }
 
                       const y1 = hasIncoming ? -LINE_OVERDRAW : ROW_HEIGHT / 2 + strokeWidth / 2;
-                      const y2 = hasOutgoing ? ROW_HEIGHT + LINE_OVERDRAW : ROW_HEIGHT / 2 - strokeWidth / 2;
+                      const y2 = hasOutgoing
+                        ? ROW_HEIGHT + LINE_OVERDRAW
+                        : ROW_HEIGHT / 2 - strokeWidth / 2;
 
                       return (
                         <line
@@ -420,7 +423,8 @@ export function CommitGraph({
                       );
                     })}
 
-                    {row.primaryParentLaneIndex !== null && row.primaryParentLaneIndex !== row.laneIndex ? (
+                    {row.primaryParentLaneIndex !== null &&
+                    row.primaryParentLaneIndex !== row.laneIndex ? (
                       <path
                         d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
                         stroke={laneColor(row.primaryParentLaneIndex)}
@@ -431,11 +435,11 @@ export function CommitGraph({
                   </svg>
 
                   <span
-                    className={`absolute block commit-node border border-white/90 shadow-sm ${isCheckedOutCommit ? 'commit-node-head-glow' : ''}`}
+                    className={`absolute block commit-node border border-white/90 shadow-sm ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
                     style={{
                       left: `${laneX(row.laneIndex) - 6}px`,
                       top: `${ROW_HEIGHT / 2 - 6}px`,
-                      background: laneColor(row.laneIndex)
+                      background: laneColor(row.laneIndex),
                     }}
                   />
                 </div>
@@ -445,10 +449,12 @@ export function CommitGraph({
                     className="absolute w-[2px] bg-accent/20"
                     style={{
                       top: `${-LINE_OVERDRAW}px`,
-                      height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`
+                      height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`,
                     }}
                   />
-                  <span className={`commit-node ${isCheckedOutCommit ? 'commit-node-head-glow' : ''}`} />
+                  <span
+                    className={`commit-node ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
+                  />
                 </div>
               )}
 
@@ -458,13 +464,13 @@ export function CommitGraph({
                     {commitRefLabels.map((label) => (
                       <span
                         key={`${commit.sha}-${label.type}-${label.name}`}
-                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${
-                          refLabelClass(label.type)
-                        } ${label.type === 'tag' ? '' : 'cursor-pointer'}`}
+                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
+                          label.type,
+                        )} ${label.type === "tag" ? "" : "cursor-pointer"}`}
                         style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
                         title={label.name}
                         onDoubleClick={(event) => {
-                          if (busy || label.type === 'tag') {
+                          if (busy || label.type === "tag") {
                             return;
                           }
 
@@ -483,12 +489,18 @@ export function CommitGraph({
               </div>
 
               {!isCompactLayout ? (
-                <div className="truncate text-xs text-ink-soft">{formatRelativeDate(commit.date)}</div>
+                <div className="truncate text-xs text-ink-soft">
+                  {formatRelativeDate(commit.date)}
+                </div>
               ) : null}
-              <div className="commit-graph__cell--primary truncate text-sm text-ink">{commit.subject}</div>
+              <div className="commit-graph__cell--primary truncate text-sm text-ink">
+                {commit.subject}
+              </div>
               <div className="truncate text-xs text-ink-soft">{commit.author}</div>
               {!isCompactLayout ? (
-                <div className="commit-id-column truncate text-xs text-ink-subtle">{shortSha(commit.sha)}</div>
+                <div className="commit-id-column truncate text-xs text-ink-subtle">
+                  {shortSha(commit.sha)}
+                </div>
               ) : null}
             </div>
           );
@@ -498,7 +510,9 @@ export function CommitGraph({
           <div className="p-4 text-sm text-ink-subtle">コミットが見つかりません。</div>
         ) : null}
 
-        {loadingMore ? <div className="p-4 text-xs text-ink-subtle">さらに読み込み中...</div> : null}
+        {loadingMore ? (
+          <div className="p-4 text-xs text-ink-subtle">さらに読み込み中...</div>
+        ) : null}
       </div>
     </section>
   );

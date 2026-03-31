@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   canSwapControllerPanel,
@@ -6,14 +6,14 @@ import {
   isControllerPanelId,
   normalizeControllerPanelOrder,
   swapControllerPanels,
-  type ControllerPanelId
-} from '../lib/controllerPanelOrder';
+  type ControllerPanelId,
+} from "../lib/controllerPanelOrder";
 import {
   CONTROLLER_PANEL_ORDER_STORAGE_KEY,
   controllerPanelLabels,
   PANEL_DRAG_THRESHOLD_PX,
-  shouldIgnoreControllerPanelPointerDown
-} from '../lib/controllerViewUtils';
+  shouldIgnoreControllerPanelPointerDown,
+} from "../lib/controllerViewUtils";
 
 interface UseControllerPanelDragParams {
   repoPath: string;
@@ -26,15 +26,18 @@ interface UseControllerPanelDragResult {
   dropTargetPanelId: ControllerPanelId | null;
   panelDragPreviewPosition: { x: number; y: number } | null;
   panelDragHint: string | null;
-  handlePanelPointerDown: (event: React.PointerEvent<HTMLDivElement>, panelId: ControllerPanelId) => void;
+  handlePanelPointerDown: (
+    event: React.PointerEvent<HTMLDivElement>,
+    panelId: ControllerPanelId,
+  ) => void;
 }
 
 export function useControllerPanelDrag({
   repoPath,
-  operationBusy
+  operationBusy,
 }: UseControllerPanelDragParams): UseControllerPanelDragResult {
   const [panelOrder, setPanelOrder] = useState<ControllerPanelId[]>(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return [...DEFAULT_CONTROLLER_PANEL_ORDER];
     }
 
@@ -46,7 +49,9 @@ export function useControllerPanelDrag({
 
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed)
-        ? normalizeControllerPanelOrder(parsed.filter((value): value is string => typeof value === 'string'))
+        ? normalizeControllerPanelOrder(
+            parsed.filter((value): value is string => typeof value === "string"),
+          )
         : [...DEFAULT_CONTROLLER_PANEL_ORDER];
     } catch {
       return [...DEFAULT_CONTROLLER_PANEL_ORDER];
@@ -54,7 +59,10 @@ export function useControllerPanelDrag({
   });
   const [draggedPanelId, setDraggedPanelId] = useState<ControllerPanelId | null>(null);
   const [dropTargetPanelId, setDropTargetPanelId] = useState<ControllerPanelId | null>(null);
-  const [panelDragPreviewPosition, setPanelDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const [panelDragPreviewPosition, setPanelDragPreviewPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const panelDragPointerRef = useRef<{
     panelId: ControllerPanelId;
@@ -68,7 +76,7 @@ export function useControllerPanelDrag({
   const panelDragHint = draggedPanelId
     ? dropTargetPanelId
       ? `${controllerPanelLabels[dropTargetPanelId]} にドロップして位置を入れ替え`
-      : '別のパネルにドロップして位置を入れ替え'
+      : "別のパネルにドロップして位置を入れ替え"
     : null;
 
   const updateDraggedPanelId = useCallback((value: ControllerPanelId | null): void => {
@@ -90,7 +98,7 @@ export function useControllerPanelDrag({
 
   const handlePanelPointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
-    panelId: ControllerPanelId
+    panelId: ControllerPanelId,
   ): void => {
     if (event.button !== 0 || operationBusy) {
       return;
@@ -107,13 +115,13 @@ export function useControllerPanelDrag({
       panelId,
       pointerId: event.pointerId,
       startX: event.clientX,
-      startY: event.clientY
+      startY: event.clientY,
     };
     updateDropTargetPanelId(null);
   };
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return;
     }
 
@@ -121,13 +129,13 @@ export function useControllerPanelDrag({
   }, [panelOrder]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') {
+    if (typeof document === "undefined") {
       return;
     }
 
-    document.body.classList.toggle('is-controller-panel-dragging', Boolean(draggedPanelId));
+    document.body.classList.toggle("is-controller-panel-dragging", Boolean(draggedPanelId));
     return () => {
-      document.body.classList.remove('is-controller-panel-dragging');
+      document.body.classList.remove("is-controller-panel-dragging");
     };
   }, [draggedPanelId]);
 
@@ -164,13 +172,12 @@ export function useControllerPanelDrag({
 
       setPanelDragPreviewPosition({
         x: event.clientX,
-        y: event.clientY
+        y: event.clientY,
       });
 
       const element = document.elementFromPoint(event.clientX, event.clientY);
-      const targetId = element
-        ?.closest<HTMLElement>('[data-controller-panel-drop-id]')
-        ?.dataset.controllerPanelDropId;
+      const targetId = element?.closest<HTMLElement>("[data-controller-panel-drop-id]")?.dataset
+        .controllerPanelDropId;
 
       if (
         targetId &&
@@ -178,7 +185,7 @@ export function useControllerPanelDrag({
         canSwapControllerPanel({
           busy: operationBusy,
           sourceId: dragPointer.panelId,
-          targetId
+          targetId,
         })
       ) {
         updateDropTargetPanelId(targetId);
@@ -204,7 +211,7 @@ export function useControllerPanelDrag({
         canSwapControllerPanel({
           busy: operationBusy,
           sourceId,
-          targetId
+          targetId,
         })
       ) {
         setPanelOrder((current) => swapControllerPanels(current, sourceId, targetId));
@@ -213,14 +220,14 @@ export function useControllerPanelDrag({
       clearPanelDragState();
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [clearPanelDragState, operationBusy, updateDraggedPanelId, updateDropTargetPanelId]);
 
@@ -230,6 +237,6 @@ export function useControllerPanelDrag({
     dropTargetPanelId,
     panelDragPreviewPosition,
     panelDragHint,
-    handlePanelPointerDown
+    handlePanelPointerDown,
   };
 }

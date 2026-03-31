@@ -1,19 +1,19 @@
-import { describe, expect, test } from 'bun:test';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
 
-import type { WorkingTreeDiffDetail } from '../../../src/types';
+import type { WorkingTreeDiffDetail } from "../../../src/types";
 
-import { WorkingTreeDiffOverlay } from '../../../src/components/WorkingTreeDiffOverlay';
+import { WorkingTreeDiffOverlay } from "../../../src/components/WorkingTreeDiffOverlay";
 
 const detail: WorkingTreeDiffDetail = {
-  file: 'src/components/CommitDetailPanel.tsx',
-  area: 'unstaged',
+  file: "src/components/CommitDetailPanel.tsx",
+  area: "unstaged",
   files: [
     {
-      file: 'src/components/CommitDetailPanel.tsx',
+      file: "src/components/CommitDetailPanel.tsx",
       additions: 3,
-      deletions: 1
-    }
+      deletions: 1,
+    },
   ],
   diff: `diff --git a/src/components/CommitDetailPanel.tsx b/src/components/CommitDetailPanel.tsx
 index 1111111..2222222 100644
@@ -28,11 +28,11 @@ index 1111111..2222222 100644
 +  return <div>changed</div>;
  }
 `,
-  isDiffTruncated: false
+  isDiffTruncated: false,
 };
 
-describe('WorkingTreeDiffOverlay', () => {
-  test('renders working tree diff inside a dialog-style overlay', () => {
+describe("WorkingTreeDiffOverlay", () => {
+  test("renders working tree diff inside a dialog-style overlay", () => {
     const html = renderToStaticMarkup(
       <WorkingTreeDiffOverlay
         detail={detail}
@@ -40,16 +40,16 @@ describe('WorkingTreeDiffOverlay', () => {
         filePath={detail.file}
         area={detail.area}
         onClose={() => {}}
-      />
+      />,
     );
 
-    expect(html).toContain('diff-overlay__title');
-    expect(html).not.toContain('Working Tree Diff');
-    expect(html).toContain('WIP');
-    expect(html).toContain('Unstaged');
-    expect(html).toContain('diff-overlay__meta');
-    expect(html).toContain('Split View');
-    expect(html).not.toContain('diff-workbench__sidebar');
-    expect(html).not.toContain('Changed Files');
+    expect(html).toContain("diff-overlay__title");
+    expect(html).not.toContain("Working Tree Diff");
+    expect(html).toContain("WIP");
+    expect(html).toContain("Unstaged");
+    expect(html).toContain("diff-overlay__meta");
+    expect(html).toContain("Split View");
+    expect(html).not.toContain("diff-workbench__sidebar");
+    expect(html).not.toContain("Changed Files");
   });
 });

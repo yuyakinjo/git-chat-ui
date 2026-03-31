@@ -1,7 +1,7 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from "node:fs/promises";
+import path from "node:path";
 
-export type ThreadTaskStatus = 'active' | 'archived';
+export type ThreadTaskStatus = "active" | "archived";
 
 export interface CodexThreadSummary {
   id: string;
@@ -51,22 +51,23 @@ interface ThreadTaskPaths {
 }
 
 export function getThreadTaskPaths(repoRoot: string): ThreadTaskPaths {
-  const tasksRoot = path.join(repoRoot, 'tasks');
+  const tasksRoot = path.join(repoRoot, "tasks");
   return {
     tasksRoot,
-    activeRoot: path.join(tasksRoot, 'threads'),
-    archivedRoot: path.join(tasksRoot, 'archived')
+    activeRoot: path.join(tasksRoot, "threads"),
+    archivedRoot: path.join(tasksRoot, "archived"),
   };
 }
 
 export async function ensureThreadTaskDirectory(
   repoRoot: string,
-  thread: CodexThreadSummary
+  thread: CodexThreadSummary,
 ): Promise<EnsureThreadTaskDirectoryResult> {
   const paths = getThreadTaskPaths(repoRoot);
   const activeThreadDir = path.join(paths.activeRoot, thread.id);
   const archivedThreadDir = path.join(paths.archivedRoot, thread.id);
-  const restoredFromArchive = await directoryExists(archivedThreadDir) && !(await directoryExists(activeThreadDir));
+  const restoredFromArchive =
+    (await directoryExists(archivedThreadDir)) && !(await directoryExists(activeThreadDir));
 
   if (restoredFromArchive) {
     await moveThreadDirectory(archivedThreadDir, activeThreadDir);
@@ -74,14 +75,14 @@ export async function ensureThreadTaskDirectory(
 
   await fs.mkdir(activeThreadDir, { recursive: true });
 
-  const todoPath = path.join(activeThreadDir, 'todo.md');
-  const metaPath = path.join(activeThreadDir, 'meta.json');
+  const todoPath = path.join(activeThreadDir, "todo.md");
+  const metaPath = path.join(activeThreadDir, "meta.json");
   const created = !(await fileExists(todoPath)) && !(await fileExists(metaPath));
 
-  await writeMetaFile(metaPath, buildMetadata(repoRoot, thread, 'active'));
+  await writeMetaFile(metaPath, buildMetadata(repoRoot, thread, "active"));
 
   if (!(await fileExists(todoPath))) {
-    await fs.writeFile(todoPath, buildTodoTemplate(thread), 'utf8');
+    await fs.writeFile(todoPath, buildTodoTemplate(thread), "utf8");
   }
 
   return {
@@ -89,54 +90,67 @@ export async function ensureThreadTaskDirectory(
     restoredFromArchive,
     threadDir: activeThreadDir,
     todoPath,
-    metaPath
+    metaPath,
   };
 }
 
 export async function syncThreadTaskDirectories(
-  options: SyncThreadTaskDirectoriesOptions
+  options: SyncThreadTaskDirectoriesOptions,
 ): Promise<SyncThreadTaskDirectoriesResult> {
   const paths = getThreadTaskPaths(options.repoRoot);
   await fs.mkdir(paths.activeRoot, { recursive: true });
   await fs.mkdir(paths.archivedRoot, { recursive: true });
 
   const activeById = new Map(options.activeThreads.map((thread) => [thread.id, thread] as const));
-  const archivedById = new Map(options.archivedThreads.map((thread) => [thread.id, thread] as const));
+  const archivedById = new Map(
+    options.archivedThreads.map((thread) => [thread.id, thread] as const),
+  );
   const activeDirs = await listDirectoryNames(paths.activeRoot);
   const archivedDirs = await listDirectoryNames(paths.archivedRoot);
   const result: SyncThreadTaskDirectoriesResult = {
     movedToArchive: [],
     orphanedToArchive: [],
     restoredToActive: [],
-    unknownArchived: []
+    unknownArchived: [],
   };
 
   for (const threadId of activeDirs) {
     const activeThread = activeById.get(threadId);
     const archivedThread = archivedById.get(threadId);
     const activeDir = path.join(paths.activeRoot, threadId);
-    const activeMetaPath = path.join(activeDir, 'meta.json');
-    const activeTodoPath = path.join(activeDir, 'todo.md');
+    const activeMetaPath = path.join(activeDir, "meta.json");
+    const activeTodoPath = path.join(activeDir, "todo.md");
 
     if (archivedThread) {
       const archivedDir = path.join(paths.archivedRoot, threadId);
       await moveThreadDirectory(activeDir, archivedDir);
-      await writeMetaFile(path.join(archivedDir, 'meta.json'), buildMetadata(options.repoRoot, archivedThread, 'archived'));
-      await ensureTodoFile(path.join(archivedDir, 'todo.md'), archivedThread);
+      await writeMetaFile(
+        path.join(archivedDir, "meta.json"),
+        buildMetadata(options.repoRoot, archivedThread, "archived"),
+      );
+      await ensureTodoFile(path.join(archivedDir, "todo.md"), archivedThread);
       result.movedToArchive.push(threadId);
       continue;
     }
 
     if (activeThread) {
-      await writeMetaFile(activeMetaPath, buildMetadata(options.repoRoot, activeThread, 'active'));
+      await writeMetaFile(activeMetaPath, buildMetadata(options.repoRoot, activeThread, "active"));
       await ensureTodoFile(activeTodoPath, activeThread);
       continue;
     }
 
     const archivedDir = path.join(paths.archivedRoot, threadId);
     await moveThreadDirectory(activeDir, archivedDir);
-    await writeArchivedFallbackMeta(path.join(archivedDir, 'meta.json'), options.repoRoot, threadId);
-    await ensureArchivedFallbackTodo(path.join(archivedDir, 'todo.md'), path.join(archivedDir, 'meta.json'), threadId);
+    await writeArchivedFallbackMeta(
+      path.join(archivedDir, "meta.json"),
+      options.repoRoot,
+      threadId,
+    );
+    await ensureArchivedFallbackTodo(
+      path.join(archivedDir, "todo.md"),
+      path.join(archivedDir, "meta.json"),
+      threadId,
+    );
     result.orphanedToArchive.push(threadId);
   }
 
@@ -144,20 +158,26 @@ export async function syncThreadTaskDirectories(
     const archivedThread = archivedById.get(threadId);
     const activeThread = activeById.get(threadId);
     const archivedDir = path.join(paths.archivedRoot, threadId);
-    const archivedMetaPath = path.join(archivedDir, 'meta.json');
-    const archivedTodoPath = path.join(archivedDir, 'todo.md');
+    const archivedMetaPath = path.join(archivedDir, "meta.json");
+    const archivedTodoPath = path.join(archivedDir, "todo.md");
 
     if (activeThread) {
       const activeDir = path.join(paths.activeRoot, threadId);
       await moveThreadDirectory(archivedDir, activeDir);
-      await writeMetaFile(path.join(activeDir, 'meta.json'), buildMetadata(options.repoRoot, activeThread, 'active'));
-      await ensureTodoFile(path.join(activeDir, 'todo.md'), activeThread);
+      await writeMetaFile(
+        path.join(activeDir, "meta.json"),
+        buildMetadata(options.repoRoot, activeThread, "active"),
+      );
+      await ensureTodoFile(path.join(activeDir, "todo.md"), activeThread);
       result.restoredToActive.push(threadId);
       continue;
     }
 
     if (archivedThread) {
-      await writeMetaFile(archivedMetaPath, buildMetadata(options.repoRoot, archivedThread, 'archived'));
+      await writeMetaFile(
+        archivedMetaPath,
+        buildMetadata(options.repoRoot, archivedThread, "archived"),
+      );
       await ensureTodoFile(archivedTodoPath, archivedThread);
       continue;
     }
@@ -171,7 +191,7 @@ export async function syncThreadTaskDirectories(
 function buildMetadata(
   repoRoot: string,
   thread: CodexThreadSummary,
-  status: ThreadTaskStatus
+  status: ThreadTaskStatus,
 ): ThreadTaskMetadata {
   const now = new Date().toISOString();
   const createdAt = toIsoString(thread.createdAt) ?? now;
@@ -180,52 +200,57 @@ function buildMetadata(
   return {
     threadId: thread.id,
     title: getThreadTitle(thread),
-    preview: thread.preview?.trim() ?? '',
+    preview: thread.preview?.trim() ?? "",
     cwd: repoRoot,
     status,
     createdAt,
     updatedAt,
-    archivedAt: status === 'archived' ? now : undefined,
-    syncedAt: now
+    archivedAt: status === "archived" ? now : undefined,
+    syncedAt: now,
   };
 }
 
 function buildTodoTemplate(thread: CodexThreadSummary): string {
   return [
-    '# TODO',
-    '',
+    "# TODO",
+    "",
     `- Thread ID: ${thread.id}`,
     `- Title: ${getThreadTitle(thread)}`,
-    `- Preview: ${thread.preview?.trim() || '-'}`,
+    `- Preview: ${thread.preview?.trim() || "-"}`,
     `- Created: ${toIsoString(thread.createdAt) ?? new Date().toISOString()}`,
-    '',
-    '## Plan',
-    '',
-    '- [ ] ',
-    '',
-    '## Review',
-    '',
-    '- '
-  ].join('\n');
+    "",
+    "## Plan",
+    "",
+    "- [ ] ",
+    "",
+    "## Review",
+    "",
+    "- ",
+  ].join("\n");
 }
 
-async function writeArchivedFallbackMeta(metaPath: string, repoRoot: string, threadId: string): Promise<void> {
+async function writeArchivedFallbackMeta(
+  metaPath: string,
+  repoRoot: string,
+  threadId: string,
+): Promise<void> {
   const existing = await readThreadTaskMetadata(metaPath);
   const now = new Date().toISOString();
   const createdAt = normalizeIsoString(existing?.createdAt) ?? now;
   const updatedAt = normalizeIsoString(existing?.updatedAt) ?? createdAt;
-  const title = normalizeText(existing?.title) || normalizeText(existing?.preview) || 'Untitled thread';
+  const title =
+    normalizeText(existing?.title) || normalizeText(existing?.preview) || "Untitled thread";
 
   await writeMetaFile(metaPath, {
     threadId,
     title,
-    preview: normalizeText(existing?.preview) ?? '',
+    preview: normalizeText(existing?.preview) ?? "",
     cwd: normalizeText(existing?.cwd) || repoRoot,
-    status: 'archived',
+    status: "archived",
     createdAt,
     updatedAt,
     archivedAt: now,
-    syncedAt: now
+    syncedAt: now,
   });
 }
 
@@ -240,7 +265,7 @@ function getThreadTitle(thread: CodexThreadSummary): string {
     return preview;
   }
 
-  return 'Untitled thread';
+  return "Untitled thread";
 }
 
 function toIsoString(timestamp?: number): string | null {
@@ -252,7 +277,7 @@ function toIsoString(timestamp?: number): string | null {
 }
 
 async function writeMetaFile(metaPath: string, metadata: ThreadTaskMetadata): Promise<void> {
-  await fs.writeFile(metaPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await fs.writeFile(metaPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 }
 
 async function ensureTodoFile(todoPath: string, thread: CodexThreadSummary): Promise<void> {
@@ -260,16 +285,24 @@ async function ensureTodoFile(todoPath: string, thread: CodexThreadSummary): Pro
     return;
   }
 
-  await fs.writeFile(todoPath, buildTodoTemplate(thread), 'utf8');
+  await fs.writeFile(todoPath, buildTodoTemplate(thread), "utf8");
 }
 
-async function ensureArchivedFallbackTodo(todoPath: string, metaPath: string, threadId: string): Promise<void> {
+async function ensureArchivedFallbackTodo(
+  todoPath: string,
+  metaPath: string,
+  threadId: string,
+): Promise<void> {
   if (await fileExists(todoPath)) {
     return;
   }
 
   const metadata = await readThreadTaskMetadata(metaPath);
-  await fs.writeFile(todoPath, buildTodoTemplate(buildSummaryFromMetadata(threadId, metadata)), 'utf8');
+  await fs.writeFile(
+    todoPath,
+    buildTodoTemplate(buildSummaryFromMetadata(threadId, metadata)),
+    "utf8",
+  );
 }
 
 async function listDirectoryNames(root: string): Promise<string[]> {
@@ -278,7 +311,10 @@ async function listDirectoryNames(root: string): Promise<string[]> {
   }
 
   const entries = await fs.readdir(root, { withFileTypes: true });
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
 }
 
 async function moveThreadDirectory(sourceDir: string, targetDir: string): Promise<void> {
@@ -289,31 +325,33 @@ async function moveThreadDirectory(sourceDir: string, targetDir: string): Promis
 
 function buildSummaryFromMetadata(
   threadId: string,
-  metadata: Partial<ThreadTaskMetadata> | null
+  metadata: Partial<ThreadTaskMetadata> | null,
 ): CodexThreadSummary {
   return {
     id: threadId,
     name: normalizeText(metadata?.title) ?? undefined,
     preview: normalizeText(metadata?.preview) ?? undefined,
     createdAt: toUnixTimestamp(metadata?.createdAt),
-    updatedAt: toUnixTimestamp(metadata?.updatedAt)
+    updatedAt: toUnixTimestamp(metadata?.updatedAt),
   };
 }
 
-async function readThreadTaskMetadata(metaPath: string): Promise<Partial<ThreadTaskMetadata> | null> {
+async function readThreadTaskMetadata(
+  metaPath: string,
+): Promise<Partial<ThreadTaskMetadata> | null> {
   if (!(await fileExists(metaPath))) {
     return null;
   }
 
   try {
-    return JSON.parse(await fs.readFile(metaPath, 'utf8')) as Partial<ThreadTaskMetadata>;
+    return JSON.parse(await fs.readFile(metaPath, "utf8")) as Partial<ThreadTaskMetadata>;
   } catch {
     return null;
   }
 }
 
 function normalizeText(value: unknown): string | null {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return null;
   }
 
@@ -322,7 +360,7 @@ function normalizeText(value: unknown): string | null {
 }
 
 function normalizeIsoString(value: unknown): string | null {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return null;
   }
 

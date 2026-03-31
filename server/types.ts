@@ -1,4 +1,5 @@
-export type CommitGraphMode = 'simple' | 'detailed';
+export type { AiProvider } from "../shared/ai.js";
+export type { AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
 
 export interface Repository {
   name: string;
@@ -9,7 +10,7 @@ export interface Repository {
 export interface Branch {
   name: string;
   fullRef: string;
-  type: 'local' | 'remote';
+  type: "local" | "remote";
   commit: string;
   isRemoteDefault?: boolean;
 }
@@ -74,6 +75,25 @@ export interface PullRequestResponse {
   url: string;
 }
 
+export type PullStatusState =
+  | "detached"
+  | "noUpstream"
+  | "upToDate"
+  | "behind"
+  | "ahead"
+  | "diverged";
+
+export interface PullStatus {
+  branchName: string | null;
+  upstreamName: string | null;
+  remoteName: string | null;
+  remoteBranchName: string | null;
+  aheadCount: number;
+  behindCount: number;
+  canPull: boolean;
+  state: PullStatusState;
+}
+
 export interface WorkingFile {
   file: string;
   x: string;
@@ -86,32 +106,8 @@ export interface WorkingTreeStatus {
   unstaged: WorkingFile[];
 }
 
-export interface WindowState {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  isMaximized: boolean;
-}
 
-export type AiProvider = 'openAi' | 'claudeCode';
-
-export interface AppConfig {
-  openAiToken: string;
-  openAiModel: string;
-  claudeCodeToken: string;
-  selectedAiProvider: AiProvider;
-  commitTitlePrompt: string;
-  commitGraphMode: CommitGraphMode;
-  repositoryScanDepth: number;
-  recentlyUsed: Array<{
-    path: string;
-    usedAt: string;
-  }>;
-  windowState?: WindowState | null;
-}
-
-export type WorkingTreeDiffArea = 'staged' | 'unstaged';
+export type WorkingTreeDiffArea = "staged" | "unstaged";
 
 export interface WorkingTreeDiffDetail {
   file: string;

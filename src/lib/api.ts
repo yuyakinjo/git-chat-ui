@@ -1,6 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 
-import type { NativeWindowAppearance } from './appTheme';
+import type { NativeWindowAppearance } from "./appTheme";
 import type {
   AiGenerationConfig,
   AppConfig,
@@ -12,6 +12,7 @@ import type {
   CommitResponse,
   GeneratedCommitMessage,
   OpenAiModelsResponse,
+  PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
   Repository,
@@ -22,22 +23,22 @@ import type {
   TokenValidationResult,
   WorkingTreeDiffArea,
   WorkingTreeDiffDetail,
-  WorkingTreeStatus
-} from '../types';
+  WorkingTreeStatus,
+} from "../types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4141/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4141/api";
 
 function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {})
+      "Content-Type": "application/json",
+      ...options?.headers,
     },
-    ...options
+    ...options,
   });
 
   if (!response.ok) {
@@ -56,59 +57,59 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>)
       throw error;
     }
 
-    throw new Error(String(error));
+    throw new Error(String(error), { cause: error });
   }
 }
 
 export const api = {
   health(): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('health');
+      return invokeCommand("health");
     }
 
-    return request('/health');
+    return request("/health");
   },
 
   getRepositories(query: string): Promise<{ repositories: Repository[] }> {
     if (isTauriRuntime()) {
       const normalized = query.trim();
-      return invokeCommand('get_repositories', {
-        query: normalized.length > 0 ? normalized : null
+      return invokeCommand("get_repositories", {
+        query: normalized.length > 0 ? normalized : null,
       });
     }
 
     const params = new URLSearchParams();
     if (query.trim()) {
-      params.set('query', query.trim());
+      params.set("query", query.trim());
     }
-    return request(`/repositories${params.toString() ? `?${params.toString()}` : ''}`);
+    return request(`/repositories${params.toString() ? `?${params.toString()}` : ""}`);
   },
 
   resolveRepositories(repoPaths: string[]): Promise<{ repositories: Repository[] }> {
     if (isTauriRuntime()) {
-      return invokeCommand('resolve_repositories', { repoPaths });
+      return invokeCommand("resolve_repositories", { repoPaths });
     }
 
-    return request('/repositories/resolve', {
-      method: 'POST',
-      body: JSON.stringify({ repoPaths })
+    return request("/repositories/resolve", {
+      method: "POST",
+      body: JSON.stringify({ repoPaths }),
     });
   },
 
   markRecentRepository(repoPath: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('mark_recent_repository', { repoPath });
+      return invokeCommand("mark_recent_repository", { repoPath });
     }
 
-    return request('/repositories/recent', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath })
+    return request("/repositories/recent", {
+      method: "POST",
+      body: JSON.stringify({ repoPath }),
     });
   },
 
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_repository_github_url', { repoPath });
+      return invokeCommand("get_repository_github_url", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
@@ -117,7 +118,7 @@ export const api = {
 
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_repository_mutation_safety', { repoPath });
+      return invokeCommand("get_repository_mutation_safety", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
@@ -126,12 +127,12 @@ export const api = {
 
   async openExternalUrl(url: string): Promise<void> {
     if (isTauriRuntime()) {
-      await invokeCommand('open_external_url', { url });
+      await invokeCommand("open_external_url", { url });
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer');
+    if (typeof window !== "undefined") {
+      window.open(url, "_blank", "noopener,noreferrer");
     }
   },
 
@@ -140,12 +141,12 @@ export const api = {
       return;
     }
 
-    await invokeCommand('sync_window_appearance', appearance);
+    await invokeCommand("sync_window_appearance", appearance);
   },
 
   getBranches(repoPath: string): Promise<BranchResponse> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_branches', { repoPath });
+      return invokeCommand("get_branches", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
@@ -157,35 +158,35 @@ export const api = {
     ref: string | undefined,
     offset: number,
     limit = 50,
-    compareRefs?: string[]
+    compareRefs?: string[],
   ): Promise<CommitResponse> {
     if (isTauriRuntime()) {
       const normalizedCompareRefs =
         compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
 
-      return invokeCommand('get_commits', {
+      return invokeCommand("get_commits", {
         repoPath,
         refName: ref && ref.trim() ? ref : null,
         compareRefs: normalizedCompareRefs.length > 0 ? normalizedCompareRefs : null,
         offset,
-        limit
+        limit,
       });
     }
 
     const params = new URLSearchParams({
       repoPath,
       offset: String(offset),
-      limit: String(limit)
+      limit: String(limit),
     });
 
     if (ref && ref.trim()) {
-      params.set('ref', ref);
+      params.set("ref", ref);
     }
     const normalizedCompareRefs =
       compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
 
     for (const compareRef of normalizedCompareRefs) {
-      params.append('compareRef', compareRef);
+      params.append("compareRef", compareRef);
     }
 
     return request(`/commits?${params.toString()}`);
@@ -193,34 +194,47 @@ export const api = {
 
   getCommitDetail(repoPath: string, sha: string): Promise<CommitDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_commit_detail', { repoPath, sha });
+      return invokeCommand("get_commit_detail", { repoPath, sha });
     }
 
     const params = new URLSearchParams({ repoPath, sha });
     return request(`/commits/detail?${params.toString()}`);
   },
 
-  getCommitFileDiffDetail(repoPath: string, sha: string, file: string): Promise<CommitFileDiffDetail> {
+  getCommitFileDiffDetail(
+    repoPath: string,
+    sha: string,
+    file: string,
+  ): Promise<CommitFileDiffDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_commit_file_diff_detail', { repoPath, sha, file });
+      return invokeCommand("get_commit_file_diff_detail", { repoPath, sha, file });
     }
 
     const params = new URLSearchParams({ repoPath, sha, file });
     return request(`/commits/detail/file?${params.toString()}`);
   },
 
-  getBranchDiffDetail(repoPath: string, baseRef: string, targetRef: string): Promise<BranchDiffDetail> {
+  getBranchDiffDetail(
+    repoPath: string,
+    baseRef: string,
+    targetRef: string,
+  ): Promise<BranchDiffDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_branch_diff_detail', { repoPath, baseRef, targetRef });
+      return invokeCommand("get_branch_diff_detail", { repoPath, baseRef, targetRef });
     }
 
     const params = new URLSearchParams({ repoPath, baseRef, targetRef });
     return request(`/branches/diff?${params.toString()}`);
   },
 
-  getBranchDiffFileDetail(repoPath: string, baseRef: string, targetRef: string, file: string): Promise<BranchDiffFileDetail> {
+  getBranchDiffFileDetail(
+    repoPath: string,
+    baseRef: string,
+    targetRef: string,
+    file: string,
+  ): Promise<BranchDiffFileDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_branch_diff_file_detail', { repoPath, baseRef, targetRef, file });
+      return invokeCommand("get_branch_diff_file_detail", { repoPath, baseRef, targetRef, file });
     }
 
     const params = new URLSearchParams({ repoPath, baseRef, targetRef, file });
@@ -229,16 +243,20 @@ export const api = {
 
   getWorkingTreeStatus(repoPath: string): Promise<WorkingTreeStatus> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_working_tree_status', { repoPath });
+      return invokeCommand("get_working_tree_status", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
     return request(`/status?${params.toString()}`);
   },
 
-  getWorkingTreeDiffDetail(repoPath: string, file: string, area: WorkingTreeDiffArea): Promise<WorkingTreeDiffDetail> {
+  getWorkingTreeDiffDetail(
+    repoPath: string,
+    file: string,
+    area: WorkingTreeDiffArea,
+  ): Promise<WorkingTreeDiffDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_working_tree_diff_detail', { repoPath, file, area });
+      return invokeCommand("get_working_tree_diff_detail", { repoPath, file, area });
     }
 
     const params = new URLSearchParams({ repoPath, file, area });
@@ -247,40 +265,51 @@ export const api = {
 
   stageFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('stage_file', { repoPath, file });
+      return invokeCommand("stage_file", { repoPath, file });
     }
 
-    return request('/stage', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, file })
+    return request("/stage", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, file }),
     });
   },
 
   unstageFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('unstage_file', { repoPath, file });
+      return invokeCommand("unstage_file", { repoPath, file });
     }
 
-    return request('/unstage', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, file })
+    return request("/unstage", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, file }),
     });
   },
 
   stashFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('stash_file', { repoPath, file });
+      return invokeCommand("stash_file", { repoPath, file });
     }
 
-    return request('/stash', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, file })
+    return request("/stash", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, file }),
+    });
+  },
+
+  appendFileToStash(repoPath: string, stashId: string, file: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand("append_file_to_stash", { repoPath, stashId, file });
+    }
+
+    return request("/stashes/append-file", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, stashId, file }),
     });
   },
 
   getStashes(repoPath: string): Promise<{ stashes: StashEntry[] }> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_stashes', { repoPath });
+      return invokeCommand("get_stashes", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
@@ -289,16 +318,20 @@ export const api = {
 
   getStashDiffDetail(repoPath: string, stashId: string): Promise<StashDiffDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_stash_diff_detail', { repoPath, stashId });
+      return invokeCommand("get_stash_diff_detail", { repoPath, stashId });
     }
 
     const params = new URLSearchParams({ repoPath, stashId });
     return request(`/stashes/diff?${params.toString()}`);
   },
 
-  getStashDiffFileDetail(repoPath: string, stashId: string, file: string): Promise<StashDiffFileDetail> {
+  getStashDiffFileDetail(
+    repoPath: string,
+    stashId: string,
+    file: string,
+  ): Promise<StashDiffFileDetail> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_stash_diff_file_detail', { repoPath, stashId, file });
+      return invokeCommand("get_stash_diff_file_detail", { repoPath, stashId, file });
     }
 
     const params = new URLSearchParams({ repoPath, stashId, file });
@@ -307,98 +340,122 @@ export const api = {
 
   renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('rename_stash', { repoPath, stashId, message });
+      return invokeCommand("rename_stash", { repoPath, stashId, message });
     }
 
-    return request('/stashes/rename', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, stashId, message })
+    return request("/stashes/rename", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, stashId, message }),
     });
   },
 
   applyStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('apply_stash', { repoPath, stashId });
+      return invokeCommand("apply_stash", { repoPath, stashId });
     }
 
-    return request('/stashes/apply', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, stashId })
+    return request("/stashes/apply", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, stashId }),
     });
   },
 
   popStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('pop_stash', { repoPath, stashId });
+      return invokeCommand("pop_stash", { repoPath, stashId });
     }
 
-    return request('/stashes/pop', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, stashId })
+    return request("/stashes/pop", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, stashId }),
     });
   },
 
   checkout(repoPath: string, ref: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('checkout', { repoPath, reference: ref });
+      return invokeCommand("checkout", { repoPath, reference: ref });
     }
 
-    return request('/checkout', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, ref })
+    return request("/checkout", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, ref }),
     });
   },
 
-  mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<{ ok: boolean }> {
+  mergeBranches(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+  ): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('merge_branches', { repoPath, sourceBranch, targetBranch });
+      return invokeCommand("merge_branches", { repoPath, sourceBranch, targetBranch });
     }
 
-    return request('/branches/merge', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, sourceBranch, targetBranch })
+    return request("/branches/merge", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch }),
+    });
+  },
+
+  getPullStatus(repoPath: string): Promise<PullStatus> {
+    if (isTauriRuntime()) {
+      return invokeCommand("get_pull_status", { repoPath });
+    }
+
+    const params = new URLSearchParams({ repoPath });
+    return request(`/pull/status?${params.toString()}`);
+  },
+
+  pull(repoPath: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand("pull_current_branch", { repoPath });
+    }
+
+    return request("/pull", {
+      method: "POST",
+      body: JSON.stringify({ repoPath }),
     });
   },
 
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('create_branch', { repoPath, baseBranch, newBranch });
+      return invokeCommand("create_branch", { repoPath, baseBranch, newBranch });
     }
 
-    return request('/branches/create', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, baseBranch, newBranch })
+    return request("/branches/create", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, baseBranch, newBranch }),
     });
   },
 
   deleteBranch(
     repoPath: string,
     branchName: string,
-    branchType: 'local' | 'remote',
-    forceDelete = false
+    branchType: "local" | "remote",
+    forceDelete = false,
   ): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('delete_branch', { repoPath, branchName, branchType, forceDelete });
+      return invokeCommand("delete_branch", { repoPath, branchName, branchType, forceDelete });
     }
 
-    return request('/branches/delete', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, branchName, branchType, forceDelete })
+    return request("/branches/delete", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, branchName, branchType, forceDelete }),
     });
   },
 
   preparePullRequest(
     repoPath: string,
     sourceBranch: string,
-    targetBranch: string
+    targetBranch: string,
   ): Promise<PullRequestPreparation> {
     if (isTauriRuntime()) {
-      return invokeCommand('prepare_pull_request', { repoPath, sourceBranch, targetBranch });
+      return invokeCommand("prepare_pull_request", { repoPath, sourceBranch, targetBranch });
     }
 
-    return request('/pull-request/prepare', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, sourceBranch, targetBranch })
+    return request("/pull-request/prepare", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch }),
     });
   },
 
@@ -406,48 +463,48 @@ export const api = {
     repoPath: string,
     sourceBranch: string,
     targetBranch: string,
-    pushSourceBranch: boolean
+    pushSourceBranch: boolean,
   ): Promise<PullRequestResponse> {
     if (isTauriRuntime()) {
-      return invokeCommand('create_pull_request', {
+      return invokeCommand("create_pull_request", {
         repoPath,
         sourceBranch,
         targetBranch,
-        pushSourceBranch
+        pushSourceBranch,
       });
     }
 
-    return request('/pull-request', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, sourceBranch, targetBranch, pushSourceBranch })
+    return request("/pull-request", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, sourceBranch, targetBranch, pushSourceBranch }),
     });
   },
 
   commit(repoPath: string, title: string, description: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('commit', { repoPath, title, description });
+      return invokeCommand("commit", { repoPath, title, description });
     }
 
-    return request('/commit', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath, title, description })
+    return request("/commit", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, title, description }),
     });
   },
 
   push(repoPath: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('push', { repoPath });
+      return invokeCommand("push", { repoPath });
     }
 
-    return request('/push', {
-      method: 'POST',
-      body: JSON.stringify({ repoPath })
+    return request("/push", {
+      method: "POST",
+      body: JSON.stringify({ repoPath }),
     });
   },
 
   getFingerprint(repoPath: string): Promise<{ fingerprint: string }> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_fingerprint', { repoPath });
+      return invokeCommand("get_fingerprint", { repoPath });
     }
 
     const params = new URLSearchParams({ repoPath });
@@ -456,74 +513,74 @@ export const api = {
 
   getConfig(): Promise<AppConfig> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_config');
+      return invokeCommand("get_config");
     }
 
-    return request('/config');
+    return request("/config");
   },
 
   saveConfig(config: Partial<AppConfig>): Promise<{ ok: boolean; config?: AppConfig }> {
     if (isTauriRuntime()) {
-      return invokeCommand('save_config', { input: config });
+      return invokeCommand("save_config", { input: config });
     }
 
-    return request('/config', {
-      method: 'PUT',
-      body: JSON.stringify(config)
+    return request("/config", {
+      method: "PUT",
+      body: JSON.stringify(config),
     });
   },
 
   validateClaudeCodeToken(token: string): Promise<TokenValidationResult> {
     if (isTauriRuntime()) {
-      return invokeCommand('validate_claude_code_token', { token });
+      return invokeCommand("validate_claude_code_token", { token });
     }
 
-    return request('/config/validate-claude-code-token', {
-      method: 'POST',
-      body: JSON.stringify({ token })
+    return request("/config/validate-claude-code-token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
     });
   },
 
   validateOpenAiToken(token: string): Promise<TokenValidationResult> {
     if (isTauriRuntime()) {
-      return invokeCommand('validate_open_ai_token', { token });
+      return invokeCommand("validate_open_ai_token", { token });
     }
 
-    return request('/config/validate-openai-token', {
-      method: 'POST',
-      body: JSON.stringify({ token })
+    return request("/config/validate-openai-token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
     });
   },
 
   getOpenAiModels(token: string): Promise<OpenAiModelsResponse> {
     if (isTauriRuntime()) {
-      return invokeCommand('get_open_ai_models', { token });
+      return invokeCommand("get_open_ai_models", { token });
     }
 
-    return request('/config/openai-models', {
-      method: 'POST',
-      body: JSON.stringify({ token })
+    return request("/config/openai-models", {
+      method: "POST",
+      body: JSON.stringify({ token }),
     });
   },
 
   generateCommitMessage(
     repoPath: string,
     changedFiles: string[],
-    input?: Partial<AiGenerationConfig>
+    input?: Partial<AiGenerationConfig>,
   ): Promise<GeneratedCommitMessage> {
     const payload = {
       repoPath,
       changedFiles,
-      ...(input ?? {})
+      ...input,
     };
 
     if (isTauriRuntime()) {
-      return invokeCommand('generate_title', payload);
+      return invokeCommand("generate_title", { input: payload });
     }
 
-    return request('/generate-title', {
-      method: 'POST',
-      body: JSON.stringify(payload)
+    return request("/generate-title", {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
-  }
+  },
 };

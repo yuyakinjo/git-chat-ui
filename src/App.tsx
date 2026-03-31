@@ -1,9 +1,9 @@
-import { Cog, ExternalLink, FolderGit2, LayoutDashboard, Palette, Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { Cog, ExternalLink, FolderGit2, LayoutDashboard, Palette, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 
-import { ConfigView } from './components/ConfigView';
-import { ControllerView } from './components/ControllerView';
-import { DashboardView } from './components/DashboardView';
+import { ConfigView } from "./components/ConfigView";
+import { ControllerView } from "./components/ControllerView";
+import { DashboardView } from "./components/DashboardView";
 import {
   closeRepositoryTab,
   CONFIG_TAB_ID,
@@ -18,39 +18,41 @@ import {
   serializeAppSession,
   type AppTabId,
   type PersistedAppSession,
-  upsertRepositoryTab
-} from './lib/appTabs';
-import { api } from './lib/api';
+  upsertRepositoryTab,
+} from "./lib/appTabs";
+import { api } from "./lib/api";
 import {
   APP_THEME_OPTIONS,
   getAppThemeLabel,
   getNativeWindowAppearance,
   normalizeAppTheme,
-  type AppThemeId
-} from './lib/appTheme';
+  type AppThemeId,
+} from "./lib/appTheme";
 import {
   APP_SESSION_STORAGE_KEY,
   APP_THEME_STORAGE_KEY,
   getInitialLaunchState,
   getInitialPersistedAppSession,
-  pickAiGenerationConfig
-} from './lib/sessionInit';
-import type { AiGenerationConfig, AppConfig, Repository } from './types';
+  pickAiGenerationConfig,
+} from "./lib/sessionInit";
+import type { AiGenerationConfig, AppConfig, Repository } from "./types";
 
 export default function App(): JSX.Element {
   const [initialPersistedAppSession] = useState<PersistedAppSession>(getInitialPersistedAppSession);
   const [activeTabId, setActiveTabId] = useState<AppTabId>(DASHBOARD_TAB_ID);
   const [appTheme, setAppTheme] = useState<AppThemeId>(initialPersistedAppSession.appThemeId);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loadingRepositories, setLoadingRepositories] = useState(false);
   const [openRepositories, setOpenRepositories] = useState<Repository[]>([]);
   const [hasInitializedSession, setHasInitializedSession] = useState(false);
-  const [repositoryBranchLabels, setRepositoryBranchLabels] = useState<Record<string, string | null>>({});
+  const [repositoryBranchLabels, setRepositoryBranchLabels] = useState<
+    Record<string, string | null>
+  >({});
   const [hasVisitedConfig, setHasVisitedConfig] = useState(false);
   const [lastRepositoryPath, setLastRepositoryPath] = useState<string | null>(null);
   const [githubButtonUrl, setGithubButtonUrl] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string>('');
+  const [notice, setNotice] = useState<string>("");
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
 
@@ -58,26 +60,26 @@ export default function App(): JSX.Element {
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
   const activeRepository = useMemo(
     () => findRepositoryForTab(openRepositories, activeTabId),
-    [activeTabId, openRepositories]
+    [activeTabId, openRepositories],
   );
   const githubButtonRepository = useMemo(
     () => resolveGithubButtonRepository(openRepositories, activeTabId, lastRepositoryPath),
-    [activeTabId, lastRepositoryPath, openRepositories]
+    [activeTabId, lastRepositoryPath, openRepositories],
   );
   const configEscapeTabId = useMemo(
     () => resolveConfigEscapeTabId(openRepositories, lastRepositoryPath),
-    [lastRepositoryPath, openRepositories]
+    [lastRepositoryPath, openRepositories],
   );
   const activeThemeLabel = getAppThemeLabel(appTheme);
-  const isTauriDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  const isTauriDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   useEffect(() => {
-    if (typeof document !== 'undefined') {
+    if (typeof document !== "undefined") {
       document.body.dataset.theme = appTheme;
-      document.body.dataset.windowChrome = isTauriDesktop ? 'overlay-titlebar' : 'default';
+      document.body.dataset.windowChrome = isTauriDesktop ? "overlay-titlebar" : "default";
     }
 
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return;
     }
 
@@ -95,7 +97,7 @@ export default function App(): JSX.Element {
   }, [appTheme]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       setHasInitializedSession(true);
       return;
     }
@@ -104,7 +106,8 @@ export default function App(): JSX.Element {
     const repoPathsToRestore = launchState.repoPath
       ? [launchState.repoPath]
       : initialPersistedAppSession.openRepositoryPaths;
-    const preferredActiveTabId = launchState.activeTabIdOverride ?? initialPersistedAppSession.activeTabId;
+    const preferredActiveTabId =
+      launchState.activeTabIdOverride ?? initialPersistedAppSession.activeTabId;
 
     if (repoPathsToRestore.length === 0) {
       setActiveTabId(resolveRestoredActiveTabId([], preferredActiveTabId));
@@ -139,7 +142,9 @@ export default function App(): JSX.Element {
         const fallbackRepositories = repoPathsToRestore.map(createRepositoryStub);
         setOpenRepositories(fallbackRepositories);
         setActiveTabId(resolveRestoredActiveTabId(fallbackRepositories, preferredActiveTabId));
-        setNotice(error instanceof Error ? error.message : '前回開いていたリポジトリの復元に失敗しました。');
+        setNotice(
+          error instanceof Error ? error.message : "前回開いていたリポジトリの復元に失敗しました。",
+        );
       }
 
       if (active) {
@@ -160,11 +165,13 @@ export default function App(): JSX.Element {
         const config = await api.getConfig();
         if (active) {
           setAppConfig(config);
-          setAiGenerationConfig((current: AiGenerationConfig | null) => current ?? pickAiGenerationConfig(config));
+          setAiGenerationConfig(
+            (current: AiGenerationConfig | null) => current ?? pickAiGenerationConfig(config),
+          );
         }
       } catch (error) {
         if (active) {
-          setNotice(error instanceof Error ? error.message : '設定の読み込みに失敗しました。');
+          setNotice(error instanceof Error ? error.message : "設定の読み込みに失敗しました。");
         }
       }
     })();
@@ -179,7 +186,9 @@ export default function App(): JSX.Element {
       return;
     }
 
-    setLastRepositoryPath((current) => (current === activeRepository.path ? current : activeRepository.path));
+    setLastRepositoryPath((current) =>
+      current === activeRepository.path ? current : activeRepository.path,
+    );
   }, [activeRepository]);
 
   useEffect(() => {
@@ -210,12 +219,12 @@ export default function App(): JSX.Element {
   }, [githubButtonRepository]);
 
   useEffect(() => {
-    if (!isConfigActive || !configEscapeTabId || typeof window === 'undefined') {
+    if (!isConfigActive || !configEscapeTabId || typeof window === "undefined") {
       return;
     }
 
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) {
+      if (event.key !== "Escape" || event.defaultPrevented) {
         return;
       }
 
@@ -223,10 +232,10 @@ export default function App(): JSX.Element {
       setActiveTabId(configEscapeTabId);
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [configEscapeTabId, isConfigActive]);
 
@@ -246,7 +255,9 @@ export default function App(): JSX.Element {
         setRepositories(response.repositories);
       } catch (error) {
         if (active) {
-          setNotice(error instanceof Error ? error.message : 'リポジトリ一覧の取得に失敗しました。');
+          setNotice(
+            error instanceof Error ? error.message : "リポジトリ一覧の取得に失敗しました。",
+          );
         }
       } finally {
         if (active) {
@@ -267,7 +278,7 @@ export default function App(): JSX.Element {
     }
 
     const timer = setTimeout(() => {
-      setNotice('');
+      setNotice("");
     }, 3000);
 
     return () => clearTimeout(timer);
@@ -280,14 +291,14 @@ export default function App(): JSX.Element {
   }, [isConfigActive]);
 
   useEffect(() => {
-    if (!hasInitializedSession || typeof window === 'undefined') {
+    if (!hasInitializedSession || typeof window === "undefined") {
       return;
     }
 
     try {
       window.localStorage.setItem(
         APP_SESSION_STORAGE_KEY,
-        JSON.stringify(serializeAppSession(openRepositories, activeTabId, appTheme))
+        JSON.stringify(serializeAppSession(openRepositories, activeTabId, appTheme)),
       );
     } catch {
       // Ignore storage failures and keep the in-memory session.
@@ -316,17 +327,20 @@ export default function App(): JSX.Element {
     });
   };
 
-  const handleRepositoryBranchChange = useCallback((repoPath: string, branchName: string | null): void => {
-    const nextBranchLabel = getRepositoryTabBranchLabel(branchName);
-    setRepositoryBranchLabels((current) =>
-      current[repoPath] === nextBranchLabel
-        ? current
-        : {
-            ...current,
-            [repoPath]: nextBranchLabel
-          }
-    );
-  }, []);
+  const handleRepositoryBranchChange = useCallback(
+    (repoPath: string, branchName: string | null): void => {
+      const nextBranchLabel = getRepositoryTabBranchLabel(branchName);
+      setRepositoryBranchLabels((current) =>
+        current[repoPath] === nextBranchLabel
+          ? current
+          : {
+              ...current,
+              [repoPath]: nextBranchLabel,
+            },
+      );
+    },
+    [],
+  );
 
   const handleOpenGithubRepository = async (): Promise<void> => {
     if (!githubButtonUrl) {
@@ -336,7 +350,7 @@ export default function App(): JSX.Element {
     try {
       await api.openExternalUrl(githubButtonUrl);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'GitHub を開けませんでした。');
+      setNotice(error instanceof Error ? error.message : "GitHub を開けませんでした。");
     }
   };
 
@@ -348,7 +362,7 @@ export default function App(): JSX.Element {
           <div className="app-tabbar__lane">
             <button
               type="button"
-              className={`app-tab app-tab--browser ${isDashboardActive ? 'is-active' : ''}`}
+              className={`app-tab app-tab--browser ${isDashboardActive ? "is-active" : ""}`}
               onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
             >
               <LayoutDashboard size={16} />
@@ -362,7 +376,7 @@ export default function App(): JSX.Element {
               return (
                 <div
                   key={repository.path}
-                  className={`app-tab app-tab--browser app-tab--repository ${isActive ? 'is-active' : ''}`}
+                  className={`app-tab app-tab--browser app-tab--repository ${isActive ? "is-active" : ""}`}
                 >
                   <button
                     type="button"
@@ -374,7 +388,10 @@ export default function App(): JSX.Element {
                     <span className="app-tab__text">
                       <span className="app-tab__label">{repository.name}</span>
                       {branchLabel ? (
-                        <span className="app-tab__branch" title={`現在のチェックアウトブランチ: ${branchLabel}`}>
+                        <span
+                          className="app-tab__branch"
+                          title={`現在のチェックアウトブランチ: ${branchLabel}`}
+                        >
                           {branchLabel}
                         </span>
                       ) : null}
@@ -405,7 +422,10 @@ export default function App(): JSX.Element {
           </div>
 
           <div className="app-tabbar__actions">
-            <label className="app-theme-picker app-tab--utility" title={`Theme: ${activeThemeLabel}`}>
+            <label
+              className="app-theme-picker app-tab--utility"
+              title={`Theme: ${activeThemeLabel}`}
+            >
               <Palette size={15} className="app-theme-picker__icon" />
               <select
                 className="app-theme-picker__select"
@@ -427,8 +447,8 @@ export default function App(): JSX.Element {
               <button
                 type="button"
                 className="app-tab app-tab--utility app-tab--icon"
-                aria-label={`${githubButtonRepository?.name ?? 'Repository'} を GitHub で開く`}
-                title={`${githubButtonRepository?.name ?? 'Repository'} を GitHub で開く`}
+                aria-label={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
+                title={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
                 onClick={() => {
                   void handleOpenGithubRepository();
                 }}
@@ -438,7 +458,7 @@ export default function App(): JSX.Element {
             ) : null}
             <button
               type="button"
-              className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? 'is-active' : ''}`}
+              className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? "is-active" : ""}`}
               aria-label="Config"
               title="Config"
               onClick={() => setActiveTabId(CONFIG_TAB_ID)}
@@ -465,7 +485,12 @@ export default function App(): JSX.Element {
           const isActive = activeTabId === tabId;
 
           return (
-            <section key={repository.path} className="h-full" hidden={!isActive} aria-hidden={!isActive}>
+            <section
+              key={repository.path}
+              className="h-full"
+              hidden={!isActive}
+              aria-hidden={!isActive}
+            >
               <ControllerView
                 repository={repository}
                 appConfig={appConfig}

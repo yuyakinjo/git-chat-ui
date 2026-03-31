@@ -1,5 +1,5 @@
-export type WorkingTreeDropZone = 'staged' | 'unstaged' | 'stash';
-export type WorkingTreeDragSource = Exclude<WorkingTreeDropZone, 'stash'>;
+export type WorkingTreeDropZone = "staged" | "unstaged" | "stash";
+export type WorkingTreeDragSource = Exclude<WorkingTreeDropZone, "stash">;
 
 export interface WorkingTreeDragPayload {
   file: string;
@@ -16,37 +16,37 @@ export function canDropWorkingTreeFile(options: {
     return false;
   }
 
-  if (target === 'stash') {
+  if (target === "stash") {
     return true;
   }
 
-  if (target === 'staged') {
-    return payload.source === 'unstaged';
+  if (target === "staged") {
+    return payload.source === "unstaged";
   }
 
-  return payload.source === 'staged';
+  return payload.source === "staged";
 }
 
 export function getWorkingTreeDropActionLabel(target: WorkingTreeDropZone): string {
-  if (target === 'staged') {
-    return 'Stage';
+  if (target === "staged") {
+    return "Stage";
   }
 
-  if (target === 'unstaged') {
-    return 'Unstage';
+  if (target === "unstaged") {
+    return "Unstage";
   }
 
-  return 'Stash';
+  return "Stash";
 }
 
 export function getWorkingTreeDropZoneLabel(target: WorkingTreeDropZone): string {
-  if (target === 'staged') {
-    return 'Staged Files';
+  if (target === "staged") {
+    return "Staged Files";
   }
 
-  if (target === 'unstaged') {
-    return 'Unstaged Files';
+  if (target === "unstaged") {
+    return "Unstaged Files";
   }
 
-  return 'Stash Area';
+  return "Stash Area";
 }

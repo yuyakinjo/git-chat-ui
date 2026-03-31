@@ -1,7 +1,7 @@
-import { ArrowLeft, GitMerge, GitPullRequestArrow, X } from 'lucide-react';
-import { useEffect, type JSX } from 'react';
+import { ArrowLeft, GitMerge, GitPullRequestArrow, X } from "lucide-react";
+import { useEffect, type JSX } from "react";
 
-export type BranchActionDialogStep = 'select-action' | 'confirm-push';
+export type BranchActionDialogStep = "select-action" | "confirm-push";
 
 interface BranchActionDialogProps {
   sourceBranchName: string;
@@ -26,18 +26,18 @@ export function BranchActionDialog({
   onMerge,
   onPreparePullRequest,
   onConfirmPushAndCreatePullRequest,
-  onBack
+  onBack,
 }: BranchActionDialogProps): JSX.Element {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === "Escape" && !busy) {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [busy, onClose]);
 
@@ -56,9 +56,9 @@ export function BranchActionDialog({
               {sourceBranchName} -&gt; {targetBranchName}
             </div>
             <div className="mt-1 text-sm text-ink-subtle">
-              {step === 'select-action'
-                ? 'ドロップしたブランチに対して進める操作を選んでください。'
-                : 'source branch を push してから Pull Request を作成します。'}
+              {step === "select-action"
+                ? "ドロップしたブランチに対して進める操作を選んでください。"
+                : "source branch を push してから Pull Request を作成します。"}
             </div>
           </div>
 
@@ -74,12 +74,12 @@ export function BranchActionDialog({
           </button>
         </div>
 
-        {step === 'select-action' ? (
+        {step === "select-action" ? (
           <div className="space-y-3">
             <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
               <div className="font-semibold text-ink">Merge</div>
               <div className="mt-1">
-                <span className="font-medium text-ink">{sourceBranchName}</span> を{' '}
+                <span className="font-medium text-ink">{sourceBranchName}</span> を{" "}
                 <span className="font-medium text-ink">{targetBranchName}</span> に取り込みます。
               </div>
             </div>
@@ -110,7 +110,12 @@ export function BranchActionDialog({
               </div>
             ) : null}
             <div className="mt-auto flex items-center justify-end gap-2">
-              <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={onClose}
+                disabled={busy}
+              >
                 Cancel
               </button>
               <button
@@ -138,16 +143,28 @@ export function BranchActionDialog({
             <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
               <div className="font-semibold text-ink">Push Required</div>
               <div className="mt-1 leading-6">
-                <span className="font-medium text-ink">{sourceBranchName}</span> は remote に未反映です。
+                <span className="font-medium text-ink">{sourceBranchName}</span> は remote
+                に未反映です。
                 <br />
-                push してから <span className="font-medium text-ink">{targetBranchName}</span> 向けの Pull Request を作成します。
+                push してから <span className="font-medium text-ink">{targetBranchName}</span>{" "}
+                向けの Pull Request を作成します。
               </div>
             </div>
             <div className="mt-auto flex items-center justify-end gap-2">
-              <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={onClose}
+                disabled={busy}
+              >
                 Cancel
               </button>
-              <button type="button" className="button button-secondary" onClick={onBack} disabled={busy}>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={onBack}
+                disabled={busy}
+              >
                 Back
               </button>
               <button

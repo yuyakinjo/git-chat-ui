@@ -12,5 +12,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["vite.config.ts", "server/**/*.ts", "test/server/**/*.ts", "src/lib/commitTitlePrompt.ts"]
+  "include": [
+    "vite.config.ts",
+    "server/**/*.ts",
+    "shared/**/*.ts",
+    "test/server/**/*.ts",
+    "src/lib/commitTitlePrompt.ts"
+  ]
 }

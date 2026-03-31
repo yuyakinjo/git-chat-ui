@@ -1,5 +1,5 @@
-import { GitBranch, Plus, X } from 'lucide-react';
-import { useEffect, useState, type JSX } from 'react';
+import { GitBranch, Plus, X } from "lucide-react";
+import { useEffect, useState, type JSX } from "react";
 
 interface BranchCreateDialogProps {
   baseBranchName: string;
@@ -12,21 +12,21 @@ export function BranchCreateDialog({
   baseBranchName,
   busy,
   onClose,
-  onCreate
+  onCreate,
 }: BranchCreateDialogProps): JSX.Element {
-  const [branchName, setBranchName] = useState('');
+  const [branchName, setBranchName] = useState("");
   const normalizedBranchName = branchName.trim();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === "Escape" && !busy) {
         onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [busy, onClose]);
 
@@ -76,10 +76,12 @@ export function BranchCreateDialog({
                 <GitBranch size={15} />
                 <span>Base Branch</span>
               </div>
-              <div className="mt-2 break-all text-base font-semibold text-ink">{baseBranchName}</div>
+              <div className="mt-2 break-all text-base font-semibold text-ink">
+                {baseBranchName}
+              </div>
               <div className="mt-2 leading-6">
-                <span className="font-medium text-ink">{baseBranchName}</span> を起点に branch を作成します。作成後の
-                checkout は行いません。
+                <span className="font-medium text-ink">{baseBranchName}</span> を起点に branch
+                を作成します。作成後の checkout は行いません。
               </div>
             </div>
 
@@ -103,7 +105,12 @@ export function BranchCreateDialog({
           </div>
 
           <div className="mt-3 flex items-center justify-end gap-2 pt-1 sm:mt-4 sm:pt-2">
-            <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={onClose}
+              disabled={busy}
+            >
               Cancel
             </button>
             <button
@@ -112,7 +119,7 @@ export function BranchCreateDialog({
               disabled={busy || !normalizedBranchName}
             >
               <Plus size={14} />
-              {busy ? 'Creating...' : 'Create Branch'}
+              {busy ? "Creating..." : "Create Branch"}
             </button>
           </div>
         </form>

@@ -2,8 +2,8 @@ import type {
   DiffSyntaxToken,
   DiffSyntaxWorkerRequestItem,
   DiffSyntaxWorkerRequestMessage,
-  DiffSyntaxWorkerResponseMessage
-} from './diffSyntax';
+  DiffSyntaxWorkerResponseMessage,
+} from "./diffSyntax";
 
 const tokenCache = new Map<string, DiffSyntaxToken[]>();
 
@@ -20,7 +20,7 @@ const pendingRequests = new Map<
 >();
 
 export function canUseDiffSyntaxWorker(): boolean {
-  return !workerFailed && typeof window !== 'undefined' && typeof Worker !== 'undefined';
+  return !workerFailed && typeof window !== "undefined" && typeof Worker !== "undefined";
 }
 
 export function readCachedDiffSyntaxTokens(cacheKey: string): DiffSyntaxToken[] | null {
@@ -28,10 +28,10 @@ export function readCachedDiffSyntaxTokens(cacheKey: string): DiffSyntaxToken[] 
 }
 
 export function requestDiffSyntaxTokens(
-  items: DiffSyntaxWorkerRequestItem[]
+  items: DiffSyntaxWorkerRequestItem[],
 ): Promise<Record<string, DiffSyntaxToken[]>> {
   const missingItems = [...new Map(items.map((item) => [item.cacheKey, item])).values()].filter(
-    (item) => !tokenCache.has(item.cacheKey)
+    (item) => !tokenCache.has(item.cacheKey),
   );
 
   if (missingItems.length === 0) {
@@ -39,7 +39,7 @@ export function requestDiffSyntaxTokens(
   }
 
   if (!canUseDiffSyntaxWorker()) {
-    return Promise.reject(new Error('Diff syntax worker is unavailable.'));
+    return Promise.reject(new Error("Diff syntax worker is unavailable."));
   }
 
   const requestId = nextRequestId;
@@ -47,7 +47,7 @@ export function requestDiffSyntaxTokens(
 
   const message: DiffSyntaxWorkerRequestMessage = {
     requestId,
-    items: missingItems
+    items: missingItems,
   };
 
   return new Promise<Record<string, DiffSyntaxToken[]>>((resolve, reject) => {
@@ -76,8 +76,8 @@ function getWorker(): Worker {
     return worker;
   }
 
-  worker = new Worker(new URL('../workers/diffSyntax.worker.ts', import.meta.url), {
-    type: 'module'
+  worker = new Worker(new URL("../workers/diffSyntax.worker.ts", import.meta.url), {
+    type: "module",
   });
   worker.onmessage = handleWorkerMessage;
   worker.onerror = handleWorkerError;
@@ -93,14 +93,14 @@ function handleWorkerMessage(event: MessageEvent<DiffSyntaxWorkerResponseMessage
 
   pendingRequests.delete(event.data.requestId);
   pending.resolve(
-    Object.fromEntries(event.data.items.map((item) => [item.cacheKey, item.tokens] as const))
+    Object.fromEntries(event.data.items.map((item) => [item.cacheKey, item.tokens] as const)),
   );
 }
 
 function handleWorkerError(event: ErrorEvent): void {
   workerFailed = true;
 
-  const error = event.error ?? new Error(event.message || 'Diff syntax worker failed.');
+  const error = event.error ?? new Error(event.message || "Diff syntax worker failed.");
   for (const pending of pendingRequests.values()) {
     pending.reject(error);
   }

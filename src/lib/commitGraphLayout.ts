@@ -56,7 +56,7 @@ export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
     } else {
       const primaryParent = parentShas[0];
       const existingPrimaryParentLaneIndex = activeLanes.findIndex(
-        (sha, index) => index !== laneIndex && sha === primaryParent
+        (sha, index) => index !== laneIndex && sha === primaryParent,
       );
       if (existingPrimaryParentLaneIndex !== -1) {
         primaryParentLaneIndex = existingPrimaryParentLaneIndex;
@@ -80,7 +80,8 @@ export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
     const laneSet = new Set<number>([...before, ...after, laneIndex]);
     const activeLaneIndices = [...laneSet].sort((left, right) => left - right);
 
-    const mergeMax = mergeTargetLaneIndices.length > 0 ? Math.max(...mergeTargetLaneIndices) + 1 : 0;
+    const mergeMax =
+      mergeTargetLaneIndices.length > 0 ? Math.max(...mergeTargetLaneIndices) + 1 : 0;
     maxLanes = Math.max(maxLanes, activeLanes.length, laneIndex + 1, mergeMax);
 
     rows.push({
@@ -89,12 +90,12 @@ export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
       incomingLaneIndices,
       outgoingLaneIndices: after,
       primaryParentLaneIndex,
-      mergeTargetLaneIndices
+      mergeTargetLaneIndices,
     });
   }
 
   return {
     rows,
-    maxLanes
+    maxLanes,
   };
 }

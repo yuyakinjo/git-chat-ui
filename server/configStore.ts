@@ -1,38 +1,28 @@
-import { execFile } from 'node:child_process';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { promisify } from 'node:util';
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 
-import { DEFAULT_COMMIT_TITLE_PROMPT, resolveCommitTitlePrompt } from '../src/lib/commitTitlePrompt.js';
-import type { AppConfig, CommitGraphMode } from './types.js';
+import { resolveCommitTitlePrompt } from "../shared/ai.js";
+import { DEFAULT_APP_CONFIG } from "../shared/config.js";
+import type { AppConfig, CommitGraphMode } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
-const CONFIG_DIR = path.join(os.homedir(), '.git-chat-ui');
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+const CONFIG_DIR = path.join(os.homedir(), ".git-chat-ui");
+const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
-const KEYCHAIN_ACCOUNT = 'git-chat-ui';
-const KEYCHAIN_SERVICE_OPENAI = 'git-chat-ui.openai-token';
-const KEYCHAIN_SERVICE_CLAUDE = 'git-chat-ui.claudecode-token';
-const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
+const KEYCHAIN_ACCOUNT = "git-chat-ui";
+const KEYCHAIN_SERVICE_OPENAI = "git-chat-ui.openai-token";
+const KEYCHAIN_SERVICE_CLAUDE = "git-chat-ui.claudecode-token";
 
-const DEFAULT_CONFIG: AppConfig = {
-  openAiToken: '',
-  openAiModel: DEFAULT_OPENAI_MODEL,
-  claudeCodeToken: '',
-  selectedAiProvider: 'openAi',
-  commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
-  commitGraphMode: 'detailed',
-  repositoryScanDepth: 4,
-  recentlyUsed: [],
-  windowState: null
-};
+const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_APP_CONFIG };
 
 function normalizeCommitGraphMode(value: unknown): CommitGraphMode {
-  if (value === 'simple' || value === 'detailed') {
+  if (value === "simple" || value === "detailed") {
     return value;
   }
 
@@ -40,7 +30,7 @@ function normalizeCommitGraphMode(value: unknown): CommitGraphMode {
 }
 
 function normalizeRepositoryScanDepth(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_CONFIG.repositoryScanDepth;
   }
 
@@ -48,9 +38,7 @@ function normalizeRepositoryScanDepth(value: unknown): number {
   return Math.min(Math.max(rounded, MIN_REPOSITORY_SCAN_DEPTH), MAX_REPOSITORY_SCAN_DEPTH);
 }
 
-function normalizeRecentlyUsed(
-  value: unknown
-): Array<{
+function normalizeRecentlyUsed(value: unknown): Array<{
   path: string;
   usedAt: string;
 }> {
@@ -59,28 +47,31 @@ function normalizeRecentlyUsed(
   }
 
   return value
-    .filter((item): item is { path: unknown; usedAt: unknown } => typeof item === 'object' && item !== null)
+    .filter(
+      (item): item is { path: unknown; usedAt: unknown } =>
+        typeof item === "object" && item !== null,
+    )
     .filter(
       (item): item is { path: string; usedAt: string } =>
-        typeof item.path === 'string' && typeof item.usedAt === 'string'
+        typeof item.path === "string" && typeof item.usedAt === "string",
     )
     .map((item) => ({
       path: item.path,
-      usedAt: item.usedAt
+      usedAt: item.usedAt,
     }));
 }
 
-function normalizeWindowState(value: unknown): AppConfig['windowState'] {
-  if (typeof value !== 'object' || value === null) {
+function normalizeWindowState(value: unknown): AppConfig["windowState"] {
+  if (typeof value !== "object" || value === null) {
     return null;
   }
 
-  const candidate = value as Partial<NonNullable<AppConfig['windowState']>>;
+  const candidate = value as Partial<NonNullable<AppConfig["windowState"]>>;
   if (
-    typeof candidate.x !== 'number' ||
-    typeof candidate.y !== 'number' ||
-    typeof candidate.width !== 'number' ||
-    typeof candidate.height !== 'number'
+    typeof candidate.x !== "number" ||
+    typeof candidate.y !== "number" ||
+    typeof candidate.width !== "number" ||
+    typeof candidate.height !== "number"
   ) {
     return null;
   }
@@ -90,12 +81,12 @@ function normalizeWindowState(value: unknown): AppConfig['windowState'] {
     y: Math.round(candidate.y),
     width: Math.max(1200, Math.round(candidate.width)),
     height: Math.max(760, Math.round(candidate.height)),
-    isMaximized: candidate.isMaximized === true
+    isMaximized: candidate.isMaximized === true,
   };
 }
 
-function normalizeSelectedAiProvider(value: unknown): AppConfig['selectedAiProvider'] {
-  if (value === 'openAi' || value === 'claudeCode') {
+function normalizeSelectedAiProvider(value: unknown): AppConfig["selectedAiProvider"] {
+  if (value === "openAi" || value === "claudeCode") {
     return value;
   }
 
@@ -103,7 +94,7 @@ function normalizeSelectedAiProvider(value: unknown): AppConfig['selectedAiProvi
 }
 
 function normalizeOpenAiModel(value: unknown): string {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return DEFAULT_CONFIG.openAiModel;
   }
 
@@ -112,26 +103,29 @@ function normalizeOpenAiModel(value: unknown): string {
 }
 
 function normalizeCommitTitlePrompt(value: unknown): string {
-  return resolveCommitTitlePrompt(typeof value === 'string' ? value : undefined);
+  return resolveCommitTitlePrompt(typeof value === "string" ? value : undefined);
 }
 
 function normalizeConfig(value: Partial<AppConfig>): AppConfig {
   return {
-    openAiToken: typeof value.openAiToken === 'string' ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
+    openAiToken:
+      typeof value.openAiToken === "string" ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
     openAiModel: normalizeOpenAiModel(value.openAiModel),
     claudeCodeToken:
-      typeof value.claudeCodeToken === 'string' ? value.claudeCodeToken : DEFAULT_CONFIG.claudeCodeToken,
+      typeof value.claudeCodeToken === "string"
+        ? value.claudeCodeToken
+        : DEFAULT_CONFIG.claudeCodeToken,
     selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
     recentlyUsed: normalizeRecentlyUsed(value.recentlyUsed),
-    windowState: normalizeWindowState(value.windowState)
+    windowState: normalizeWindowState(value.windowState),
   };
 }
 
 function isMacos(): boolean {
-  return process.platform === 'darwin';
+  return process.platform === "darwin";
 }
 
 async function readTokenFromKeychain(service: string): Promise<string | undefined> {
@@ -140,13 +134,13 @@ async function readTokenFromKeychain(service: string): Promise<string | undefine
   }
 
   try {
-    const { stdout } = await execFileAsync('security', [
-      'find-generic-password',
-      '-a',
+    const { stdout } = await execFileAsync("security", [
+      "find-generic-password",
+      "-a",
       KEYCHAIN_ACCOUNT,
-      '-s',
+      "-s",
       service,
-      '-w'
+      "-w",
     ]);
 
     const token = stdout.trim();
@@ -162,15 +156,15 @@ async function setTokenToKeychain(service: string, token: string): Promise<boole
   }
 
   try {
-    await execFileAsync('security', [
-      'add-generic-password',
-      '-a',
+    await execFileAsync("security", [
+      "add-generic-password",
+      "-a",
       KEYCHAIN_ACCOUNT,
-      '-s',
+      "-s",
       service,
-      '-w',
+      "-w",
       token,
-      '-U'
+      "-U",
     ]);
     return true;
   } catch {
@@ -184,7 +178,13 @@ async function deleteTokenFromKeychain(service: string): Promise<void> {
   }
 
   try {
-    await execFileAsync('security', ['delete-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', service]);
+    await execFileAsync("security", [
+      "delete-generic-password",
+      "-a",
+      KEYCHAIN_ACCOUNT,
+      "-s",
+      service,
+    ]);
   } catch {
     // ignore if not found
   }
@@ -194,20 +194,20 @@ export async function readConfig(): Promise<AppConfig> {
   let config: AppConfig;
 
   try {
-    const raw = await fs.readFile(CONFIG_PATH, 'utf8');
+    const raw = await fs.readFile(CONFIG_PATH, "utf8");
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
     config = normalizeConfig(parsed);
   } catch {
     config = {
       ...DEFAULT_CONFIG,
-      recentlyUsed: []
+      recentlyUsed: [],
     };
   }
 
   if (isMacos()) {
     const [openAiToken, claudeCodeToken] = await Promise.all([
       readTokenFromKeychain(KEYCHAIN_SERVICE_OPENAI),
-      readTokenFromKeychain(KEYCHAIN_SERVICE_CLAUDE)
+      readTokenFromKeychain(KEYCHAIN_SERVICE_CLAUDE),
     ]);
 
     if (openAiToken) {
@@ -229,21 +229,21 @@ export async function writeConfig(nextConfig: AppConfig): Promise<void> {
   if (isMacos()) {
     if (normalized.openAiToken.trim().length === 0) {
       await deleteTokenFromKeychain(KEYCHAIN_SERVICE_OPENAI);
-      persisted.openAiToken = '';
+      persisted.openAiToken = "";
     } else if (await setTokenToKeychain(KEYCHAIN_SERVICE_OPENAI, normalized.openAiToken)) {
-      persisted.openAiToken = '';
+      persisted.openAiToken = "";
     }
 
     if (normalized.claudeCodeToken.trim().length === 0) {
       await deleteTokenFromKeychain(KEYCHAIN_SERVICE_CLAUDE);
-      persisted.claudeCodeToken = '';
+      persisted.claudeCodeToken = "";
     } else if (await setTokenToKeychain(KEYCHAIN_SERVICE_CLAUDE, normalized.claudeCodeToken)) {
-      persisted.claudeCodeToken = '';
+      persisted.claudeCodeToken = "";
     }
   }
 
   await fs.mkdir(CONFIG_DIR, { recursive: true });
-  await fs.writeFile(CONFIG_PATH, JSON.stringify(persisted, null, 2), 'utf8');
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(persisted, null, 2), "utf8");
 }
 
 export async function setRecentlyUsedRepository(repoPath: string): Promise<void> {
@@ -255,7 +255,7 @@ export async function setRecentlyUsedRepository(repoPath: string): Promise<void>
 
   const updated: AppConfig = {
     ...current,
-    recentlyUsed: filtered.slice(0, 30)
+    recentlyUsed: filtered.slice(0, 30),
   };
 
   await writeConfig(updated);

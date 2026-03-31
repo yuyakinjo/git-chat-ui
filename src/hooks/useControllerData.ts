@@ -1,65 +1,62 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api } from '../lib/api';
+import { api } from "../lib/api";
 import {
   canCompareCurrentBranch,
   getBranchDiffBaseLabel,
   getBranchDiffButtonLabel,
   isCurrentBranchDiffDetail,
-  resolveBranchDiffBaseBranch
-} from '../lib/branchDiff';
-import { getCommitMessageFiles } from '../lib/commitMessage';
+  resolveBranchDiffBaseBranch,
+} from "../lib/branchDiff";
+import { getCommitMessageFiles } from "../lib/commitMessage";
 import {
   readCommitMessageDraftFromStorage,
   writeCommitMessageDraftToStorage,
-  type CommitMessageDraftInput
-} from '../lib/commitMessageDrafts';
-import {
-  isHeadDecoration,
-  resolveCompareRefs,
-  resolveLogRef
-} from '../lib/controllerViewUtils';
-import { describeGitError } from '../lib/errors';
-import { getSelfMutationBlockedReason } from '../lib/repositoryMutationSafety';
+  type CommitMessageDraftInput,
+} from "../lib/commitMessageDrafts";
+import { isHeadDecoration, resolveCompareRefs, resolveLogRef } from "../lib/controllerViewUtils";
+import { describeGitError } from "../lib/errors";
+import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
   CommitListItem,
+  PullStatus,
   RepositoryMutationSafety,
   StashDiffDetail,
   StashEntry,
   WorkingTreeDiffArea,
   WorkingTreeDiffDetail,
-  WorkingTreeStatus
-} from '../types';
-import type { UiError } from '../lib/errors';
+  WorkingTreeStatus,
+} from "../types";
+import type { UiError } from "../lib/errors";
 
-export type { UseControllerDataParams, UseControllerDataResult } from './useControllerDataTypes';
-import type { UseControllerDataParams, UseControllerDataResult } from './useControllerDataTypes';
+export type { UseControllerDataParams, UseControllerDataResult } from "./useControllerDataTypes";
+import type { UseControllerDataParams, UseControllerDataResult } from "./useControllerDataTypes";
 
 function readInitialCommitMessageDraft(repoPath: string): {
   title: string;
   description: string;
 } {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return {
-      title: '',
-      description: ''
+      title: "",
+      description: "",
     };
   }
 
   try {
     const draft = readCommitMessageDraftFromStorage(window.localStorage, repoPath);
     return {
-      title: draft?.title ?? '',
-      description: draft?.description ?? ''
+      title: draft?.title ?? "",
+      description: draft?.description ?? "",
     };
   } catch {
     return {
-      title: '',
-      description: ''
+      title: "",
+      description: "",
     };
   }
 }
@@ -68,11 +65,14 @@ export function useControllerData({
   repoPath,
   appConfig,
   onNotify,
-  onCurrentBranchChange
+  onCurrentBranchChange,
 }: UseControllerDataParams): UseControllerDataResult {
-  const initialCommitMessageDraft = useMemo(() => readInitialCommitMessageDraft(repoPath), [repoPath]);
+  const initialCommitMessageDraft = useMemo(
+    () => readInitialCommitMessageDraft(repoPath),
+    [repoPath],
+  );
   const [branches, setBranches] = useState<BranchResponse | null>(null);
-  const [activeLogRef, setActiveLogRef] = useState<string>('HEAD');
+  const [activeLogRef, setActiveLogRef] = useState<string>("HEAD");
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
   const [commits, setCommits] = useState<CommitListItem[]>([]);
@@ -91,7 +91,9 @@ export function useControllerData({
     file: string;
     area: WorkingTreeDiffArea;
   } | null>(null);
-  const [workingTreeDiffDetail, setWorkingTreeDiffDetail] = useState<WorkingTreeDiffDetail | null>(null);
+  const [workingTreeDiffDetail, setWorkingTreeDiffDetail] = useState<WorkingTreeDiffDetail | null>(
+    null,
+  );
   const [loadingWorkingTreeDiffDetail, setLoadingWorkingTreeDiffDetail] = useState(false);
   const [focusedStash, setFocusedStash] = useState<StashEntry | null>(null);
   const [stashDiffDetail, setStashDiffDetail] = useState<StashDiffDetail | null>(null);
@@ -99,17 +101,21 @@ export function useControllerData({
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
+  const [pullStatus, setPullStatus] = useState<PullStatus | null>(null);
   const [operationBusy, setOperationBusy] = useState(false);
 
   const [commitTitle, setCommitTitleState] = useState(initialCommitMessageDraft.title);
-  const [commitDescription, setCommitDescriptionState] = useState(initialCommitMessageDraft.description);
-  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>('detailed');
+  const [commitDescription, setCommitDescriptionState] = useState(
+    initialCommitMessageDraft.description,
+  );
+  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>("detailed");
   const [inlineError, setInlineError] = useState<UiError | null>(null);
 
-  const [fingerprint, setFingerprint] = useState<string>('');
-  const [repositoryMutationSafety, setRepositoryMutationSafety] = useState<RepositoryMutationSafety>({
-    isSelfRepository: false
-  });
+  const [fingerprint, setFingerprint] = useState<string>("");
+  const [repositoryMutationSafety, setRepositoryMutationSafety] =
+    useState<RepositoryMutationSafety>({
+      isSelfRepository: false,
+    });
   const refreshLockRef = useRef(false);
   const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
@@ -118,17 +124,24 @@ export function useControllerData({
   const currentBranchName = branches?.current ?? null;
   const currentLocalBranch = useMemo(
     () => branches?.local.find((branch) => branch.name === branches?.current) ?? null,
-    [branches]
+    [branches],
   );
   const branchDiffBaseBranch = useMemo(() => resolveBranchDiffBaseBranch(branches), [branches]);
   const branchDiffBaseLabel = getBranchDiffBaseLabel(branchDiffBaseBranch);
   const showBranchDiffButton = canCompareCurrentBranch(currentLocalBranch, branchDiffBaseBranch);
-  const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(branchDiffDetail, branchDiffBaseBranch, currentLocalBranch);
+  const branchDiffMatchesCurrentBranch = isCurrentBranchDiffDetail(
+    branchDiffDetail,
+    branchDiffBaseBranch,
+    currentLocalBranch,
+  );
   const branchDiffButtonLabel = getBranchDiffButtonLabel(branchDiffBaseLabel);
-  const selfMutationBlockedReason = getSelfMutationBlockedReason(import.meta.env.DEV, repositoryMutationSafety);
+  const selfMutationBlockedReason = getSelfMutationBlockedReason(
+    import.meta.env.DEV,
+    repositoryMutationSafety,
+  );
 
   const checkedOutCommitSha = useMemo(() => {
-    if (branches?.current && branches.current !== 'HEAD') {
+    if (branches?.current && branches.current !== "HEAD") {
       const currentBranch = branches.local.find((branch) => branch.name === branches.current);
       if (currentBranch?.commit) {
         return currentBranch.commit;
@@ -141,24 +154,27 @@ export function useControllerData({
 
   const commitMessageFiles = useMemo(() => getCommitMessageFiles(workingStatus), [workingStatus]);
 
-  const persistCommitMessageDraft = useCallback((draft: CommitMessageDraftInput): void => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+  const persistCommitMessageDraft = useCallback(
+    (draft: CommitMessageDraftInput): void => {
+      if (typeof window === "undefined") {
+        return;
+      }
 
-    try {
-      writeCommitMessageDraftToStorage(window.localStorage, repoPath, draft);
-    } catch {
-      // Ignore storage failures and keep the in-memory draft.
-    }
-  }, [repoPath]);
+      try {
+        writeCommitMessageDraftToStorage(window.localStorage, repoPath, draft);
+      } catch {
+        // Ignore storage failures and keep the in-memory draft.
+      }
+    },
+    [repoPath],
+  );
 
   const applyCommitMessageDraft = useCallback(
     (
       draft: CommitMessageDraftInput,
       options: {
         persist?: boolean;
-      } = {}
+      } = {},
     ): void => {
       commitMessageDraftRef.current = draft;
       setCommitTitleState(draft.title);
@@ -170,33 +186,33 @@ export function useControllerData({
 
       persistCommitMessageDraft(draft);
     },
-    [persistCommitMessageDraft]
+    [persistCommitMessageDraft],
   );
 
   const setCommitTitle = useCallback(
     (title: string): void => {
       applyCommitMessageDraft({
         title,
-        description: commitMessageDraftRef.current.description
+        description: commitMessageDraftRef.current.description,
       });
     },
-    [applyCommitMessageDraft]
+    [applyCommitMessageDraft],
   );
 
   const setCommitDescription = useCallback(
     (description: string): void => {
       applyCommitMessageDraft({
         title: commitMessageDraftRef.current.title,
-        description
+        description,
       });
     },
-    [applyCommitMessageDraft]
+    [applyCommitMessageDraft],
   );
 
   const clearCommitMessageDraft = useCallback((): void => {
     applyCommitMessageDraft({
-      title: '',
-      description: ''
+      title: "",
+      description: "",
     });
   }, [applyCommitMessageDraft]);
 
@@ -206,7 +222,7 @@ export function useControllerData({
       setInlineError(nextError);
       onNotify(nextError.title);
     },
-    [onNotify]
+    [onNotify],
   );
 
   const reportBlockedMutation = useCallback(
@@ -217,13 +233,13 @@ export function useControllerData({
 
       const nextError: UiError = {
         title,
-        detail: selfMutationBlockedReason
+        detail: selfMutationBlockedReason,
       };
       setInlineError(nextError);
       onNotify(title);
       return true;
     },
-    [onNotify, selfMutationBlockedReason]
+    [onNotify, selfMutationBlockedReason],
   );
 
   const loadCommitDetail = useCallback(
@@ -233,12 +249,12 @@ export function useControllerData({
         const detail = await api.getCommitDetail(repoPath, sha);
         setCommitDetail(detail);
       } catch (error) {
-        reportError(error, 'コミット詳細の取得に失敗しました。');
+        reportError(error, "コミット詳細の取得に失敗しました。");
       } finally {
         setLoadingCommitDetail(false);
       }
     },
-    [repoPath, reportError]
+    [repoPath, reportError],
   );
 
   const loadBranchDiffDetail = useCallback(async (): Promise<void> => {
@@ -253,11 +269,11 @@ export function useControllerData({
       const detail = await api.getBranchDiffDetail(
         repoPath,
         branchDiffBaseBranch.fullRef || branchDiffBaseBranch.name,
-        currentLocalBranch.fullRef || currentLocalBranch.name
+        currentLocalBranch.fullRef || currentLocalBranch.name,
       );
       setBranchDiffDetail(detail);
     } catch (error) {
-      reportError(error, 'ブランチ差分の取得に失敗しました。');
+      reportError(error, "ブランチ差分の取得に失敗しました。");
     } finally {
       setLoadingBranchDiffDetail(false);
     }
@@ -303,14 +319,14 @@ export function useControllerData({
         }
 
         setWorkingTreeDiffDetail(null);
-        reportError(error, '作業ツリー差分の取得に失敗しました。');
+        reportError(error, "作業ツリー差分の取得に失敗しました。");
       } finally {
         if (workingTreeDiffRequestKeyRef.current === requestKey) {
           setLoadingWorkingTreeDiffDetail(false);
         }
       }
     },
-    [repoPath, reportError]
+    [repoPath, reportError],
   );
 
   const loadStashDiffDetail = useCallback(
@@ -342,14 +358,14 @@ export function useControllerData({
         }
 
         setStashDiffDetail(null);
-        reportError(error, 'stash 差分の取得に失敗しました。');
+        reportError(error, "stash 差分の取得に失敗しました。");
       } finally {
         if (stashDiffRequestKeyRef.current === requestKey) {
           setLoadingStashDiffDetail(false);
         }
       }
     },
-    [closeWorkingTreeDiffOverlay, repoPath, reportError]
+    [closeWorkingTreeDiffOverlay, repoPath, reportError],
   );
 
   const loadCommits = useCallback(
@@ -367,7 +383,7 @@ export function useControllerData({
       }
 
       try {
-        const normalizedRef = options.ref.trim() || 'HEAD';
+        const normalizedRef = options.ref.trim() || "HEAD";
         const normalizedCompareRefs = (options.compareRefs ?? [])
           .map((ref) => ref.trim())
           .filter((ref) => ref.length > 0 && ref !== normalizedRef);
@@ -379,12 +395,16 @@ export function useControllerData({
         let nextCommits = initial.commits;
         let nextHasMore = initial.hasMore;
 
-        const focusCommitSha = options.append ? '' : options.focusCommitSha?.trim() ?? '';
+        const focusCommitSha = options.append ? "" : (options.focusCommitSha?.trim() ?? "");
         if (focusCommitSha) {
           let pageGuard = 0;
-          while (!nextCommits.some((commit) => commit.sha === focusCommitSha) && nextHasMore && pageGuard < 6) {
+          while (
+            !nextCommits.some((commit) => commit.sha === focusCommitSha) &&
+            nextHasMore &&
+            pageGuard < 6
+          ) {
             const more = await fetchPage(options.offset + nextCommits.length);
-            nextCommits = [...nextCommits, ...more.commits];
+            nextCommits = nextCommits.concat(more.commits);
             nextHasMore = more.hasMore;
             pageGuard += 1;
           }
@@ -398,7 +418,7 @@ export function useControllerData({
 
         if (!options.append && nextCommits.length > 0) {
           const focusedCommit = focusCommitSha
-            ? nextCommits.find((commit) => commit.sha === focusCommitSha) ?? null
+            ? (nextCommits.find((commit) => commit.sha === focusCommitSha) ?? null)
             : null;
           const nextActiveCommit = focusedCommit ?? nextCommits[0];
 
@@ -407,26 +427,26 @@ export function useControllerData({
           await loadCommitDetail(nextActiveCommit.sha);
         }
       } catch (error) {
-        reportError(error, 'コミット一覧の取得に失敗しました。');
+        reportError(error, "コミット一覧の取得に失敗しました。");
       } finally {
         setLoadingCommits(false);
         setLoadingMoreCommits(false);
       }
     },
-    [loadCommitDetail, repoPath, reportError]
+    [loadCommitDetail, repoPath, reportError],
   );
 
   const loadWorkingState = useCallback(async (): Promise<void> => {
     try {
       const [statusResponse, stashResponse] = await Promise.all([
         api.getWorkingTreeStatus(repoPath),
-        api.getStashes(repoPath)
+        api.getStashes(repoPath),
       ]);
 
       setWorkingStatus(statusResponse);
       setStashes(stashResponse.stashes);
     } catch (error) {
-      reportError(error, 'ワークツリー状態の取得に失敗しました。');
+      reportError(error, "ワークツリー状態の取得に失敗しました。");
     }
   }, [repoPath, reportError]);
 
@@ -436,8 +456,18 @@ export function useControllerData({
       setBranches(response);
       return response;
     } catch (error) {
-      reportError(error, 'ブランチ情報の取得に失敗しました。');
+      reportError(error, "ブランチ情報の取得に失敗しました。");
       return null;
+    }
+  }, [repoPath, reportError]);
+
+  const loadPullStatus = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.getPullStatus(repoPath);
+      setPullStatus(response);
+    } catch (error) {
+      setPullStatus(null);
+      reportError(error, "pull 状態の取得に失敗しました。");
     }
   }, [repoPath, reportError]);
 
@@ -451,7 +481,11 @@ export function useControllerData({
 
       try {
         const targetRef = refOverride ?? activeLogRef;
-        const [nextBranches] = await Promise.all([loadBranches(), loadWorkingState()]);
+        const [nextBranches] = await Promise.all([
+          loadBranches(),
+          loadWorkingState(),
+          loadPullStatus(),
+        ]);
         const branchContext = nextBranches ?? branches;
         const resolvedRef = resolveLogRef(targetRef, branchContext);
         const compareRefs = resolveCompareRefs(resolvedRef, branchContext);
@@ -464,21 +498,27 @@ export function useControllerData({
         refreshLockRef.current = false;
       }
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadWorkingState, repoPath]
+    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
   );
 
   const reloadAfterBranchMutation = useCallback(
     async (preferredBranchName?: string): Promise<void> => {
-      const [nextBranches] = await Promise.all([loadBranches(), loadWorkingState()]);
+      const [nextBranches] = await Promise.all([
+        loadBranches(),
+        loadWorkingState(),
+        loadPullStatus(),
+      ]);
       const branchContext = nextBranches ?? branches;
-      const preferredBranch =
-        preferredBranchName
-          ? branchContext?.local.find((branch) => branch.name === preferredBranchName) ?? null
-          : null;
+      const preferredBranch = preferredBranchName
+        ? (branchContext?.local.find((branch) => branch.name === preferredBranchName) ?? null)
+        : null;
       const currentBranch =
         branchContext?.local.find((branch) => branch.name === branchContext.current) ?? null;
       const resolvedBranch = preferredBranch ?? currentBranch;
-      const resolvedRef = resolvedBranch?.fullRef || resolvedBranch?.name || resolveLogRef(activeLogRef, branchContext);
+      const resolvedRef =
+        resolvedBranch?.fullRef ||
+        resolvedBranch?.name ||
+        resolveLogRef(activeLogRef, branchContext);
       const compareRefs = resolveCompareRefs(resolvedRef, branchContext);
 
       setActiveLogRef(resolvedRef);
@@ -487,7 +527,7 @@ export function useControllerData({
       const fingerprintResponse = await api.getFingerprint(repoPath);
       setFingerprint(fingerprintResponse.fingerprint);
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadWorkingState, repoPath]
+    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
   );
 
   const mutateAndReload = useCallback(
@@ -496,7 +536,7 @@ export function useControllerData({
       options: {
         reloadCommits?: boolean;
         onSuccess?: () => void | Promise<void>;
-      } = {}
+      } = {},
     ): Promise<void> => {
       setOperationBusy(true);
       try {
@@ -510,22 +550,23 @@ export function useControllerData({
           setActiveLogRef(resolvedRef);
           await Promise.all([
             loadWorkingState(),
-            loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs })
+            loadPullStatus(),
+            loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs }),
           ]);
         } else {
-          await loadWorkingState();
+          await Promise.all([loadWorkingState(), loadPullStatus()]);
         }
 
         const fingerprintResponse = await api.getFingerprint(repoPath);
         setFingerprint(fingerprintResponse.fingerprint);
         await options.onSuccess?.();
       } catch (error) {
-        reportError(error, 'Git 操作に失敗しました。');
+        reportError(error, "Git 操作に失敗しました。");
       } finally {
         setOperationBusy(false);
       }
     },
-    [activeLogRef, branches, loadCommits, loadWorkingState, repoPath, reportError]
+    [activeLogRef, branches, loadCommits, loadPullStatus, loadWorkingState, repoPath, reportError],
   );
 
   // Notify parent when current branch changes
@@ -534,8 +575,9 @@ export function useControllerData({
   }, [currentBranchName, onCurrentBranchChange, repoPath]);
 
   // Init/reset on repo change
+  /* oxlint-disable react-hooks/exhaustive-deps -- depend on draft field values, not the object reference */
   useEffect(() => {
-    const defaultRef = 'HEAD';
+    const defaultRef = "HEAD";
     setActiveLogRef(defaultRef);
     setActiveCompareRefs([]);
     setActiveCommit(null);
@@ -547,6 +589,7 @@ export function useControllerData({
     setFocusedCommitDiffFile(null);
     closeWorkingTreeDiffOverlay();
     closeStashDiffOverlay();
+    setPullStatus(null);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [
@@ -556,8 +599,9 @@ export function useControllerData({
     initialCommitMessageDraft.description,
     initialCommitMessageDraft.title,
     refreshAll,
-    repoPath
+    repoPath,
   ]);
+  /* oxlint-enable react-hooks/exhaustive-deps */
 
   // Load mutation safety
   useEffect(() => {
@@ -593,7 +637,8 @@ export function useControllerData({
       return;
     }
 
-    const changedFileCount = (workingStatus?.staged.length ?? 0) + (workingStatus?.unstaged.length ?? 0);
+    const changedFileCount =
+      (workingStatus?.staged.length ?? 0) + (workingStatus?.unstaged.length ?? 0);
     if (changedFileCount === 0) {
       setIsWipSelected(false);
     }
@@ -606,7 +651,9 @@ export function useControllerData({
     }
 
     const visibleFiles =
-      focusedWorkingTreeDiff.area === 'staged' ? workingStatus?.staged ?? [] : workingStatus?.unstaged ?? [];
+      focusedWorkingTreeDiff.area === "staged"
+        ? (workingStatus?.staged ?? [])
+        : (workingStatus?.unstaged ?? []);
 
     if (!visibleFiles.some((item) => item.file === focusedWorkingTreeDiff.file)) {
       closeWorkingTreeDiffOverlay();
@@ -644,7 +691,7 @@ export function useControllerData({
 
   // Sync graph mode from appConfig
   useEffect(() => {
-    setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
+    setCommitGraphMode(appConfig?.commitGraphMode ?? "detailed");
   }, [appConfig?.commitGraphMode]);
 
   // Validate focused diff file exists
@@ -751,6 +798,7 @@ export function useControllerData({
 
     checkedOutCommitSha,
     commitMessageFiles,
+    pullStatus,
 
     reportError,
     reportBlockedMutation,
@@ -763,8 +811,9 @@ export function useControllerData({
     loadCommits,
     loadWorkingState,
     loadBranches,
+    loadPullStatus,
     refreshAll,
     reloadAfterBranchMutation,
-    mutateAndReload
+    mutateAndReload,
   };
 }

@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
-import { canUseDiffSyntaxWorker, readCachedDiffSyntaxTokens, requestDiffSyntaxTokens } from '../lib/diffSyntaxWorkerClient';
-import type { DiffSyntaxToken, DiffSyntaxWorkerRequestItem } from '../lib/diffSyntax';
+import {
+  canUseDiffSyntaxWorker,
+  readCachedDiffSyntaxTokens,
+  requestDiffSyntaxTokens,
+} from "../lib/diffSyntaxWorkerClient";
+import type { DiffSyntaxToken, DiffSyntaxWorkerRequestItem } from "../lib/diffSyntax";
 
-export function useDiffSyntaxTokenMap(requests: DiffSyntaxWorkerRequestItem[]): Record<string, DiffSyntaxToken[]> {
+export function useDiffSyntaxTokenMap(
+  requests: DiffSyntaxWorkerRequestItem[],
+): Record<string, DiffSyntaxToken[]> {
   const [tokenMap, setTokenMap] = useState<Record<string, DiffSyntaxToken[]>>({});
   const requestVersionRef = useRef(0);
 
@@ -23,7 +29,9 @@ export function useDiffSyntaxTokenMap(requests: DiffSyntaxWorkerRequestItem[]): 
 
     setTokenMap(Object.fromEntries(cachedEntries));
 
-    const missingRequests = requests.filter((request) => readCachedDiffSyntaxTokens(request.cacheKey) === null);
+    const missingRequests = requests.filter(
+      (request) => readCachedDiffSyntaxTokens(request.cacheKey) === null,
+    );
     if (missingRequests.length === 0) {
       return;
     }
@@ -36,7 +44,7 @@ export function useDiffSyntaxTokenMap(requests: DiffSyntaxWorkerRequestItem[]): 
 
         setTokenMap((current) => ({
           ...current,
-          ...nextTokenMap
+          ...nextTokenMap,
         }));
       })
       .catch(() => {});

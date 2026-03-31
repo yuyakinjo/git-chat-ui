@@ -1,5 +1,10 @@
-import { ensureRepoPath, runGh } from './command.js';
-import { ensureBranchPair, ensureOriginRemote, isPushRequired, pushBranchToOrigin } from './branch.js';
+import { ensureRepoPath, runGh } from "./command.js";
+import {
+  ensureBranchPair,
+  ensureOriginRemote,
+  isPushRequired,
+  pushBranchToOrigin,
+} from "./branch.js";
 
 export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
   const trimmed = remoteUrl.trim();
@@ -14,11 +19,14 @@ export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.hostname.toLowerCase() !== 'github.com') {
+    if (parsed.hostname.toLowerCase() !== "github.com") {
       return null;
     }
 
-    const repoPath = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+    const repoPath = parsed.pathname
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "")
+      .replace(/\.git$/i, "");
     if (!/^[^/]+\/[^/]+$/.test(repoPath)) {
       return null;
     }
@@ -30,13 +38,28 @@ export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
 }
 
 async function ensureGithubAuth(repoPath: string): Promise<void> {
-  await runGh(['auth', 'status', '-h', 'github.com'], repoPath);
+  await runGh(["auth", "status", "-h", "github.com"], repoPath);
 }
 
-async function findExistingPullRequest(repoPath: string, sourceBranch: string, targetBranch: string): Promise<string | null> {
+async function findExistingPullRequest(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string,
+): Promise<string | null> {
   const output = await runGh(
-    ['pr', 'list', '--state', 'open', '--head', sourceBranch, '--base', targetBranch, '--json', 'url'],
-    repoPath
+    [
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--head",
+      sourceBranch,
+      "--base",
+      targetBranch,
+      "--json",
+      "url",
+    ],
+    repoPath,
   );
 
   if (!output.trim()) {
@@ -48,16 +71,18 @@ async function findExistingPullRequest(repoPath: string, sourceBranch: string, t
 }
 
 function extractUrlFromText(text: string): string | null {
-  return text
-    .split(/\s+/)
-    .find((token) => /^https?:\/\//.test(token))
-    ?.trim() ?? null;
+  return (
+    text
+      .split(/\s+/)
+      .find((token) => /^https?:\/\//.test(token))
+      ?.trim() ?? null
+  );
 }
 
 export async function preparePullRequest(
   repoPath: string,
   sourceBranch: string,
-  targetBranch: string
+  targetBranch: string,
 ): Promise<{ pushRequired: boolean }> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
@@ -65,7 +90,7 @@ export async function preparePullRequest(
   await ensureGithubAuth(repoPath);
 
   return {
-    pushRequired: await isPushRequired(repoPath, sourceBranch)
+    pushRequired: await isPushRequired(repoPath, sourceBranch),
   };
 }
 
@@ -73,7 +98,7 @@ export async function createPullRequest(
   repoPath: string,
   sourceBranch: string,
   targetBranch: string,
-  pushSourceBranch: boolean
+  pushSourceBranch: boolean,
 ): Promise<{ url: string }> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
@@ -82,7 +107,7 @@ export async function createPullRequest(
 
   const pushRequired = await isPushRequired(repoPath, sourceBranch);
   if (pushRequired && !pushSourceBranch) {
-    throw new Error('Source branch must be pushed before creating a pull request.');
+    throw new Error("Source branch must be pushed before creating a pull request.");
   }
 
   if (pushSourceBranch) {
@@ -95,13 +120,13 @@ export async function createPullRequest(
   }
 
   const output = await runGh(
-    ['pr', 'create', '--base', targetBranch, '--head', sourceBranch, '--fill'],
-    repoPath
+    ["pr", "create", "--base", targetBranch, "--head", sourceBranch, "--fill"],
+    repoPath,
   );
   const url = extractUrlFromText(output);
 
   if (!url) {
-    throw new Error('Pull request created but URL was not returned.');
+    throw new Error("Pull request created but URL was not returned.");
   }
 
   return { url };

@@ -1,11 +1,11 @@
-import type { Repository } from '../types';
+import type { Repository } from "../types";
 
-import { DEFAULT_APP_THEME, normalizeAppTheme, type AppThemeId } from './appTheme';
+import { DEFAULT_APP_THEME, normalizeAppTheme, type AppThemeId } from "./appTheme";
 
-const REPOSITORY_TAB_PREFIX = 'repository:';
+const REPOSITORY_TAB_PREFIX = "repository:";
 
-export const DASHBOARD_TAB_ID = 'dashboard';
-export const CONFIG_TAB_ID = 'config';
+export const DASHBOARD_TAB_ID = "dashboard";
+export const CONFIG_TAB_ID = "config";
 
 export type AppTabId = typeof DASHBOARD_TAB_ID | typeof CONFIG_TAB_ID | `repository:${string}`;
 
@@ -15,16 +15,18 @@ export interface PersistedAppSession {
   appThemeId: AppThemeId;
 }
 
-function createDefaultPersistedAppSession(appThemeId: AppThemeId = DEFAULT_APP_THEME): PersistedAppSession {
+function createDefaultPersistedAppSession(
+  appThemeId: AppThemeId = DEFAULT_APP_THEME,
+): PersistedAppSession {
   return {
     openRepositoryPaths: [],
     activeTabId: DASHBOARD_TAB_ID,
-    appThemeId
+    appThemeId,
   };
 }
 
 function parsePersistedAppThemeId(value: unknown, fallbackThemeId: AppThemeId): AppThemeId {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return fallbackThemeId;
   }
 
@@ -58,7 +60,7 @@ export function getRepositoryTabBranchLabel(branchName: string | null | undefine
     return null;
   }
 
-  return normalized === 'HEAD' ? 'detached' : normalized;
+  return normalized === "HEAD" ? "detached" : normalized;
 }
 
 function normalizeOpenRepositoryPaths(value: unknown): string[] {
@@ -70,7 +72,7 @@ function normalizeOpenRepositoryPaths(value: unknown): string[] {
   const normalized: string[] = [];
 
   for (const item of value) {
-    if (typeof item !== 'string') {
+    if (typeof item !== "string") {
       continue;
     }
 
@@ -86,7 +88,10 @@ function normalizeOpenRepositoryPaths(value: unknown): string[] {
   return normalized;
 }
 
-function resolveActiveTabIdFromPaths(openRepositoryPaths: string[], activeTabId: string | null | undefined): AppTabId {
+function resolveActiveTabIdFromPaths(
+  openRepositoryPaths: string[],
+  activeTabId: string | null | undefined,
+): AppTabId {
   if (activeTabId === CONFIG_TAB_ID || activeTabId === DASHBOARD_TAB_ID) {
     return activeTabId;
   }
@@ -103,26 +108,28 @@ export function createRepositoryStub(repoPath: string): Repository {
   const segments = repoPath.split(/[\\/]+/).filter(Boolean);
   return {
     name: segments.at(-1) ?? repoPath,
-    path: repoPath
+    path: repoPath,
   };
 }
 
 export function serializeAppSession(
   openRepositories: Repository[],
   activeTabId: AppTabId,
-  appThemeId: AppThemeId
+  appThemeId: AppThemeId,
 ): PersistedAppSession {
-  const openRepositoryPaths = normalizeOpenRepositoryPaths(openRepositories.map((repository) => repository.path));
+  const openRepositoryPaths = normalizeOpenRepositoryPaths(
+    openRepositories.map((repository) => repository.path),
+  );
   return {
     openRepositoryPaths,
     activeTabId: resolveActiveTabIdFromPaths(openRepositoryPaths, activeTabId),
-    appThemeId: normalizeAppTheme(appThemeId)
+    appThemeId: normalizeAppTheme(appThemeId),
   };
 }
 
 export function parsePersistedAppSession(
   rawValue: string | null,
-  fallbackThemeId: AppThemeId = DEFAULT_APP_THEME
+  fallbackThemeId: AppThemeId = DEFAULT_APP_THEME,
 ): PersistedAppSession {
   const normalizedFallbackThemeId = normalizeAppTheme(fallbackThemeId);
 
@@ -142,23 +149,29 @@ export function parsePersistedAppSession(
       openRepositoryPaths,
       activeTabId: resolveActiveTabIdFromPaths(
         openRepositoryPaths,
-        typeof parsed.activeTabId === 'string' ? parsed.activeTabId : null
+        typeof parsed.activeTabId === "string" ? parsed.activeTabId : null,
       ),
-      appThemeId: parsePersistedAppThemeId(parsed.appThemeId, normalizedFallbackThemeId)
+      appThemeId: parsePersistedAppThemeId(parsed.appThemeId, normalizedFallbackThemeId),
     };
   } catch {
     return createDefaultPersistedAppSession(normalizedFallbackThemeId);
   }
 }
 
-export function resolveRestoredActiveTabId(repositories: Repository[], preferredActiveTabId: AppTabId): AppTabId {
+export function resolveRestoredActiveTabId(
+  repositories: Repository[],
+  preferredActiveTabId: AppTabId,
+): AppTabId {
   return resolveActiveTabIdFromPaths(
     repositories.map((repository) => repository.path),
-    preferredActiveTabId
+    preferredActiveTabId,
   );
 }
 
-export function upsertRepositoryTab(repositories: Repository[], repository: Repository): Repository[] {
+export function upsertRepositoryTab(
+  repositories: Repository[],
+  repository: Repository,
+): Repository[] {
   const existingIndex = repositories.findIndex((item) => item.path === repository.path);
   if (existingIndex === -1) {
     return [...repositories, repository];
@@ -179,7 +192,7 @@ export function findRepositoryForTab(repositories: Repository[], tabId: string):
 export function resolveGithubButtonRepository(
   repositories: Repository[],
   activeTabId: AppTabId,
-  lastRepositoryPath: string | null
+  lastRepositoryPath: string | null,
 ): Repository | null {
   const activeRepository = findRepositoryForTab(repositories, activeTabId);
   if (activeRepository) {
@@ -195,7 +208,7 @@ export function resolveGithubButtonRepository(
 
 export function resolveConfigEscapeTabId(
   repositories: Repository[],
-  lastRepositoryPath: string | null
+  lastRepositoryPath: string | null,
 ): AppTabId | null {
   if (!lastRepositoryPath) {
     return null;
@@ -209,7 +222,7 @@ export function resolveConfigEscapeTabId(
 export function closeRepositoryTab(
   repositories: Repository[],
   repoPath: string,
-  activeTabId: AppTabId
+  activeTabId: AppTabId,
 ): {
   repositories: Repository[];
   activeTabId: AppTabId;
@@ -218,7 +231,7 @@ export function closeRepositoryTab(
   if (targetIndex === -1) {
     return {
       repositories,
-      activeTabId
+      activeTabId,
     };
   }
 
@@ -226,13 +239,15 @@ export function closeRepositoryTab(
   if (activeTabId !== getRepositoryTabId(repoPath)) {
     return {
       repositories: nextRepositories,
-      activeTabId
+      activeTabId,
     };
   }
 
   const previousRepository = nextRepositories[targetIndex - 1] ?? null;
   return {
     repositories: nextRepositories,
-    activeTabId: previousRepository ? getRepositoryTabId(previousRepository.path) : DASHBOARD_TAB_ID
+    activeTabId: previousRepository
+      ? getRepositoryTabId(previousRepository.path)
+      : DASHBOARD_TAB_ID,
   };
 }
