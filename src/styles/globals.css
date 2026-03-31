@@ -1739,6 +1739,11 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.git-operation-panel__stash-empty {
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
 .git-operation-panel__file-row {
   user-select: none;
   -webkit-user-select: none;

@@ -123,6 +123,7 @@ describe("GitOperationPanel", () => {
     expect(html).toContain("Unstage all");
     expect(html).toContain("Stash Area");
     expect(html).toContain("ファイルをここにドロップしてスタッシュ");
+    expect(html).toContain("git-operation-panel__stash-empty");
     expect(html).toContain(
       "flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft",
     );
@@ -239,6 +240,7 @@ describe("GitOperationPanel", () => {
     expect(html).toContain("未ステージの変更はありません。");
     expect(html).toContain("ステージされたファイルはありません。");
     expect(html).toContain("ファイルをここにドロップしてスタッシュ");
+    expect(html).toContain("git-operation-panel__stash-empty");
     expect(html).not.toContain("Stage all");
     expect(html).not.toContain("Unstage all");
     expect(html).not.toContain("スタッシュはありません。");

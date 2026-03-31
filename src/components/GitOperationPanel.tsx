@@ -732,7 +732,7 @@ export function GitOperationPanel({
         {dropZone === "stash" ? (
           renderDropPreview("stash")
         ) : (
-          <div className="flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
+          <div className="git-operation-panel__stash-empty flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
             <UploadCloud size={16} />
             ファイルをここにドロップしてスタッシュ
           </div>

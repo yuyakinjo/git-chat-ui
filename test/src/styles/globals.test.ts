@@ -73,6 +73,9 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("min-height: 44px;");
     expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--three {");
     expect(gitOperationSection).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(gitOperationSection).toContain(".git-operation-panel__stash-empty {");
+    expect(gitOperationSection).toContain("line-height: 1;");
+    expect(gitOperationSection).toContain("transform: translateY(-1px);");
   });
 
   test("branch context menu uses theme tokens instead of a fixed light palette", () => {
