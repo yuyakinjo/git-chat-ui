@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { DEFAULT_COMMIT_TITLE_PROMPT, resolveCommitTitlePrompt } from '../src/lib/commitTitlePrompt.js';
 import type { AppConfig, CommitGraphMode } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -23,7 +24,7 @@ const DEFAULT_CONFIG: AppConfig = {
   openAiModel: DEFAULT_OPENAI_MODEL,
   claudeCodeToken: '',
   selectedAiProvider: 'openAi',
-  commitTitlePrompt: '',
+  commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: 'detailed',
   repositoryScanDepth: 4,
   recentlyUsed: [],
@@ -110,6 +111,10 @@ function normalizeOpenAiModel(value: unknown): string {
   return normalized.length > 0 ? normalized : DEFAULT_CONFIG.openAiModel;
 }
 
+function normalizeCommitTitlePrompt(value: unknown): string {
+  return resolveCommitTitlePrompt(typeof value === 'string' ? value : undefined);
+}
+
 function normalizeConfig(value: Partial<AppConfig>): AppConfig {
   return {
     openAiToken: typeof value.openAiToken === 'string' ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
@@ -117,8 +122,7 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     claudeCodeToken:
       typeof value.claudeCodeToken === 'string' ? value.claudeCodeToken : DEFAULT_CONFIG.claudeCodeToken,
     selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),
-    commitTitlePrompt:
-      typeof value.commitTitlePrompt === 'string' ? value.commitTitlePrompt : DEFAULT_CONFIG.commitTitlePrompt,
+    commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
     recentlyUsed: normalizeRecentlyUsed(value.recentlyUsed),
