@@ -493,7 +493,10 @@ export function useControllerData({
   const mutateAndReload = useCallback(
     async (
       task: () => Promise<void>,
-      options: { reloadCommits?: boolean } = {}
+      options: {
+        reloadCommits?: boolean;
+        onSuccess?: () => void | Promise<void>;
+      } = {}
     ): Promise<void> => {
       setOperationBusy(true);
       try {
@@ -515,6 +518,7 @@ export function useControllerData({
 
         const fingerprintResponse = await api.getFingerprint(repoPath);
         setFingerprint(fingerprintResponse.fingerprint);
+        await options.onSuccess?.();
       } catch (error) {
         reportError(error, 'Git 操作に失敗しました。');
       } finally {

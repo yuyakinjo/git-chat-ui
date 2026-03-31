@@ -37,8 +37,6 @@ type CommitMessageGenerationState =
   | { status: 'success'; title: string; description: string }
   | { status: 'error'; error: UiError };
 
-const COMMIT_MESSAGE_GENERATION_DELAY_MS = 3000;
-
 export function ControllerView({
   repository,
   appConfig,
@@ -318,27 +316,38 @@ export function ControllerView({
 
         void (async () => {
           await waitForNextPaint();
-          await new Promise((resolve) => window.setTimeout(resolve, COMMIT_MESSAGE_GENERATION_DELAY_MS));
           startTransition(() => {
             runCommitMessageGeneration(files);
           });
         })();
       }}
       onCommit={() => {
-        void data.mutateAndReload(async () => {
-          await api.commit(repoPath, data.commitTitle, data.commitDescription);
-          flushSync(() => {
-            data.clearCommitMessageDraft();
-          });
-        });
+        void data.mutateAndReload(
+          async () => {
+            await api.commit(repoPath, data.commitTitle, data.commitDescription);
+          },
+          {
+            onSuccess: () => {
+              flushSync(() => {
+                data.clearCommitMessageDraft();
+              });
+            }
+          }
+        );
       }}
       onPush={() => {
-        void data.mutateAndReload(async () => {
-          await api.push(repoPath);
-          flushSync(() => {
-            data.clearCommitMessageDraft();
-          });
-        });
+        void data.mutateAndReload(
+          async () => {
+            await api.push(repoPath);
+          },
+          {
+            onSuccess: () => {
+              flushSync(() => {
+                data.clearCommitMessageDraft();
+              });
+            }
+          }
+        );
       }}
       headerAccessory={
         data.showBranchDiffButton ? (

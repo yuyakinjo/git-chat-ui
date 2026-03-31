@@ -107,6 +107,9 @@ export interface UseControllerDataResult {
   reloadAfterBranchMutation: (preferredBranchName?: string) => Promise<void>;
   mutateAndReload: (
     task: () => Promise<void>,
-    options?: { reloadCommits?: boolean }
+    options?: {
+      reloadCommits?: boolean;
+      onSuccess?: () => void | Promise<void>;
+    }
   ) => Promise<void>;
 }
