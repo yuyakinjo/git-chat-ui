@@ -1,5 +1,6 @@
-import { GripVertical, LoaderCircle, Sparkles, UploadCloud } from "lucide-react";
+import { GripVertical, LoaderCircle, RotateCcw, Sparkles, UploadCloud } from "lucide-react";
 import {
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
@@ -12,6 +13,11 @@ import { createPortal } from "react-dom";
 
 import { getCommitMessageFiles } from "../lib/commitMessage";
 import { resolveGitOperationPanelColumnCount } from "../lib/controllerPanelLayout";
+import {
+  clampWorkingTreeContextMenuPosition,
+  getWorkingTreeDiscardMenuHint,
+  resolveWorkingTreeDiscardTarget,
+} from "../lib/workingTreeDiscard";
 import {
   canDropWorkingTreeFile,
   getWorkingTreeDropActionLabel,
@@ -45,6 +51,7 @@ interface GitOperationPanelProps {
   onStageAll: () => void;
   onUnstageAll: () => void;
   onStashFile: (file: string) => void;
+  onDiscardFileRequest?: (item: WorkingFile, source: WorkingTreeDragSource) => void;
   onOpenWorkingTreeDiff: (file: string, area: WorkingTreeDiffArea) => void;
   onGenerateCommitMessage: () => void;
   onCommit: () => void;
@@ -126,6 +133,7 @@ export function GitOperationPanel({
   onStageAll,
   onUnstageAll,
   onStashFile,
+  onDiscardFileRequest,
   activeWorkingTreeDiff,
   onOpenWorkingTreeDiff,
   onGenerateCommitMessage,
@@ -141,9 +149,16 @@ export function GitOperationPanel({
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(
     null,
   );
+  const [contextMenu, setContextMenu] = useState<{
+    item: WorkingFile;
+    source: WorkingTreeDragSource;
+    x: number;
+    y: number;
+  } | null>(null);
   const containerWidth = useContainerWidth(rootRef);
   const draggedFileRef = useRef<WorkingTreeDragPayload | null>(null);
   const dropZoneRef = useRef<WorkingTreeDropZone | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const dragPointerRef = useRef<{
     payload: WorkingTreeDragPayload;
     pointerId: number;
@@ -189,6 +204,7 @@ export function GitOperationPanel({
   useEffect(() => {
     if (busy) {
       clearDragState();
+      setContextMenu(null);
     }
   }, [busy]);
 
@@ -223,6 +239,7 @@ export function GitOperationPanel({
 
   useEffect(() => {
     clearDragState();
+    setContextMenu(null);
   }, [status, stashes]);
 
   useEffect(() => {
@@ -235,6 +252,43 @@ export function GitOperationPanel({
       document.body.classList.remove("is-working-tree-dragging");
     };
   }, [draggedFile]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setContextMenu(null);
+    };
+
+    const handleClose = (): void => {
+      setContextMenu(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("resize", handleClose);
+    window.addEventListener("scroll", handleClose, true);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("resize", handleClose);
+      window.removeEventListener("scroll", handleClose, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent): void => {
@@ -331,6 +385,8 @@ export function GitOperationPanel({
       return;
     }
 
+    setContextMenu(null);
+
     const target = event.target;
     if (target instanceof Element && target.closest('[data-working-tree-no-drag="true"]')) {
       return;
@@ -345,6 +401,41 @@ export function GitOperationPanel({
       startX: event.clientX,
       startY: event.clientY,
     };
+  };
+
+  const handleFileContextMenu = (
+    event: ReactMouseEvent<HTMLDivElement>,
+    item: WorkingFile,
+    source: WorkingTreeDragSource,
+  ): void => {
+    event.preventDefault();
+
+    const discardTarget = resolveWorkingTreeDiscardTarget(item, source);
+    if (!discardTarget) {
+      return;
+    }
+
+    if (busy) {
+      return;
+    }
+
+    const position = clampWorkingTreeContextMenuPosition(event.clientX, event.clientY);
+    setContextMenu({
+      item,
+      source,
+      x: position.x,
+      y: position.y,
+    });
+  };
+
+  const handleDiscardFromContextMenu = (): void => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const { item, source } = contextMenu;
+    setContextMenu(null);
+    onDiscardFileRequest?.(item, source);
   };
 
   const renderDropPreview = (target: WorkingTreeDropZone): JSX.Element | null => {
@@ -388,6 +479,7 @@ export function GitOperationPanel({
     const isActive =
       activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
     const statusPresentation = getWorkingFileStatusPresentation(item);
+    const discardTarget = resolveWorkingTreeDiscardTarget(item, source);
 
     return (
       /* oxlint-disable jsx-a11y/prefer-tag-over-role -- div used for drag-and-drop behavior */
@@ -395,10 +487,13 @@ export function GitOperationPanel({
         key={`${source}-${item.file}`}
         role="button"
         tabIndex={0}
+        aria-haspopup={discardTarget ? "menu" : undefined}
+        data-working-tree-context-menu={discardTarget ? "true" : undefined}
         className={`git-operation-panel__file-row commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${
           isDragSource ? "is-drag-source" : ""
         } ${isActive ? "is-active text-white" : ""}`}
         onPointerDown={(event) => handleFilePointerDown(event, { file: item.file, source })}
+        onContextMenu={(event) => handleFileContextMenu(event, item, source)}
         onClick={() => onOpenWorkingTreeDiff(item.file, area)}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) {
@@ -434,6 +529,7 @@ export function GitOperationPanel({
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
+              setContextMenu(null);
               onAction(item.file);
             }}
           >
@@ -486,6 +582,39 @@ export function GitOperationPanel({
               <GitFilePathLabel path={draggedFile.file} />
             </div>
             <div className="working-tree-drag-preview__hint">{dragHint}</div>
+          </div>,
+          document.body,
+        )
+      : null;
+  const contextMenuTarget = contextMenu
+    ? resolveWorkingTreeDiscardTarget(contextMenu.item, contextMenu.source)
+    : null;
+  const contextMenuPortal =
+    contextMenu && contextMenuTarget && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={contextMenuRef}
+            className="working-tree-context-menu"
+            role="menu"
+            aria-label="working tree context menu"
+            style={{
+              left: `${contextMenu.x}px`,
+              top: `${contextMenu.y}px`,
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={`branch-context-menu__item is-danger ${busy ? "is-disabled" : ""}`}
+              disabled={busy}
+              onClick={handleDiscardFromContextMenu}
+            >
+              <RotateCcw size={14} />
+              <span>変更を取り消す</span>
+            </button>
+            <div className="branch-context-menu__hint">
+              {getWorkingTreeDiscardMenuHint(contextMenuTarget)}
+            </div>
           </div>,
           document.body,
         )
@@ -796,6 +925,7 @@ export function GitOperationPanel({
         </div>
       </section>
       {dragPreviewPortal}
+      {contextMenuPortal}
     </>
   );
 }

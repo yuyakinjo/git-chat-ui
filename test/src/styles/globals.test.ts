@@ -88,6 +88,17 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
+  test("working tree context menu uses the same theme tokens as floating branch actions", () => {
+    const menuSection = getSection(".working-tree-context-menu {", ".branch-context-menu {");
+
+    expect(menuSection).toContain("border: 1px solid var(--surface-border-strong);");
+    expect(menuSection).toContain("rgb(var(--theme-elevated-strong-rgb) / 0.94)");
+    expect(menuSection).toContain("rgb(var(--theme-elevated-rgb) / 0.9)");
+    expect(menuSection).toContain("color: var(--text-primary);");
+    expect(menuSection).not.toContain("rgba(255, 255, 255, 0.97)");
+    expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
+  });
+
   test("wip row defines dedicated dark theme contrast overrides", () => {
     const wipSection = getSection(".wip-row {", ".wip-node {");
 

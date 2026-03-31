@@ -44,4 +44,10 @@ export {
   applyStash,
   popStash,
 } from "./git/stash.js";
-export { getWorkingTreeStatus, stageFile, unstageFile, stashFile } from "./git/workingTree.js";
+export {
+  getWorkingTreeStatus,
+  stageFile,
+  unstageFile,
+  discardFile,
+  stashFile,
+} from "./git/workingTree.js";

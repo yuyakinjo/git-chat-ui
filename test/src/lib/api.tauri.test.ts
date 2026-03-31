@@ -18,10 +18,9 @@ afterEach(() => {
 });
 
 describe("api.generateCommitMessage in Tauri", () => {
-  test("wraps the payload in the required input argument", async () => {
+  test("wraps Tauri commands with the expected invoke arguments", async () => {
     const invokeMock = mock(
-      async (command: string, args?: Record<string, unknown>) =>
-        ({ command, args }) as unknown,
+      async (command: string, args?: Record<string, unknown>) => ({ command, args }) as unknown,
     );
 
     mock.module("@tauri-apps/api/core", () => ({
@@ -43,9 +42,9 @@ describe("api.generateCommitMessage in Tauri", () => {
       selectedAiProvider: "claudeCode",
       commitTitlePrompt: "Write a short Japanese commit message.",
     });
+    await api.discardFile("/tmp/repo", "src/App.tsx");
 
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -55,6 +54,10 @@ describe("api.generateCommitMessage in Tauri", () => {
         selectedAiProvider: "claudeCode",
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "discard_file", {
+      repoPath: "/tmp/repo",
+      file: "src/App.tsx",
     });
   });
 });

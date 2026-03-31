@@ -8,6 +8,10 @@ import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controlle
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
 import { canMergeBranchWithoutWorkingTreeChange } from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
+import {
+  getWorkingTreeDiscardConfirmMessage,
+  resolveWorkingTreeDiscardTarget,
+} from "../lib/workingTreeDiscard";
 import { BranchActionDialog } from "./BranchActionDialog";
 import { BranchCreateDialog } from "./BranchCreateDialog";
 import { BranchDeleteDialog } from "./BranchDeleteDialog";
@@ -295,6 +299,27 @@ export function ControllerView({
         void data.mutateAndReload(
           async () => {
             await api.stashFile(repoPath, file);
+          },
+          { reloadCommits: false },
+        );
+      }}
+      onDiscardFileRequest={(item, source) => {
+        const target = resolveWorkingTreeDiscardTarget(item, source);
+        if (!target) {
+          return;
+        }
+
+        if (data.reportBlockedMutation("開発中のアプリ自身の repo は変更を取り消せません")) {
+          return;
+        }
+
+        if (!window.confirm(getWorkingTreeDiscardConfirmMessage(target))) {
+          return;
+        }
+
+        void data.mutateAndReload(
+          async () => {
+            await api.discardFile(repoPath, target.file);
           },
           { reloadCommits: false },
         );

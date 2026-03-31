@@ -1224,6 +1224,26 @@ body[data-theme="default-dark"] .text-slate-700 {
   color: var(--text-secondary);
 }
 
+.working-tree-context-menu {
+  position: fixed;
+  z-index: 120;
+  width: 216px;
+  border-radius: 18px;
+  border: 1px solid var(--surface-border-strong);
+  background: linear-gradient(
+    148deg,
+    rgb(var(--theme-elevated-strong-rgb) / 0.94),
+    rgb(var(--theme-elevated-rgb) / 0.9)
+  );
+  color: var(--text-primary);
+  box-shadow:
+    0 24px 56px rgb(var(--theme-overlay-rgb) / 0.34),
+    0 0 0 1px rgb(255 255 255 / 0.06) inset;
+  padding: 8px;
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+}
+
 .branch-context-menu {
   position: fixed;
   z-index: 120;

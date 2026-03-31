@@ -8,6 +8,7 @@ import {
   applyStash,
   appendFileToStash,
   createBranch,
+  discardFile,
   deleteBranch,
   getBranches,
   getBranchDiffDetail,
@@ -528,6 +529,54 @@ describe("getWorkingTreeDiffDetail", () => {
       expect(detail.diff).toContain("+alpha");
       expect(detail.diff).toContain("+beta");
       expect(detail.isDiffTruncated).toBe(false);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("discardFile", () => {
+  test("restores tracked modified files to HEAD", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+
+    try {
+      await discardFile(fixture.repoPath, "README.md");
+
+      expect(await runGit(["status", "--porcelain"], fixture.repoPath)).toBe("");
+      expect(await fs.readFile(path.join(fixture.repoPath, "README.md"), "utf8")).toBe(
+        "line 1\nline 2\n",
+      );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("removes staged added files from the index and working tree", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+    const notesPath = path.join(fixture.repoPath, "notes.txt");
+
+    try {
+      await fs.writeFile(notesPath, "alpha\nbeta\n");
+      await runGit(["add", "notes.txt"], fixture.repoPath);
+
+      await discardFile(fixture.repoPath, "notes.txt");
+
+      expect(await runGit(["status", "--porcelain"], fixture.repoPath)).not.toContain("notes.txt");
+      await expect(fs.stat(notesPath)).rejects.toThrow();
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects pure untracked files", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+
+    try {
+      await fs.writeFile(path.join(fixture.repoPath, "notes.txt"), "alpha\nbeta\n");
+
+      await expect(discardFile(fixture.repoPath, "notes.txt")).rejects.toThrow(
+        "Pure untracked files cannot be discarded from this menu.",
+      );
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }

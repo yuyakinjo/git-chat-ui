@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import {
+  discardFile,
   getWorkingTreeDiffDetail,
   getWorkingTreeStatus,
   stageFile,
@@ -53,6 +54,17 @@ router.post("/api/unstage", async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
     const file = getRequiredString(request.body.file, "file");
     await unstageFile(repoPath, file);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/api/discard", async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, "repoPath");
+    const file = getRequiredString(request.body.file, "file");
+    await discardFile(repoPath, file);
     response.json({ ok: true });
   } catch (error) {
     next(error);

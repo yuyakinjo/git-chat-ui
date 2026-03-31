@@ -3359,6 +3359,167 @@ pub fn unstage_file(repo_path: String, file: String) -> Result<OkResponse, Strin
     Ok(OkResponse { ok: true })
 }
 
+#[derive(Debug, Clone)]
+struct WorkingTreeFileStatusEntryRecord {
+    file: String,
+    previous_file: Option<String>,
+    x: char,
+    y: char,
+}
+
+fn get_working_tree_file_status_entry(
+    repo_path: &str,
+    file: &str,
+) -> Result<Option<WorkingTreeFileStatusEntryRecord>, String> {
+    let args = vec![
+        "status".to_string(),
+        "--porcelain=v1".to_string(),
+        "-uall".to_string(),
+        "--".to_string(),
+        file.to_string(),
+    ];
+    let output = run_git_owned(&args, repo_path)?;
+
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let x = line.chars().nth(0).unwrap_or(' ');
+        let y = line.chars().nth(1).unwrap_or(' ');
+        let raw_path = line.get(3..).unwrap_or("").trim();
+        let (previous_file, normalized_file) = match raw_path.split_once(" -> ") {
+            Some((left, right)) => (Some(left.to_string()), right.to_string()),
+            None => (None, raw_path.to_string()),
+        };
+
+        if normalized_file == file {
+            return Ok(Some(WorkingTreeFileStatusEntryRecord {
+                file: normalized_file,
+                previous_file,
+                x,
+                y,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+fn path_exists_in_head(repo_path: &str, file: &str) -> bool {
+    let args = vec![
+        "ls-tree".to_string(),
+        "-r".to_string(),
+        "--name-only".to_string(),
+        "HEAD".to_string(),
+        "--".to_string(),
+        file.to_string(),
+    ];
+
+    run_git_owned(&args, repo_path)
+        .map(|output| output.lines().any(|line| line.trim() == file))
+        .unwrap_or(false)
+}
+
+fn remove_working_tree_path(repo_path: &str, file: &str) -> Result<(), String> {
+    let absolute_path = Path::new(repo_path).join(file);
+    match fs::remove_file(&absolute_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn restore_paths_from_head(
+    repo_path: &str,
+    files: &[String],
+    head_paths: &[String],
+) -> Result<(), String> {
+    let mut restore_args = vec![
+        "restore".to_string(),
+        "--source=HEAD".to_string(),
+        "--staged".to_string(),
+        "--worktree".to_string(),
+        "--".to_string(),
+    ];
+    restore_args.extend(files.iter().cloned());
+
+    if run_git_owned(&restore_args, repo_path).is_ok() {
+        return Ok(());
+    }
+
+    let mut reset_args = vec!["reset".to_string(), "HEAD".to_string(), "--".to_string()];
+    reset_args.extend(files.iter().cloned());
+    run_git_owned(&reset_args, repo_path)?;
+
+    if !head_paths.is_empty() {
+        let mut checkout_args = vec!["checkout".to_string(), "--".to_string()];
+        checkout_args.extend(head_paths.iter().cloned());
+        run_git_owned(&checkout_args, repo_path)?;
+    }
+
+    for file in files {
+        if !head_paths.iter().any(|head_path| head_path == file) {
+            remove_working_tree_path(repo_path, file)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn remove_paths_from_index_and_working_tree(repo_path: &str, files: &[String]) -> Result<(), String> {
+    let mut remove_args = vec![
+        "rm".to_string(),
+        "--cached".to_string(),
+        "--force".to_string(),
+        "--".to_string(),
+    ];
+    remove_args.extend(files.iter().cloned());
+    run_git_owned(&remove_args, repo_path)?;
+
+    for file in files {
+        remove_working_tree_path(repo_path, file)?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn discard_file(repo_path: String, file: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let normalized_file = file.trim().to_string();
+    if normalized_file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let Some(entry) = get_working_tree_file_status_entry(&repo_path, &normalized_file)? else {
+        return Ok(OkResponse { ok: true });
+    };
+
+    if entry.x == '?' && entry.y == '?' {
+        return Err("Pure untracked files cannot be discarded from this menu.".to_string());
+    }
+
+    let restore_paths = match entry.previous_file {
+        Some(previous_file) => vec![previous_file, entry.file.clone()],
+        None => vec![entry.file.clone()],
+    };
+    let head_paths: Vec<String> = restore_paths
+        .iter()
+        .filter(|candidate| path_exists_in_head(&repo_path, candidate))
+        .cloned()
+        .collect();
+
+    if !head_paths.is_empty() {
+        restore_paths_from_head(&repo_path, &restore_paths, &head_paths)?;
+    } else {
+        remove_paths_from_index_and_working_tree(&repo_path, &[entry.file])?;
+    }
+
+    Ok(OkResponse { ok: true })
+}
+
 #[tauri::command]
 pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String> {
     ensure_repo_path(&repo_path)?;
@@ -4642,6 +4803,55 @@ mod tests {
         assert!(detail.diff.contains("+alpha"));
         assert!(detail.diff.contains("+beta"));
         assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn discard_file_restores_tracked_modified_file_to_head() {
+        let fixture = create_working_tree_diff_fixture();
+
+        discard_file(fixture.repo_path.clone(), "README.md".to_string())
+            .expect("discard file should succeed");
+
+        let status = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("git status should succeed");
+        let contents = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
+            .expect("README contents should be readable");
+
+        assert_eq!(status, "");
+        assert_eq!(contents, "line 1\nline 2\n");
+    }
+
+    #[test]
+    fn discard_file_removes_staged_added_file_from_index_and_working_tree() {
+        let fixture = create_working_tree_diff_fixture();
+        let notes_path = Path::new(&fixture.repo_path).join("notes.txt");
+        fs::write(&notes_path, "alpha\nbeta\n").expect("notes file should be written");
+        run_command("git", &["add", "notes.txt"], &fixture.repo_path)
+            .expect("git add should succeed");
+
+        discard_file(fixture.repo_path.clone(), "notes.txt".to_string())
+            .expect("discard file should succeed");
+
+        let status = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("git status should succeed");
+
+        assert!(!status.contains("notes.txt"));
+        assert!(!notes_path.exists());
+    }
+
+    #[test]
+    fn discard_file_rejects_pure_untracked_file() {
+        let fixture = create_working_tree_diff_fixture();
+        fs::write(
+            Path::new(&fixture.repo_path).join("notes.txt"),
+            "alpha\nbeta\n",
+        )
+        .expect("notes file should be written");
+
+        let error = discard_file(fixture.repo_path.clone(), "notes.txt".to_string())
+            .expect_err("pure untracked files should be rejected");
+
+        assert_eq!(error, "Pure untracked files cannot be discarded from this menu.");
     }
 
     #[test]

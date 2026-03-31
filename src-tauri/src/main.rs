@@ -33,6 +33,7 @@ fn main() {
             backend::get_working_tree_status,
             backend::stage_file,
             backend::unstage_file,
+            backend::discard_file,
             backend::stash_file,
             backend::append_file_to_stash,
             backend::get_stashes,

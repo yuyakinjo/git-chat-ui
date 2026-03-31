@@ -152,6 +152,33 @@ describe("api.appendFileToStash", () => {
   });
 });
 
+describe("api.discardFile", () => {
+  test("posts discard payload to the discard endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.discardFile("/tmp/repo", "src/App.tsx");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/discard");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      file: "src/App.tsx",
+    });
+  });
+});
+
 describe("api.deleteBranch", () => {
   test("posts the force delete flag to the branch delete endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];

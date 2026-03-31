@@ -173,6 +173,35 @@ describe("GitOperationPanel", () => {
     expect(html).not.toContain('class="badge bg-[#ecfdf3]! text-[#157347]!"');
   });
 
+  test("marks only discardable working-tree rows as context-menu targets", () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={status}
+        stashes={stashes}
+        commitTitle=""
+        commitDescription=""
+        busy={false}
+        generatingCommitMessage={false}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />,
+    );
+
+    expect((html.match(/data-working-tree-context-menu="true"/g) ?? []).length).toBe(3);
+    expect((html.match(/aria-haspopup="menu"/g) ?? []).length).toBe(3);
+    expect(html).toContain('git-file-path-label__name">workingTreeDragDrop.ts');
+  });
+
   test("hides bulk stage buttons when there are no target files", () => {
     const html = renderToStaticMarkup(
       <GitOperationPanel

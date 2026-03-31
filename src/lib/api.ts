@@ -285,6 +285,17 @@ export const api = {
     });
   },
 
+  discardFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand("discard_file", { repoPath, file });
+    }
+
+    return request("/discard", {
+      method: "POST",
+      body: JSON.stringify({ repoPath, file }),
+    });
+  },
+
   stashFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
       return invokeCommand("stash_file", { repoPath, file });
