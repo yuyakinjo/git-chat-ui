@@ -1,3 +1,5 @@
+import { DEFAULT_COMMIT_TITLE_PROMPT, resolveCommitTitlePrompt } from '../src/lib/commitTitlePrompt.js';
+
 interface GenerateTitleInput {
   openAiToken: string;
   openAiModel: string;
@@ -23,6 +25,7 @@ const ANTHROPIC_API_VERSION = '2023-06-01';
 const NO_STAGED_CHANGES_ERROR = 'No staged changes are available for commit message generation.';
 const NO_AI_PROVIDER_ERROR = 'No AI provider is configured for commit message generation.';
 export const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
+export { DEFAULT_COMMIT_TITLE_PROMPT, resolveCommitTitlePrompt };
 
 function isAnthropicApiKey(token: string): boolean {
   return token.startsWith('sk-ant');
@@ -38,24 +41,6 @@ function getClaudeAuthHeaderVariants(token: string): Array<Record<string, string
   const bearerHeaders = { Authorization: `Bearer ${normalizedToken}` };
 
   return isAnthropicApiKey(normalizedToken) ? [apiKeyHeaders, bearerHeaders] : [bearerHeaders, apiKeyHeaders];
-}
-
-export const DEFAULT_COMMIT_TITLE_PROMPT =
-  [
-    'You are a Git assistant. Write a Git commit message from the provided staged changes.',
-    'Requirements:',
-    '- The first line must be an Angular-style conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.',
-    '- Keep the title in imperative mood. The title line must be 72 characters or fewer including prefix, scope, spaces, and punctuation.',
-    '- If the title would exceed 72 characters, rewrite it shorter. Do not continue the overflow on the next line or in the description.',
-    '- After the title, insert a blank line and always include a short description of the key changes.',
-    '- Prefer 1-3 concise bullet points for the description. The first line becomes the title and the rest becomes the description.',
-    '- Do not add labels like Title: or Description:, and do not wrap the response in quotes or code fences.',
-    '- Do not omit the description, even for small changes.'
-  ].join('\n');
-
-export function resolveCommitTitlePrompt(prompt: string | null | undefined): string {
-  const normalized = typeof prompt === 'string' ? prompt.trim() : '';
-  return normalized.length > 0 ? normalized : DEFAULT_COMMIT_TITLE_PROMPT;
 }
 
 export function resolveOpenAiModel(model: string | null | undefined): string {
