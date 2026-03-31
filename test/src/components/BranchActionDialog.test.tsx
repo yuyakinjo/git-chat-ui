@@ -24,9 +24,16 @@ describe('BranchActionDialog', () => {
     expect(html).toContain('feature/dnd -&gt; main');
     expect(html).toContain('Merge');
     expect(html).toContain('Pull Request');
+    expect(html).toContain('branch-action-dialog__ref-flow');
+    expect(html).toContain('>base<');
+    expect(html).toContain('>head<');
+    expect(html).toContain('lucide-arrow-left');
     expect(html).toContain('Cancel');
     expect(html).toContain('title="Close"');
     expect(html).toContain('aria-label="Close"');
+    expect(html).toContain('lucide-git-pull-request-arrow');
+    expect(html).toContain('lucide-git-merge');
+    expect(html).not.toContain('head:');
     expect(html).not.toContain('>Close<');
   });
 

@@ -71,4 +71,20 @@ describe('globals.css', () => {
     expect(diffSection).toContain("body[data-theme='default-dark'] .diff-workbench__file-tab.is-active {");
     expect(diffSection).toContain("body[data-theme='default-dark'] .diff-file__columns {");
   });
+
+  test('branch action dialog renders PR refs as pills with a reduced-motion-safe arrow animation', () => {
+    const branchActionSection = getSection('.branch-action-dialog__ref-flow {', '.git-operation-panel__hint {');
+
+    expect(branchActionSection).toContain('.branch-action-dialog__ref-pill {');
+    expect(branchActionSection).toContain('border: 1px solid rgb(var(--theme-border-rgb) / 0.12);');
+    expect(branchActionSection).toContain('.branch-action-dialog__ref-label {');
+    expect(branchActionSection).toContain('.branch-action-dialog__ref-value {');
+    expect(branchActionSection).toContain('.branch-action-dialog__ref-arrow svg {');
+    expect(branchActionSection).toContain('animation: branch-action-dialog-arrow 1.8s ease-in-out infinite;');
+    expect(branchActionSection).toContain('@keyframes branch-action-dialog-arrow {');
+    expect(branchActionSection).toContain("body[data-theme='default-dark'] .branch-action-dialog__ref-pill {");
+    expect(branchActionSection).toContain('@media (prefers-reduced-motion: reduce) {');
+    expect(branchActionSection).toContain('.branch-action-dialog__ref-arrow svg {');
+    expect(branchActionSection).toContain('animation: none;');
+  });
 });

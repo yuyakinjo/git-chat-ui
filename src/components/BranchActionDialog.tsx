@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { ArrowLeft, GitMerge, GitPullRequestArrow, X } from 'lucide-react';
 import { useEffect, type JSX } from 'react';
 
 export type BranchActionDialogStep = 'select-action' | 'confirm-push';
@@ -85,9 +85,22 @@ export function BranchActionDialog({
             </div>
             <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
               <div className="font-semibold text-ink">Pull Request</div>
-              <div className="mt-1">
-                head: <span className="font-medium text-ink">{sourceBranchName}</span> / base:{' '}
-                <span className="font-medium text-ink">{targetBranchName}</span>
+              <div className="branch-action-dialog__ref-flow">
+                <span className="branch-action-dialog__ref-pill">
+                  <span className="branch-action-dialog__ref-label">base</span>
+                  <span className="branch-action-dialog__ref-value" title={targetBranchName}>
+                    {targetBranchName}
+                  </span>
+                </span>
+                <span className="branch-action-dialog__ref-arrow" aria-hidden="true">
+                  <ArrowLeft size={14} strokeWidth={2.15} />
+                </span>
+                <span className="branch-action-dialog__ref-pill">
+                  <span className="branch-action-dialog__ref-label">head</span>
+                  <span className="branch-action-dialog__ref-value" title={sourceBranchName}>
+                    {sourceBranchName}
+                  </span>
+                </span>
               </div>
             </div>
             {mergeDisabledReason ? (
@@ -100,15 +113,22 @@ export function BranchActionDialog({
               <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" className="button button-secondary" onClick={onPreparePullRequest} disabled={busy}>
+              <button
+                type="button"
+                className="button button-secondary inline-flex items-center gap-2"
+                onClick={onPreparePullRequest}
+                disabled={busy}
+              >
+                <GitPullRequestArrow size={14} aria-hidden="true" />
                 Pull Request
               </button>
               <button
                 type="button"
-                className="button button-primary"
+                className="button button-primary inline-flex items-center gap-2"
                 onClick={onMerge}
                 disabled={busy || Boolean(mergeDisabledReason)}
               >
+                <GitMerge size={14} aria-hidden="true" />
                 Merge
               </button>
             </div>

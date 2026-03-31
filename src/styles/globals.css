@@ -1486,6 +1486,90 @@ body[data-theme='default-dark'] .wip-row__meta {
   }
 }
 
+.branch-action-dialog__ref-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.branch-action-dialog__ref-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(100%, 240px);
+  padding: 7px 11px;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--theme-border-rgb) / 0.12);
+  background: linear-gradient(180deg, rgb(var(--theme-elevated-rgb) / 0.96), rgb(var(--theme-elevated-strong-rgb) / 0.88));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+body[data-theme='default-dark'] .branch-action-dialog__ref-pill {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.branch-action-dialog__ref-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.branch-action-dialog__ref-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.branch-action-dialog__ref-arrow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 9999px;
+  color: var(--accent);
+  background: linear-gradient(180deg, rgb(var(--color-accent) / 0.14), rgb(var(--color-accent) / 0.04));
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--color-accent) / 0.14),
+    0 6px 16px rgb(var(--color-accent) / 0.08);
+}
+
+.branch-action-dialog__ref-arrow svg {
+  animation: branch-action-dialog-arrow 1.8s ease-in-out infinite;
+}
+
+@keyframes branch-action-dialog-arrow {
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.82;
+  }
+
+  50% {
+    transform: translateX(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .branch-action-dialog__ref-arrow svg {
+    animation: none;
+  }
+}
+
 .git-operation-panel__hint {
   margin: -2px 0 2px;
   font-size: 11px;
