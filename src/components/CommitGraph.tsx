@@ -8,6 +8,7 @@ import {
   type JSX,
 } from 'react';
 
+import { useContainerWidth } from '../hooks/useContainerWidth';
 import { resolveCommitGraphColumnLayout } from '../lib/commitGraphColumns';
 import { buildLaneRows } from '../lib/commitGraphLayout';
 import { formatRelativeDate, shortSha } from '../lib/format';
@@ -75,7 +76,7 @@ export function CommitGraph({
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const containerWidth = useContainerWidth(rootRef);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
     if (typeof window === 'undefined') {
       return REF_COLUMN_DEFAULT_WIDTH;
@@ -172,34 +173,6 @@ export function CommitGraph({
     refsResizeCleanupRef.current?.();
   }, []);
 
-  useEffect(() => {
-    const rootNode = rootRef.current;
-    if (!rootNode) {
-      return;
-    }
-
-    const updateWidth = (): void => {
-      setContainerWidth(rootNode.clientWidth);
-    };
-
-    updateWidth();
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth);
-      return () => {
-        window.removeEventListener('resize', updateWidth);
-      };
-    }
-
-    const observer = new ResizeObserver(() => {
-      updateWidth();
-    });
-    observer.observe(rootNode);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
 
   useEffect(() => {
     if (!rootRef.current) {

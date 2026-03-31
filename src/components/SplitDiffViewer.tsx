@@ -1,6 +1,7 @@
-import { useDeferredValue, useEffect, useMemo, useState, type JSX } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react';
 
 import { parseUnifiedDiff, type ParsedDiffCell, type ParsedDiffFile, type ParsedDiffRow } from '../lib/diff';
+import { buildDiffSyntaxTokens, resolveDiffSyntaxLanguage, type DiffSyntaxDisplayToken, type DiffSyntaxLanguage } from '../lib/diffSyntax';
 import { buildIntralineSegments, type IntralineSegment } from '../lib/intralineDiff';
 
 interface SplitDiffFileStat {
@@ -92,19 +93,96 @@ function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefi
   };
 }
 
-function renderSegments(segments: IntralineSegment[] | null): JSX.Element {
-  if (!segments || segments.length === 0) {
+const FONT_STYLE_ITALIC = 1;
+const FONT_STYLE_BOLD = 2;
+const FONT_STYLE_UNDERLINE = 4;
+const FONT_STYLE_STRIKETHROUGH = 8;
+
+function buildTokenStyle(token: DiffSyntaxDisplayToken): CSSProperties | undefined {
+  const textDecorations: string[] = [];
+  const style: CSSProperties = {};
+
+  if (token.color) {
+    style.color = token.color;
+  }
+
+  if (token.bgColor) {
+    style.backgroundColor = token.bgColor;
+  }
+
+  if (token.fontStyle) {
+    if (token.fontStyle & FONT_STYLE_ITALIC) {
+      style.fontStyle = 'italic';
+    }
+
+    if (token.fontStyle & FONT_STYLE_BOLD) {
+      style.fontWeight = 700;
+    }
+
+    if (token.fontStyle & FONT_STYLE_UNDERLINE) {
+      textDecorations.push('underline');
+    }
+
+    if (token.fontStyle & FONT_STYLE_STRIKETHROUGH) {
+      textDecorations.push('line-through');
+    }
+  }
+
+  if (textDecorations.length > 0) {
+    style.textDecoration = textDecorations.join(' ');
+  }
+
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
+function renderContent(
+  content: string,
+  language: DiffSyntaxLanguage | null,
+  segments: IntralineSegment[] | null
+): JSX.Element {
+  if (!content) {
     return <>{' '}</>;
+  }
+
+  if (!language && (!segments || segments.length === 0)) {
+    return <>{content}</>;
+  }
+
+  const tokens = buildDiffSyntaxTokens(content, language, segments);
+  if (tokens.length === 0) {
+    return <>{' '}</>;
+  }
+
+  const groups: Array<{ emphasized: boolean; tokens: DiffSyntaxDisplayToken[] }> = [];
+  for (const token of tokens) {
+    const previous = groups.at(-1);
+    if (previous && previous.emphasized === token.emphasized) {
+      previous.tokens.push(token);
+      continue;
+    }
+
+    groups.push({
+      emphasized: token.emphasized,
+      tokens: [token]
+    });
   }
 
   return (
     <>
-      {segments.map((segment, index) => (
+      {groups.map((group, groupIndex) => (
         <span
-          key={`${segment.text}-${index}`}
-          className={segment.emphasized ? 'diff-cell__chunk diff-cell__chunk--emphasis' : 'diff-cell__chunk'}
+          key={`${group.emphasized ? 'emphasis' : 'plain'}-${groupIndex}`}
+          className={group.emphasized ? 'diff-cell__chunk diff-cell__chunk--emphasis' : 'diff-cell__chunk'}
         >
-          {segment.text || ' '}
+          {group.tokens.map((token, tokenIndex) => (
+            <span
+              key={`${groupIndex}-${tokenIndex}-${token.content}`}
+              className={token.color || token.bgColor || token.fontStyle ? 'diff-token' : undefined}
+              style={buildTokenStyle(token)}
+            >
+              {token.content || ' '}
+            </span>
+          ))}
         </span>
       ))}
     </>
@@ -114,6 +192,7 @@ function renderSegments(segments: IntralineSegment[] | null): JSX.Element {
 function renderCell(
   cell: ParsedDiffCell | null,
   side: 'left' | 'right',
+  language: DiffSyntaxLanguage | null,
   segments: IntralineSegment[] | null = null
 ): JSX.Element {
   if (!cell) {
@@ -123,12 +202,12 @@ function renderCell(
   return (
     <div className={`diff-cell diff-cell--${cell.kind} diff-cell--${side}`}>
       <div className="diff-cell__line-number">{cell.lineNumber ?? ''}</div>
-      <code className="diff-cell__content">{segments ? renderSegments(segments) : cell.content || ' '}</code>
+      <code className="diff-cell__content">{renderContent(cell.content, language, segments)}</code>
     </div>
   );
 }
 
-function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMode): JSX.Element {
+function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMode, language: DiffSyntaxLanguage | null): JSX.Element {
   const segments =
     row.kind === 'change' && row.left && row.right ? buildIntralineSegments(row.left.content, row.right.content) : null;
 
@@ -139,8 +218,10 @@ function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMo
         displayMode === 'after-only' ? 'diff-row--after-only' : ''
       }`}
     >
-      {displayMode === 'after-only' ? renderCell(row.right, 'right', segments?.right ?? null) : renderCell(row.left, 'left', segments?.left ?? null)}
-      {displayMode === 'split' ? renderCell(row.right, 'right', segments?.right ?? null) : null}
+      {displayMode === 'after-only'
+        ? renderCell(row.right, 'right', language, segments?.right ?? null)
+        : renderCell(row.left, 'left', language, segments?.left ?? null)}
+      {displayMode === 'split' ? renderCell(row.right, 'right', language, segments?.right ?? null) : null}
     </div>
   );
 }
@@ -218,6 +299,7 @@ export function SplitDiffViewer({
   const activeFile = visibleFiles.find((file) => file.key === activeFileKey) ?? visibleFiles[0] ?? null;
   const fileCountLabel = isFiltering ? `${visibleFiles.length}/${files.length}` : String(files.length);
   const activeFileDisplayMode: DiffDisplayMode = activeFile?.kind === 'added' ? 'after-only' : 'split';
+  const activeFileLanguage = resolveDiffSyntaxLanguage(activeFile?.newPath ?? activeFile?.oldPath ?? activeFile?.displayPath ?? null);
 
   return (
     <div className="diff-workbench">
@@ -304,7 +386,9 @@ export function SplitDiffViewer({
                 activeFile.hunks.map((hunk) => (
                   <section key={`${activeFile.key}:${hunk.header}`} className="diff-hunk">
                     <div className="diff-hunk__header">{hunk.header}</div>
-                    <div className="diff-hunk__body">{hunk.rows.map((row, index) => renderRow(row, index, activeFileDisplayMode))}</div>
+                    <div className="diff-hunk__body">
+                      {hunk.rows.map((row, index) => renderRow(row, index, activeFileDisplayMode, activeFileLanguage))}
+                    </div>
                   </section>
                 ))
               )}

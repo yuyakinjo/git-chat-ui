@@ -2194,7 +2194,12 @@ body[data-theme='default-dark'] .wip-row__meta {
   border-radius: 4px;
 }
 
+.diff-token {
+  color: inherit;
+}
+
 .diff-cell__chunk--emphasis {
+  display: inline;
   padding: 0 4px;
   border-radius: 9999px;
   box-shadow: none;

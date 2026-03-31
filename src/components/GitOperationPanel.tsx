@@ -6,6 +6,8 @@ import {
   useState,
   type JSX,
 } from 'react';
+
+import { useContainerWidth } from '../hooks/useContainerWidth';
 import { createPortal } from 'react-dom';
 
 import { getCommitMessageFiles } from '../lib/commitMessage';
@@ -75,7 +77,7 @@ export function GitOperationPanel({
   const [draggedFile, setDraggedFile] = useState<WorkingTreeDragPayload | null>(null);
   const [dropZone, setDropZone] = useState<WorkingTreeDropZone | null>(null);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const containerWidth = useContainerWidth(rootRef);
   const draggedFileRef = useRef<WorkingTreeDragPayload | null>(null);
   const dropZoneRef = useRef<WorkingTreeDropZone | null>(null);
   const dragPointerRef = useRef<{
@@ -117,34 +119,6 @@ export function GitOperationPanel({
     }
   }, [busy]);
 
-  useEffect(() => {
-    const rootNode = rootRef.current;
-    if (!rootNode) {
-      return;
-    }
-
-    const updateWidth = (): void => {
-      setContainerWidth(rootNode.clientWidth);
-    };
-
-    updateWidth();
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth);
-      return () => {
-        window.removeEventListener('resize', updateWidth);
-      };
-    }
-
-    const observer = new ResizeObserver(() => {
-      updateWidth();
-    });
-    observer.observe(rootNode);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
 
   useEffect(() => {
     clearDragState();
