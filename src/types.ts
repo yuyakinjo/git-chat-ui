@@ -1,5 +1,15 @@
-export type { AiProvider, GeneratedCommitMessage, OpenAiModelsResponse, TokenValidationResult } from "../shared/ai.js";
-export type { AiGenerationConfig, AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
+export type {
+  AiProvider,
+  GeneratedCommitMessage,
+  OpenAiModelsResponse,
+  TokenValidationResult,
+} from "../shared/ai.js";
+export type {
+  AiGenerationConfig,
+  AppConfig,
+  CommitGraphMode,
+  WindowState,
+} from "../shared/config.js";
 
 export interface Repository {
   name: string;

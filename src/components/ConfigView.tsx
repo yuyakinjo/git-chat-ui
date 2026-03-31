@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { api } from "../lib/api";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "../lib/commitTitlePrompt";
@@ -98,6 +98,31 @@ export function buildOpenAiModelOptions(
 
     return left.localeCompare(right);
   });
+}
+
+function normalizeOpenAiModelFilterQuery(filterQuery: string): string {
+  return filterQuery.trim().toLocaleLowerCase();
+}
+
+export function filterOpenAiModelOptions(
+  modelOptions: string[],
+  selectedModel: string,
+  filterQuery: string,
+): string[] {
+  const normalizedFilterQuery = normalizeOpenAiModelFilterQuery(filterQuery);
+  if (!normalizedFilterQuery) {
+    return modelOptions;
+  }
+
+  const filteredOptions = modelOptions.filter((modelId) =>
+    modelId.toLocaleLowerCase().includes(normalizedFilterQuery),
+  );
+  const normalizedSelectedModel = selectedModel.trim();
+  if (!normalizedSelectedModel || filteredOptions.includes(normalizedSelectedModel)) {
+    return filteredOptions;
+  }
+
+  return [normalizedSelectedModel, ...filteredOptions];
 }
 
 export function resolveSelectedAiProvider(
@@ -251,6 +276,7 @@ export function ConfigView({
   const [openAiModels, setOpenAiModels] = useState<string[]>([]);
   const [loadingOpenAiModels, setLoadingOpenAiModels] = useState(false);
   const [openAiModelsError, setOpenAiModelsError] = useState<string | null>(null);
+  const [openAiModelFilter, setOpenAiModelFilter] = useState("");
   const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
   const claudeCodeTokenValidation = useTokenValidation(
     claudeCodeToken,
@@ -258,10 +284,35 @@ export function ConfigView({
   );
   const openAiModelsRequestIdRef = useRef(0);
   const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const deferredOpenAiModelFilter = useDeferredValue(openAiModelFilter);
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, openAiModel),
     [openAiModel, openAiModels],
   );
+  const normalizedOpenAiModelFilter = useMemo(
+    () => normalizeOpenAiModelFilterQuery(deferredOpenAiModelFilter),
+    [deferredOpenAiModelFilter],
+  );
+  const filteredOpenAiModelOptions = useMemo(
+    () => filterOpenAiModelOptions(openAiModelOptions, openAiModel, deferredOpenAiModelFilter),
+    [deferredOpenAiModelFilter, openAiModel, openAiModelOptions],
+  );
+  const openAiModelFilterMatchCount = useMemo(() => {
+    if (!normalizedOpenAiModelFilter) {
+      return openAiModelOptions.length;
+    }
+
+    return openAiModelOptions.filter((modelId) =>
+      modelId.toLocaleLowerCase().includes(normalizedOpenAiModelFilter),
+    ).length;
+  }, [normalizedOpenAiModelFilter, openAiModelOptions]);
+  const isPreservingSelectedOpenAiModel = useMemo(() => {
+    if (!normalizedOpenAiModelFilter) {
+      return false;
+    }
+
+    return !openAiModel.toLocaleLowerCase().includes(normalizedOpenAiModelFilter);
+  }, [normalizedOpenAiModelFilter, openAiModel]);
   const isDefaultCommitTitlePrompt = commitTitlePrompt === DEFAULT_COMMIT_TITLE_PROMPT;
 
   useEffect(() => {
@@ -290,6 +341,7 @@ export function ConfigView({
     const next = applyConfigToState(config);
     setOpenAiToken(next.openAiToken);
     setOpenAiModel(next.openAiModel);
+    setOpenAiModelFilter("");
     setClaudeCodeToken(next.claudeCodeToken);
     setSelectedAiProvider(
       resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken),
@@ -317,6 +369,7 @@ export function ConfigView({
         const next = applyConfigToState(loadedConfig);
         setOpenAiToken(next.openAiToken);
         setOpenAiModel(next.openAiModel);
+        setOpenAiModelFilter("");
         setClaudeCodeToken(next.claudeCodeToken);
         setSelectedAiProvider(
           resolveSelectedAiProvider(
@@ -459,6 +512,7 @@ export function ConfigView({
       const nextConfig = response.config ?? (await api.getConfig());
       setOpenAiToken(nextConfig.openAiToken);
       setOpenAiModel(nextConfig.openAiModel);
+      setOpenAiModelFilter("");
       setClaudeCodeToken(nextConfig.claudeCodeToken);
       setSelectedAiProvider(
         resolveSelectedAiProvider(
@@ -485,8 +539,8 @@ export function ConfigView({
   };
 
   return (
-    <section className="panel mx-auto h-full w-full max-w-3xl p-6">
-      <div className="mb-4">
+    <section className="panel mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden p-6">
+      <div className="mb-4 shrink-0">
         <h2 className="text-2xl font-semibold text-ink">Config</h2>
         <p className="text-sm text-ink-soft">
           トークン、コミットグラフ表示、リポジトリ探索設定を管理します。
@@ -496,177 +550,196 @@ export function ConfigView({
       {loading ? (
         <div className="text-sm text-ink-subtle">読み込み中...</div>
       ) : (
-        <div className="space-y-5">
-          <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                Commit Graph Mode
-              </label>
-              <select
-                className="input"
-                value={commitGraphMode}
-                onChange={(event) => setCommitGraphMode(event.target.value as CommitGraphMode)}
-              >
-                <option value="detailed">Detailed (分岐・合流レーン)</option>
-                <option value="simple">Simple (簡易レーン)</option>
-              </select>
-            </div>
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="space-y-5 pb-4">
+              <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Commit Graph Mode
+                  </label>
+                  <select
+                    className="input input-select"
+                    value={commitGraphMode}
+                    onChange={(event) => setCommitGraphMode(event.target.value as CommitGraphMode)}
+                  >
+                    <option value="detailed">Detailed (分岐・合流レーン)</option>
+                    <option value="simple">Simple (簡易レーン)</option>
+                  </select>
+                </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                Repository Scan Depth
-              </label>
-              <input
-                className="input"
-                type="number"
-                min={MIN_REPOSITORY_SCAN_DEPTH}
-                max={MAX_REPOSITORY_SCAN_DEPTH}
-                value={repositoryScanDepth}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (Number.isFinite(next)) {
-                    setRepositoryScanDepth(next);
-                  }
-                }}
-                onBlur={() => setRepositoryScanDepth((current) => normalizeDepth(current))}
-              />
-              <p className="mt-1 text-xs text-ink-subtle">
-                `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} -{" "}
-                {MAX_REPOSITORY_SCAN_DEPTH}）。
-              </p>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Repository Scan Depth
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={MIN_REPOSITORY_SCAN_DEPTH}
+                    max={MAX_REPOSITORY_SCAN_DEPTH}
+                    value={repositoryScanDepth}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next)) {
+                        setRepositoryScanDepth(next);
+                      }
+                    }}
+                    onBlur={() => setRepositoryScanDepth((current) => normalizeDepth(current))}
+                  />
+                  <p className="mt-1 text-xs text-ink-subtle">
+                    `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} -{" "}
+                    {MAX_REPOSITORY_SCAN_DEPTH}）。
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      OpenAI Token
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <TokenValidationIndicator
+                        providerName="OpenAI"
+                        validationState={openAiTokenValidation}
+                      />
+                      <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
+                        <input
+                          type="checkbox"
+                          checked={selectedAiProvider === "openAi"}
+                          disabled={!hasConfiguredToken(openAiToken)}
+                          onChange={(event) =>
+                            handleProviderCheckboxChange("openAi", event.target.checked)
+                          }
+                        />
+                        使用
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <input
+                      className="input"
+                      placeholder="sk-..."
+                      value={openAiToken}
+                      onChange={(event) => setOpenAiToken(event.target.value)}
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      OpenAI Model
+                    </label>
+                    <input
+                      className="input mb-2"
+                      placeholder="モデル名で絞り込み (例: mini)"
+                      value={openAiModelFilter}
+                      disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
+                      onChange={(event) => setOpenAiModelFilter(event.target.value)}
+                    />
+                    <select
+                      className="input input-select"
+                      value={openAiModel}
+                      disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
+                      onChange={(event) => setOpenAiModel(event.target.value)}
+                    >
+                      {filteredOpenAiModelOptions.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {modelId}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-ink-subtle">
+                      {openAiTokenValidation !== "valid"
+                        ? "有効な OpenAI token を入力すると利用可能モデルを取得します。"
+                        : loadingOpenAiModels
+                          ? "OpenAI の利用可能モデルを取得中です。"
+                          : openAiModelsError
+                            ? openAiModelsError
+                            : openAiModelFilterMatchCount === 0 && normalizedOpenAiModelFilter
+                              ? "一致するモデルはありません。現在の選択は保持したまま表示しています。"
+                              : normalizedOpenAiModelFilter && isPreservingSelectedOpenAiModel
+                                ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込み、現在の選択は保持しています。`
+                                : normalizedOpenAiModelFilter
+                                  ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込んでいます。`
+                                  : "取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。"}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      Claude Code Token
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <TokenValidationIndicator
+                        providerName="Claude Code"
+                        validationState={claudeCodeTokenValidation}
+                      />
+                      <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
+                        <input
+                          type="checkbox"
+                          checked={selectedAiProvider === "claudeCode"}
+                          disabled={!hasConfiguredToken(claudeCodeToken)}
+                          onChange={(event) =>
+                            handleProviderCheckboxChange("claudeCode", event.target.checked)
+                          }
+                        />
+                        使用
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <input
+                      className="input"
+                      placeholder="cc-... / sk-ant-..."
+                      value={claudeCodeToken}
+                      onChange={(event) => setClaudeCodeToken(event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      Commit Title Prompt
+                    </label>
+                    <button
+                      type="button"
+                      className="button button-secondary px-2! py-1! text-[11px]"
+                      disabled={isDefaultCommitTitlePrompt}
+                      onClick={handleResetCommitTitlePrompt}
+                    >
+                      デフォルトに戻す
+                    </button>
+                  </div>
+                  <textarea
+                    ref={commitTitlePromptTextareaRef}
+                    className="input config-view__commit-title-prompt min-h-32 resize-y"
+                    value={commitTitlePrompt}
+                    wrap="soft"
+                    onChange={(event) => setCommitTitlePrompt(event.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-ink-subtle">
+                    AIでタイトル生成を押したときの instruction
+                    です。右のボタンか、空で保存すると既定プロンプトに戻ります。
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  OpenAI Token
-                </div>
-                <div className="flex items-center gap-3">
-                  <TokenValidationIndicator
-                    providerName="OpenAI"
-                    validationState={openAiTokenValidation}
-                  />
-                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
-                    <input
-                      type="checkbox"
-                      checked={selectedAiProvider === "openAi"}
-                      disabled={!hasConfiguredToken(openAiToken)}
-                      onChange={(event) =>
-                        handleProviderCheckboxChange("openAi", event.target.checked)
-                      }
-                    />
-                    使用
-                  </label>
-                </div>
-              </div>
-              <div>
-                <input
-                  className="input"
-                  placeholder="sk-..."
-                  value={openAiToken}
-                  onChange={(event) => setOpenAiToken(event.target.value)}
-                />
-              </div>
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  OpenAI Model
-                </label>
-                <select
-                  className="input"
-                  value={openAiModel}
-                  disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
-                  onChange={(event) => setOpenAiModel(event.target.value)}
-                >
-                  {openAiModelOptions.map((modelId) => (
-                    <option key={modelId} value={modelId}>
-                      {modelId}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-ink-subtle">
-                  {openAiTokenValidation !== "valid"
-                    ? "有効な OpenAI token を入力すると利用可能モデルを取得します。"
-                    : loadingOpenAiModels
-                      ? "OpenAI の利用可能モデルを取得中です。"
-                      : openAiModelsError
-                        ? openAiModelsError
-                        : "取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。"}
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  Claude Code Token
-                </div>
-                <div className="flex items-center gap-3">
-                  <TokenValidationIndicator
-                    providerName="Claude Code"
-                    validationState={claudeCodeTokenValidation}
-                  />
-                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
-                    <input
-                      type="checkbox"
-                      checked={selectedAiProvider === "claudeCode"}
-                      disabled={!hasConfiguredToken(claudeCodeToken)}
-                      onChange={(event) =>
-                        handleProviderCheckboxChange("claudeCode", event.target.checked)
-                      }
-                    />
-                    使用
-                  </label>
-                </div>
-              </div>
-              <div>
-                <input
-                  className="input"
-                  placeholder="cc-... / sk-ant-..."
-                  value={claudeCodeToken}
-                  onChange={(event) => setClaudeCodeToken(event.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  Commit Title Prompt
-                </label>
-                <button
-                  type="button"
-                  className="button button-secondary px-2! py-1! text-[11px]"
-                  disabled={isDefaultCommitTitlePrompt}
-                  onClick={handleResetCommitTitlePrompt}
-                >
-                  デフォルトに戻す
-                </button>
-              </div>
-              <textarea
-                ref={commitTitlePromptTextareaRef}
-                className="input config-view__commit-title-prompt min-h-32 resize-y"
-                value={commitTitlePrompt}
-                wrap="soft"
-                onChange={(event) => setCommitTitlePrompt(event.target.value)}
-              />
-              <p className="mt-1 text-xs text-ink-subtle">
-                AIでタイトル生成を押したときの instruction
-                です。右のボタンか、空で保存すると既定プロンプトに戻ります。
-              </p>
-            </div>
+          <div className="mt-4 shrink-0">
+            <button
+              type="button"
+              className="button button-primary"
+              disabled={saving}
+              onClick={handleSave}
+            >
+              {saving ? "Saving..." : "Save Config"}
+            </button>
           </div>
-
-          <button
-            type="button"
-            className="button button-primary"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? "Saving..." : "Save Config"}
-          </button>
-        </div>
+        </>
       )}
     </section>
   );

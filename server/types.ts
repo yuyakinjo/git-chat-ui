@@ -106,7 +106,6 @@ export interface WorkingTreeStatus {
   unstaged: WorkingFile[];
 }
 
-
 export type WorkingTreeDiffArea = "staged" | "unstaged";
 
 export interface WorkingTreeDiffDetail {

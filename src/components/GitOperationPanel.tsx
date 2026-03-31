@@ -68,56 +68,6 @@ function isWorkingTreeDropZone(value: string | undefined): value is WorkingTreeD
   return value === "staged" || value === "unstaged" || value === "stash";
 }
 
-function formatCommitLabel(count: number): string {
-  return `${count} commit${count === 1 ? "" : "s"}`;
-}
-
-function getPullStatusCopy(
-  pullStatus: PullStatus,
-  workingTreeDirty: boolean,
-): {
-  title: string;
-  detail: string;
-} {
-  const branchLabel = pullStatus.branchName ?? "HEAD";
-  const upstreamLabel = pullStatus.upstreamName ?? "upstream";
-
-  switch (pullStatus.state) {
-    case "detached":
-      return {
-        title: "Detached HEAD",
-        detail: "branch を checkout していないため pull できません。",
-      };
-    case "noUpstream":
-      return {
-        title: `${branchLabel} has no upstream`,
-        detail: `${branchLabel} に tracking branch がないため pull できません。`,
-      };
-    case "upToDate":
-      return {
-        title: `${branchLabel} is in sync`,
-        detail: `${branchLabel} と ${upstreamLabel} は同じ commit を指しています。`,
-      };
-    case "behind":
-      return {
-        title: `${upstreamLabel} is ahead`,
-        detail: workingTreeDirty
-          ? `${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。Pull の前に commit / stash してください。`
-          : `${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。${branchLabel} を同じ状態にしたい場合は Pull を押してください。`,
-      };
-    case "ahead":
-      return {
-        title: `${branchLabel} is ahead`,
-        detail: `${branchLabel} が ${formatCommitLabel(pullStatus.aheadCount)} ahead です。pull は不要です。必要なら Push を使ってください。`,
-      };
-    case "diverged":
-      return {
-        title: "History has diverged",
-        detail: `${branchLabel} が ${formatCommitLabel(pullStatus.aheadCount)} ahead、${upstreamLabel} が ${formatCommitLabel(pullStatus.behindCount)} ahead です。fast-forward pull はできません。`,
-      };
-  }
-}
-
 export function GitOperationPanel({
   status,
   stashes,
@@ -168,7 +118,6 @@ export function GitOperationPanel({
 
   const unstaged = status?.unstaged ?? [];
   const staged = status?.staged ?? [];
-  const workingTreeDirty = unstaged.length + staged.length > 0;
   const canGenerateCommitMessage = getCommitMessageFiles(status).length > 0;
   const showGenerateCommitMessageButton = generatingCommitMessage || canGenerateCommitMessage;
   const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, " ");
@@ -183,6 +132,9 @@ export function GitOperationPanel({
   ]
     .filter(Boolean)
     .join(" ");
+  // Keep pull wiring on the panel contract for other surfaces, but do not render it here.
+  void pullStatus;
+  void onPull;
 
   const updateDraggedFile = (value: WorkingTreeDragPayload | null): void => {
     draggedFileRef.current = value;
@@ -642,16 +594,7 @@ export function GitOperationPanel({
   const commitDescriptionClass = isCompactMediumLayout
     ? "git-operation-panel__description-input--compact"
     : "";
-  const pullRelationshipLabel = pullStatus?.upstreamName
-    ? `${pullStatus.branchName ?? "HEAD"} ↔ ${pullStatus.upstreamName}`
-    : (pullStatus?.branchName ?? "HEAD");
-  const pullStatusCopy = pullStatus ? getPullStatusCopy(pullStatus, workingTreeDirty) : null;
-  const pullButtonDisabled =
-    busy || workingTreeDirty || !pullStatus?.canPull || typeof onPull !== "function";
-  const showCompactPullAction = isCompactMediumLayout && Boolean(pullStatus && pullStatusCopy);
-  const commitActionsClass = showCompactPullAction
-    ? "git-operation-panel__commit-actions--three"
-    : "git-operation-panel__commit-actions--two";
+  const commitActionsClass = "git-operation-panel__commit-actions--two";
 
   const renderUnstagedBucket = (): JSX.Element => (
     <div className="flex min-h-0 min-w-0 flex-col">
@@ -800,71 +743,8 @@ export function GitOperationPanel({
             value={commitDescription}
             onChange={(event) => onCommitDescriptionChange(event.target.value)}
           />
-          {pullStatus && pullStatusCopy ? (
-            isCompactMediumLayout ? (
-              <section className="git-operation-panel__pull-status-compact rounded-2xl border border-black/10 bg-[#f6f5ef] px-2.5 py-2 text-left">
-                <div className="truncate text-[11px] font-semibold text-ink">
-                  {pullRelationshipLabel}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-ink-subtle">
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
-                    ahead {pullStatus.aheadCount}
-                  </span>
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
-                    behind {pullStatus.behindCount}
-                  </span>
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-0.5">
-                    {pullStatusCopy.title}
-                  </span>
-                </div>
-              </section>
-            ) : (
-              <section className="rounded-2xl border border-black/10 bg-[#f6f5ef] px-3 py-3 text-left">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-subtle">
-                      Pull Status
-                    </div>
-                    <div className="mt-1 truncate text-sm font-semibold text-ink">
-                      {pullRelationshipLabel}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="button button-secondary shrink-0 px-3! py-1.5!"
-                    disabled={pullButtonDisabled}
-                    onClick={() => onPull?.()}
-                  >
-                    Pull
-                  </button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-ink-subtle">
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
-                    ahead {pullStatus.aheadCount}
-                  </span>
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
-                    behind {pullStatus.behindCount}
-                  </span>
-                  <span className="rounded-full border border-black/10 bg-white/80 px-2 py-1">
-                    {pullStatusCopy.title}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-ink-subtle">{pullStatusCopy.detail}</p>
-              </section>
-            )
-          ) : null}
         </div>
         <div className={`git-operation-panel__commit-actions ${commitActionsClass}`.trim()}>
-          {showCompactPullAction ? (
-            <button
-              type="button"
-              className="button button-secondary"
-              disabled={pullButtonDisabled}
-              onClick={() => onPull?.()}
-            >
-              Pull
-            </button>
-          ) : null}
           <button
             type="button"
             className="button button-primary"

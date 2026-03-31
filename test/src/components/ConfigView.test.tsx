@@ -5,6 +5,7 @@ import { DEFAULT_COMMIT_TITLE_PROMPT } from "../../../src/lib/commitTitlePrompt"
 import {
   buildOpenAiModelOptions,
   ConfigView,
+  filterOpenAiModelOptions,
   resolveSelectedAiProvider,
   TokenValidationIndicator,
 } from "../../../src/components/ConfigView";
@@ -81,6 +82,28 @@ describe("buildOpenAiModelOptions", () => {
   });
 });
 
+describe("filterOpenAiModelOptions", () => {
+  test("filters model options by partial match", () => {
+    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "gpt-5", "mini")).toEqual([
+      "gpt-5",
+      "gpt-5-mini",
+    ]);
+  });
+
+  test("matches case-insensitively", () => {
+    expect(filterOpenAiModelOptions(["GPT-5", "gpt-4.1"], "GPT-5", "gpt")).toEqual([
+      "GPT-5",
+      "gpt-4.1",
+    ]);
+  });
+
+  test("keeps the selected model visible when no fetched option matches the filter", () => {
+    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "gpt-4.1", "mini")).toEqual(
+      ["gpt-4.1", "gpt-5-mini"],
+    );
+  });
+});
+
 describe("ConfigView", () => {
   test("renders the default commit title prompt as the textarea value instead of a placeholder", () => {
     const html = renderToStaticMarkup(
@@ -98,6 +121,49 @@ describe("ConfigView", () => {
     expect(html).not.toContain('placeholder="You are a Git assistant..."');
     expect(html).toContain('class="input config-view__commit-title-prompt min-h-32 resize-y"');
     expect(html).toContain('wrap="soft"');
+  });
+
+  test("renders config content inside a scrollable body so long forms stay within the panel", () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={config}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain(
+      'class="panel mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden p-6"',
+    );
+    expect(html).toContain('class="min-h-0 flex-1 overflow-y-auto pr-1"');
+    expect(html).toContain('class="mt-4 shrink-0"');
+  });
+
+  test("renders config selects with the shared input-select styling hook", () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={config}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />,
+    );
+
+    expect(html.match(/class="input input-select"/g)?.length).toBe(2);
+  });
+
+  test("renders an OpenAI model filter input above the select", () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={config}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain('placeholder="モデル名で絞り込み (例: mini)"');
   });
 
   test("renders a reset button for restoring the default prompt", () => {

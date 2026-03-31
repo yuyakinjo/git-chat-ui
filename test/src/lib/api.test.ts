@@ -46,6 +46,30 @@ describe("api.generateCommitMessage", () => {
   });
 });
 
+describe("api.health", () => {
+  test("uses the HTTP business transport on web", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(api.health()).resolves.toEqual({ ok: true });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/health");
+    expect(requests[0]?.body).toBeNull();
+  });
+});
+
 describe("api.validateOpenAiToken", () => {
   test("posts the token to the OpenAI validation endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];

@@ -576,6 +576,25 @@ button.app-tab {
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.13);
 }
 
+.input-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 40px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgb(var(--theme-border-rgb) / 0.82) 50%),
+    linear-gradient(135deg, rgb(var(--theme-border-rgb) / 0.82) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% + 1px),
+    calc(100% - 13px) calc(50% + 1px);
+  background-repeat: no-repeat;
+  background-size: 6px 6px;
+}
+
+.input-select:disabled {
+  cursor: not-allowed;
+}
+
 .config-view__commit-title-prompt {
   display: block;
   min-width: 0;
@@ -1731,10 +1750,6 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
   resize: none;
 }
 
-.git-operation-panel__pull-status-compact {
-  flex: 0 0 auto;
-}
-
 .git-operation-panel__commit-actions {
   display: grid;
   flex: 0 0 auto;
@@ -1743,10 +1758,6 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
 
 .git-operation-panel__commit-actions--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.git-operation-panel__commit-actions--three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .git-operation-panel__drop-zone-empty {

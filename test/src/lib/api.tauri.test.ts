@@ -17,8 +17,8 @@ afterEach(() => {
   });
 });
 
-describe("api.generateCommitMessage in Tauri", () => {
-  test("wraps Tauri commands with the expected invoke arguments", async () => {
+describe("api in Tauri", () => {
+  test("selects the invoke transport for business API calls", async () => {
     const invokeMock = mock(
       async (command: string, args?: Record<string, unknown>) => ({ command, args }) as unknown,
     );
@@ -35,6 +35,7 @@ describe("api.generateCommitMessage in Tauri", () => {
 
     const { api } = await import("../../../src/lib/api");
 
+    await api.health();
     await api.generateCommitMessage("/tmp/repo", ["src/App.tsx"], {
       openAiToken: "",
       openAiModel: "gpt-4.1-mini",
@@ -44,7 +45,8 @@ describe("api.generateCommitMessage in Tauri", () => {
     });
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
-    expect(invokeMock).toHaveBeenNthCalledWith(1, "generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -55,7 +57,7 @@ describe("api.generateCommitMessage in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });

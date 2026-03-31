@@ -71,8 +71,8 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("overflow: auto;");
     expect(gitOperationSection).toContain(".git-operation-panel__description-input--compact {");
     expect(gitOperationSection).toContain("min-height: 44px;");
-    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--three {");
-    expect(gitOperationSection).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--two {");
+    expect(gitOperationSection).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
     expect(gitOperationSection).toContain(".git-operation-panel__drop-zone-empty {");
     expect(gitOperationSection).toContain("line-height: 1;");
     expect(gitOperationSection).toContain("transform: translateY(-1px);");
@@ -99,6 +99,18 @@ describe("globals.css", () => {
     expect(promptSection).toContain("white-space: pre-wrap;");
     expect(promptSection).toContain("overflow-wrap: anywhere;");
     expect(promptSection).toContain("word-break: break-word;");
+  });
+
+  test("input-select strips native select chrome and adds the shared chevron affordance", () => {
+    const inputSection = getSection(".input {", ".config-view__commit-title-prompt {");
+
+    expect(inputSection).toContain(".input-select {");
+    expect(inputSection).toContain("appearance: none;");
+    expect(inputSection).toContain("-webkit-appearance: none;");
+    expect(inputSection).toContain("padding-right: 40px;");
+    expect(inputSection).toContain("background-image:");
+    expect(inputSection).toContain(".input-select:disabled {");
+    expect(inputSection).toContain("cursor: not-allowed;");
   });
 
   test("working tree context menu uses the same theme tokens as floating branch actions", () => {

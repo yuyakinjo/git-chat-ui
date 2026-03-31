@@ -280,7 +280,7 @@ describe("GitOperationPanel", () => {
     expect(html).not.toContain('data-lucide="sparkles"');
   });
 
-  test("renders pull status against the tracked upstream branch", () => {
+  test("keeps pull hidden in the commit panel even when pull data is available", () => {
     const html = renderToStaticMarkup(
       <GitOperationPanel
         status={emptyStatus}
@@ -306,12 +306,15 @@ describe("GitOperationPanel", () => {
       />,
     );
 
-    expect(html).toContain("Pull Status");
-    expect(html).toContain("main ↔ origin/main");
-    expect(html).toContain("ahead 0");
-    expect(html).toContain("behind 3");
-    expect(html).toContain("origin/main is ahead");
-    expect(html).toContain("Pull を押してください。");
+    expect(html).not.toContain("Pull Status");
+    expect(html).not.toContain("main ↔ origin/main");
+    expect(html).not.toContain("ahead 0");
+    expect(html).not.toContain("behind 3");
+    expect(html).not.toContain("origin/main is ahead");
+    expect(html).not.toContain("Pull を押してください。");
+    expect(html).not.toContain(">Pull</button>");
+    expect(html).toContain(">Commit</button>");
+    expect(html).toContain(">Push</button>");
   });
 
   test("chooses git operation column counts from panel width", () => {
