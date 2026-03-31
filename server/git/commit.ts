@@ -1,4 +1,4 @@
-import type { CommitDetail, CommitListItem } from '../types.js';
+import type { CommitDetail, CommitFileDiffDetail, CommitListItem } from '../types.js';
 
 import { ensureRepoPath, parseCommitFileStats, runGit } from './command.js';
 
@@ -101,6 +101,31 @@ export async function getCommitDetail(repoPath: string, sha: string): Promise<Co
     body,
     files,
     diff: diff.slice(0, 25000)
+  };
+}
+
+export async function getCommitFileDiffDetail(repoPath: string, sha: string, file: string): Promise<CommitFileDiffDetail> {
+  await ensureRepoPath(repoPath);
+
+  const normalizedSha = sha.trim();
+  const normalizedFile = file.trim();
+
+  if (!normalizedSha) {
+    throw new Error('sha is required.');
+  }
+
+  if (!normalizedFile) {
+    throw new Error('file is required.');
+  }
+
+  const diff = await runGit(['show', '--pretty=format:', normalizedSha, '--', normalizedFile], repoPath);
+  const isDiffTruncated = diff.length > 25000;
+
+  return {
+    sha: normalizedSha,
+    file: normalizedFile,
+    diff: diff.slice(0, 25000),
+    isDiffTruncated
   };
 }
 
