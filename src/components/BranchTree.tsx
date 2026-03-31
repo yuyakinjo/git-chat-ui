@@ -28,7 +28,6 @@ import {
   clampContextMenuPosition,
   getBranchDisplayName,
   getContextMenuHeight,
-  getContextMenuHint,
   getStashContextMenuHint,
   getStashMetaLabel,
   getStashPrimaryLabel,
@@ -600,9 +599,6 @@ export function BranchTree({
                   <Trash2 size={14} />
                   <span>ブランチを削除</span>
                 </button>
-                <div className="branch-context-menu__hint">
-                  {getContextMenuHint(contextMenu.branch, contextMenu.disabledReason)}
-                </div>
               </>
             ) : (
               <>

@@ -113,6 +113,20 @@ describe("globals.css", () => {
     expect(inputSection).toContain("cursor: not-allowed;");
   });
 
+  test("config view combobox renders an integrated control and elevated option menu", () => {
+    const inputSection = getSection(".input {", ".config-view__commit-title-prompt {");
+
+    expect(inputSection).toContain(".config-view__combobox {");
+    expect(inputSection).toContain(".config-view__combobox-control {");
+    expect(inputSection).toContain(".config-view__combobox-control:focus-within,");
+    expect(inputSection).toContain(".config-view__combobox-input {");
+    expect(inputSection).toContain(".config-view__combobox-toggle {");
+    expect(inputSection).toContain(".config-view__combobox-menu {");
+    expect(inputSection).toContain("backdrop-filter: blur(18px) saturate(170%);");
+    expect(inputSection).toContain(".config-view__combobox-option.is-selected {");
+    expect(inputSection).toContain(".config-view__combobox-empty {");
+  });
+
   test("working tree context menu uses the same theme tokens as floating branch actions", () => {
     const menuSection = getSection(".working-tree-context-menu {", ".branch-context-menu {");
 

@@ -595,6 +595,137 @@ button.app-tab {
   cursor: not-allowed;
 }
 
+.config-view__combobox {
+  position: relative;
+}
+
+.config-view__combobox-control {
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--control-bg);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.config-view__combobox-control:focus-within,
+.config-view__combobox-control.is-open {
+  border-color: rgb(var(--color-accent) / 0.5);
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.13);
+}
+
+.config-view__combobox-input {
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  padding: 11px 10px 11px 14px;
+}
+
+.config-view__combobox-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.config-view__combobox-input:disabled {
+  cursor: not-allowed;
+}
+
+.config-view__combobox-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 38px;
+  border: none;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.config-view__combobox-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.config-view__combobox-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.config-view__combobox-control.is-open .config-view__combobox-toggle svg {
+  transform: rotate(180deg);
+}
+
+.config-view__combobox-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border-strong);
+  background: linear-gradient(
+    148deg,
+    rgb(var(--theme-elevated-strong-rgb) / 0.96),
+    rgb(var(--theme-elevated-rgb) / 0.92)
+  );
+  box-shadow:
+    0 18px 42px rgb(var(--theme-overlay-rgb) / 0.24),
+    0 0 0 1px rgb(255 255 255 / 0.06) inset;
+  padding: 6px;
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+}
+
+.config-view__combobox-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.config-view__combobox-option:hover,
+.config-view__combobox-option.is-active {
+  background: var(--list-hover-bg);
+}
+
+.config-view__combobox-option.is-selected {
+  background: rgb(var(--color-accent) / 0.12);
+  color: var(--accent);
+}
+
+.config-view__combobox-option-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.config-view__combobox-option-meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+.config-view__combobox-empty {
+  padding: 11px 10px;
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
 .config-view__commit-title-prompt {
   display: block;
   min-width: 0;

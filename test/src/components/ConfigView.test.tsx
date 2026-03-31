@@ -84,23 +84,17 @@ describe("buildOpenAiModelOptions", () => {
 
 describe("filterOpenAiModelOptions", () => {
   test("filters model options by partial match", () => {
-    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "gpt-5", "mini")).toEqual([
-      "gpt-5",
+    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "mini")).toEqual([
       "gpt-5-mini",
     ]);
   });
 
   test("matches case-insensitively", () => {
-    expect(filterOpenAiModelOptions(["GPT-5", "gpt-4.1"], "GPT-5", "gpt")).toEqual([
-      "GPT-5",
-      "gpt-4.1",
-    ]);
+    expect(filterOpenAiModelOptions(["GPT-5", "gpt-4.1"], "gpt")).toEqual(["GPT-5", "gpt-4.1"]);
   });
 
-  test("keeps the selected model visible when no fetched option matches the filter", () => {
-    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "gpt-4.1", "mini")).toEqual(
-      ["gpt-4.1", "gpt-5-mini"],
-    );
+  test("returns no option when nothing matches the filter", () => {
+    expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "audio")).toEqual([]);
   });
 });
 
@@ -150,10 +144,10 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(2);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(1);
   });
 
-  test("renders an OpenAI model filter input above the select", () => {
+  test("renders an OpenAI model combobox control", () => {
     const html = renderToStaticMarkup(
       <ConfigView
         onNotify={() => {}}
@@ -163,7 +157,10 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html).toContain('placeholder="モデル名で絞り込み (例: mini)"');
+    expect(html).toContain('class="config-view__combobox"');
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('placeholder="OpenAI model を選択"');
+    expect(html).toContain('class="config-view__combobox-toggle"');
   });
 
   test("renders a reset button for restoring the default prompt", () => {

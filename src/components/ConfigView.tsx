@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { AlertCircle, CheckCircle2, ChevronDown, LoaderCircle } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 import { api } from "../lib/api";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "../lib/commitTitlePrompt";
@@ -104,25 +104,15 @@ function normalizeOpenAiModelFilterQuery(filterQuery: string): string {
   return filterQuery.trim().toLocaleLowerCase();
 }
 
-export function filterOpenAiModelOptions(
-  modelOptions: string[],
-  selectedModel: string,
-  filterQuery: string,
-): string[] {
+export function filterOpenAiModelOptions(modelOptions: string[], filterQuery: string): string[] {
   const normalizedFilterQuery = normalizeOpenAiModelFilterQuery(filterQuery);
   if (!normalizedFilterQuery) {
     return modelOptions;
   }
 
-  const filteredOptions = modelOptions.filter((modelId) =>
+  return modelOptions.filter((modelId) =>
     modelId.toLocaleLowerCase().includes(normalizedFilterQuery),
   );
-  const normalizedSelectedModel = selectedModel.trim();
-  if (!normalizedSelectedModel || filteredOptions.includes(normalizedSelectedModel)) {
-    return filteredOptions;
-  }
-
-  return [normalizedSelectedModel, ...filteredOptions];
 }
 
 export function resolveSelectedAiProvider(
@@ -277,6 +267,9 @@ export function ConfigView({
   const [loadingOpenAiModels, setLoadingOpenAiModels] = useState(false);
   const [openAiModelsError, setOpenAiModelsError] = useState<string | null>(null);
   const [openAiModelFilter, setOpenAiModelFilter] = useState("");
+  const [isOpenAiModelFilterDirty, setIsOpenAiModelFilterDirty] = useState(false);
+  const [isOpenAiModelComboboxOpen, setIsOpenAiModelComboboxOpen] = useState(false);
+  const [activeOpenAiModelIndex, setActiveOpenAiModelIndex] = useState(-1);
   const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
   const claudeCodeTokenValidation = useTokenValidation(
     claudeCodeToken,
@@ -284,35 +277,30 @@ export function ConfigView({
   );
   const openAiModelsRequestIdRef = useRef(0);
   const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const deferredOpenAiModelFilter = useDeferredValue(openAiModelFilter);
+  const openAiModelComboboxRef = useRef<HTMLDivElement | null>(null);
+  const openAiModelInputRef = useRef<HTMLInputElement | null>(null);
+  const openAiModelComboboxId = useId();
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, openAiModel),
     [openAiModel, openAiModels],
   );
+  const openAiModelFilterQuery = isOpenAiModelFilterDirty ? openAiModelFilter : "";
   const normalizedOpenAiModelFilter = useMemo(
-    () => normalizeOpenAiModelFilterQuery(deferredOpenAiModelFilter),
-    [deferredOpenAiModelFilter],
+    () => normalizeOpenAiModelFilterQuery(openAiModelFilterQuery),
+    [openAiModelFilterQuery],
   );
   const filteredOpenAiModelOptions = useMemo(
-    () => filterOpenAiModelOptions(openAiModelOptions, openAiModel, deferredOpenAiModelFilter),
-    [deferredOpenAiModelFilter, openAiModel, openAiModelOptions],
+    () => filterOpenAiModelOptions(openAiModelOptions, openAiModelFilterQuery),
+    [openAiModelFilterQuery, openAiModelOptions],
   );
-  const openAiModelFilterMatchCount = useMemo(() => {
-    if (!normalizedOpenAiModelFilter) {
-      return openAiModelOptions.length;
-    }
-
-    return openAiModelOptions.filter((modelId) =>
-      modelId.toLocaleLowerCase().includes(normalizedOpenAiModelFilter),
-    ).length;
-  }, [normalizedOpenAiModelFilter, openAiModelOptions]);
-  const isPreservingSelectedOpenAiModel = useMemo(() => {
-    if (!normalizedOpenAiModelFilter) {
-      return false;
-    }
-
-    return !openAiModel.toLocaleLowerCase().includes(normalizedOpenAiModelFilter);
-  }, [normalizedOpenAiModelFilter, openAiModel]);
+  const openAiModelFilterMatchCount = filteredOpenAiModelOptions.length;
+  const isOpenAiModelComboboxEnabled =
+    openAiTokenValidation === "valid" && !loadingOpenAiModels && openAiModelOptions.length > 0;
+  const openAiModelInputValue = isOpenAiModelComboboxOpen
+    ? isOpenAiModelFilterDirty
+      ? openAiModelFilter
+      : openAiModel
+    : openAiModel;
   const isDefaultCommitTitlePrompt = commitTitlePrompt === DEFAULT_COMMIT_TITLE_PROMPT;
 
   useEffect(() => {
@@ -334,6 +322,69 @@ export function ConfigView({
   }, [commitTitlePrompt]);
 
   useEffect(() => {
+    if (!isOpenAiModelComboboxOpen) {
+      setActiveOpenAiModelIndex(-1);
+      return;
+    }
+
+    if (filteredOpenAiModelOptions.length === 0) {
+      setActiveOpenAiModelIndex(-1);
+      return;
+    }
+
+    const selectedIndex = filteredOpenAiModelOptions.indexOf(openAiModel);
+    setActiveOpenAiModelIndex((current) => {
+      if (selectedIndex >= 0) {
+        return selectedIndex;
+      }
+
+      if (current >= 0 && current < filteredOpenAiModelOptions.length) {
+        return current;
+      }
+
+      return 0;
+    });
+  }, [filteredOpenAiModelOptions, isOpenAiModelComboboxOpen, openAiModel]);
+
+  useEffect(() => {
+    if (!isOpenAiModelComboboxOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (openAiModelComboboxRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsOpenAiModelComboboxOpen(false);
+      setOpenAiModelFilter("");
+      setIsOpenAiModelFilterDirty(false);
+      setActiveOpenAiModelIndex(-1);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isOpenAiModelComboboxOpen]);
+
+  useEffect(() => {
+    if (isOpenAiModelComboboxEnabled) {
+      return;
+    }
+
+    setIsOpenAiModelComboboxOpen(false);
+    setOpenAiModelFilter("");
+    setIsOpenAiModelFilterDirty(false);
+    setActiveOpenAiModelIndex(-1);
+  }, [isOpenAiModelComboboxEnabled]);
+
+  useEffect(() => {
     if (!config) {
       return;
     }
@@ -342,6 +393,9 @@ export function ConfigView({
     setOpenAiToken(next.openAiToken);
     setOpenAiModel(next.openAiModel);
     setOpenAiModelFilter("");
+    setIsOpenAiModelFilterDirty(false);
+    setIsOpenAiModelComboboxOpen(false);
+    setActiveOpenAiModelIndex(-1);
     setClaudeCodeToken(next.claudeCodeToken);
     setSelectedAiProvider(
       resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken),
@@ -370,6 +424,9 @@ export function ConfigView({
         setOpenAiToken(next.openAiToken);
         setOpenAiModel(next.openAiModel);
         setOpenAiModelFilter("");
+        setIsOpenAiModelFilterDirty(false);
+        setIsOpenAiModelComboboxOpen(false);
+        setActiveOpenAiModelIndex(-1);
         setClaudeCodeToken(next.claudeCodeToken);
         setSelectedAiProvider(
           resolveSelectedAiProvider(
@@ -413,6 +470,10 @@ export function ConfigView({
       setLoadingOpenAiModels(false);
       setOpenAiModels([]);
       setOpenAiModelsError(null);
+      setOpenAiModelFilter("");
+      setIsOpenAiModelFilterDirty(false);
+      setIsOpenAiModelComboboxOpen(false);
+      setActiveOpenAiModelIndex(-1);
       return;
     }
 
@@ -494,6 +555,138 @@ export function ConfigView({
     });
   };
 
+  const closeOpenAiModelCombobox = (): void => {
+    setIsOpenAiModelComboboxOpen(false);
+    setOpenAiModelFilter("");
+    setIsOpenAiModelFilterDirty(false);
+    setActiveOpenAiModelIndex(-1);
+  };
+
+  const focusOpenAiModelInput = (selectText: boolean): void => {
+    requestAnimationFrame(() => {
+      const input = openAiModelInputRef.current;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      if (selectText && input.value) {
+        input.select();
+      }
+    });
+  };
+
+  const openOpenAiModelCombobox = (selectText: boolean): void => {
+    if (!isOpenAiModelComboboxEnabled) {
+      return;
+    }
+
+    setIsOpenAiModelComboboxOpen(true);
+    setOpenAiModelFilter("");
+    setIsOpenAiModelFilterDirty(false);
+    focusOpenAiModelInput(selectText);
+  };
+
+  const handleOpenAiModelOptionSelect = (modelId: string): void => {
+    setOpenAiModel(modelId);
+    closeOpenAiModelCombobox();
+  };
+
+  const handleOpenAiModelInputFocus = (): void => {
+    if (!isOpenAiModelComboboxEnabled || isOpenAiModelComboboxOpen) {
+      return;
+    }
+
+    setIsOpenAiModelComboboxOpen(true);
+    setOpenAiModelFilter("");
+    setIsOpenAiModelFilterDirty(false);
+    focusOpenAiModelInput(Boolean(openAiModel.trim()));
+  };
+
+  const handleOpenAiModelInputChange = (value: string): void => {
+    if (!isOpenAiModelComboboxEnabled) {
+      return;
+    }
+
+    if (!isOpenAiModelComboboxOpen) {
+      setIsOpenAiModelComboboxOpen(true);
+    }
+
+    setOpenAiModelFilter(value);
+    setIsOpenAiModelFilterDirty(true);
+  };
+
+  const handleOpenAiModelInputKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (!isOpenAiModelComboboxEnabled) {
+      return;
+    }
+
+    if (event.key === "Tab") {
+      closeOpenAiModelCombobox();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      if (isOpenAiModelComboboxOpen) {
+        event.preventDefault();
+        closeOpenAiModelCombobox();
+        openAiModelInputRef.current?.blur();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!isOpenAiModelComboboxOpen) {
+        openOpenAiModelCombobox(false);
+        return;
+      }
+
+      setActiveOpenAiModelIndex((current) => {
+        if (filteredOpenAiModelOptions.length === 0) {
+          return -1;
+        }
+
+        return Math.min(current + 1, filteredOpenAiModelOptions.length - 1);
+      });
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpenAiModelComboboxOpen) {
+        openOpenAiModelCombobox(false);
+        return;
+      }
+
+      setActiveOpenAiModelIndex((current) => {
+        if (filteredOpenAiModelOptions.length === 0) {
+          return -1;
+        }
+
+        if (current < 0) {
+          return filteredOpenAiModelOptions.length - 1;
+        }
+
+        return Math.max(current - 1, 0);
+      });
+      return;
+    }
+
+    if (event.key === "Enter" && isOpenAiModelComboboxOpen && activeOpenAiModelIndex >= 0) {
+      event.preventDefault();
+      const activeModel = filteredOpenAiModelOptions[activeOpenAiModelIndex];
+      if (activeModel) {
+        handleOpenAiModelOptionSelect(activeModel);
+      }
+      return;
+    }
+
+    if (!isOpenAiModelComboboxOpen) {
+      setIsOpenAiModelComboboxOpen(true);
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     setSaving(true);
     try {
@@ -513,6 +706,9 @@ export function ConfigView({
       setOpenAiToken(nextConfig.openAiToken);
       setOpenAiModel(nextConfig.openAiModel);
       setOpenAiModelFilter("");
+      setIsOpenAiModelFilterDirty(false);
+      setIsOpenAiModelComboboxOpen(false);
+      setActiveOpenAiModelIndex(-1);
       setClaudeCodeToken(nextConfig.claudeCodeToken);
       setSelectedAiProvider(
         resolveSelectedAiProvider(
@@ -629,25 +825,94 @@ export function ConfigView({
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                       OpenAI Model
                     </label>
-                    <input
-                      className="input mb-2"
-                      placeholder="モデル名で絞り込み (例: mini)"
-                      value={openAiModelFilter}
-                      disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
-                      onChange={(event) => setOpenAiModelFilter(event.target.value)}
-                    />
-                    <select
-                      className="input input-select"
-                      value={openAiModel}
-                      disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
-                      onChange={(event) => setOpenAiModel(event.target.value)}
-                    >
-                      {filteredOpenAiModelOptions.map((modelId) => (
-                        <option key={modelId} value={modelId}>
-                          {modelId}
-                        </option>
-                      ))}
-                    </select>
+                    <div ref={openAiModelComboboxRef} className="config-view__combobox">
+                      <div
+                        className={`config-view__combobox-control${isOpenAiModelComboboxOpen ? " is-open" : ""}`}
+                      >
+                        <input
+                          ref={openAiModelInputRef}
+                          className="config-view__combobox-input"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          aria-controls={`${openAiModelComboboxId}-listbox`}
+                          aria-expanded={isOpenAiModelComboboxOpen}
+                          aria-activedescendant={
+                            activeOpenAiModelIndex >= 0
+                              ? `${openAiModelComboboxId}-option-${activeOpenAiModelIndex}`
+                              : undefined
+                          }
+                          placeholder="OpenAI model を選択"
+                          value={openAiModelInputValue}
+                          disabled={openAiTokenValidation !== "valid" || loadingOpenAiModels}
+                          onFocus={handleOpenAiModelInputFocus}
+                          onChange={(event) => handleOpenAiModelInputChange(event.target.value)}
+                          onKeyDown={handleOpenAiModelInputKeyDown}
+                        />
+                        <button
+                          type="button"
+                          className="config-view__combobox-toggle"
+                          aria-label={
+                            isOpenAiModelComboboxOpen
+                              ? "OpenAI model list を閉じる"
+                              : "OpenAI model list を開く"
+                          }
+                          disabled={!isOpenAiModelComboboxEnabled}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            if (isOpenAiModelComboboxOpen) {
+                              closeOpenAiModelCombobox();
+                              return;
+                            }
+
+                            openOpenAiModelCombobox(Boolean(openAiModel.trim()));
+                          }}
+                        >
+                          <ChevronDown size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+
+                      {isOpenAiModelComboboxOpen ? (
+                        <div
+                          id={`${openAiModelComboboxId}-listbox`}
+                          className="config-view__combobox-menu"
+                          role="listbox"
+                        >
+                          {filteredOpenAiModelOptions.length > 0 ? (
+                            filteredOpenAiModelOptions.map((modelId, index) => {
+                              const isSelected = modelId === openAiModel;
+                              const isActive = index === activeOpenAiModelIndex;
+
+                              return (
+                                <button
+                                  key={modelId}
+                                  id={`${openAiModelComboboxId}-option-${index}`}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={isSelected}
+                                  className={`config-view__combobox-option${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onMouseEnter={() => setActiveOpenAiModelIndex(index)}
+                                  onClick={() => handleOpenAiModelOptionSelect(modelId)}
+                                >
+                                  <span className="config-view__combobox-option-label">
+                                    {modelId}
+                                  </span>
+                                  {isSelected ? (
+                                    <span className="config-view__combobox-option-meta">
+                                      選択中
+                                    </span>
+                                  ) : null}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="config-view__combobox-empty">
+                              一致するモデルはありません
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
                     <p className="mt-1 text-xs text-ink-subtle">
                       {openAiTokenValidation !== "valid"
                         ? "有効な OpenAI token を入力すると利用可能モデルを取得します。"
@@ -655,13 +920,11 @@ export function ConfigView({
                           ? "OpenAI の利用可能モデルを取得中です。"
                           : openAiModelsError
                             ? openAiModelsError
-                            : openAiModelFilterMatchCount === 0 && normalizedOpenAiModelFilter
-                              ? "一致するモデルはありません。現在の選択は保持したまま表示しています。"
-                              : normalizedOpenAiModelFilter && isPreservingSelectedOpenAiModel
-                                ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込み、現在の選択は保持しています。`
-                                : normalizedOpenAiModelFilter
-                                  ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込んでいます。`
-                                  : "取得したモデル一覧から、コミット文生成に使う OpenAI model を選択します。"}
+                            : normalizedOpenAiModelFilter
+                              ? openAiModelFilterMatchCount > 0
+                                ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込んでいます。`
+                                : "一致するモデルはありません。"
+                              : "入力しながら候補を絞り込み、コミット文生成に使う OpenAI model を選択します。"}
                     </p>
                   </div>
                 </div>

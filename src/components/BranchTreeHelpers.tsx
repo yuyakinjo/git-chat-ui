@@ -9,8 +9,8 @@ export interface TreeNode {
 }
 
 export const CONTEXT_MENU_WIDTH_PX = 232;
-export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 112;
-export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 156;
+export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 60;
+export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 96;
 export const STASH_CONTEXT_MENU_HEIGHT_PX = 188;
 
 export function clampContextMenuPosition(
@@ -30,18 +30,6 @@ export function clampContextMenuPosition(
 
 export function getContextMenuHeight(branch: Branch): number {
   return branch.type === "local" ? LOCAL_CONTEXT_MENU_HEIGHT_PX : REMOTE_CONTEXT_MENU_HEIGHT_PX;
-}
-
-export function getContextMenuHint(branch: Branch, deleteDisabledReason: string | null): string {
-  if (branch.type === "local") {
-    if (deleteDisabledReason) {
-      return `${deleteDisabledReason} この branch を起点に新しい local branch を作成できます。`;
-    }
-
-    return "この branch を起点に新しい local branch を作成できます。削除は確認ダイアログを開いてから実行します。";
-  }
-
-  return deleteDisabledReason ?? "確認ダイアログを開いてから削除します。";
 }
 
 export function getStashContextMenuHint(): string {
