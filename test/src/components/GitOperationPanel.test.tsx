@@ -136,6 +136,12 @@ describe("GitOperationPanel", () => {
     expect(html).toContain(
       "git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash",
     );
+    expect(html).toContain(
+      "git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged flex h-full min-h-0 min-w-0 flex-col",
+    );
+    expect(html).toContain(
+      "git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex h-full min-h-0 min-w-0 flex-col",
+    );
     expect(html).toContain("git-operation-panel__commit-column flex min-h-0 min-w-0 flex-col");
     expect(html).toContain("git-operation-panel__commit-body");
     expect(html).toContain(
@@ -197,8 +203,8 @@ describe("GitOperationPanel", () => {
       />,
     );
 
-    expect((html.match(/data-working-tree-context-menu="true"/g) ?? []).length).toBe(3);
-    expect((html.match(/aria-haspopup="menu"/g) ?? []).length).toBe(3);
+    expect((html.match(/data-working-tree-context-menu="true"/g) ?? []).length).toBe(4);
+    expect((html.match(/aria-haspopup="menu"/g) ?? []).length).toBe(4);
     expect(html).toContain('git-file-path-label__name">workingTreeDragDrop.ts');
   });
 

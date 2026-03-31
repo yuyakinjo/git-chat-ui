@@ -16,8 +16,8 @@ export function isPureUntrackedWorkingFile(item: Pick<WorkingFile, "x" | "y">): 
   return item.x === "?" && item.y === "?";
 }
 
-export function canDiscardWorkingFile(item: Pick<WorkingFile, "x" | "y">): boolean {
-  return !isPureUntrackedWorkingFile(item);
+export function canDiscardWorkingFile(_item: Pick<WorkingFile, "x" | "y">): boolean {
+  return true;
 }
 
 export function isStagedAddedWorkingFile(item: Pick<WorkingFile, "x">): boolean {
@@ -29,13 +29,13 @@ export function resolveWorkingTreeDiscardTarget(
   _source: WorkingTreeDragSource,
 ): WorkingTreeDiscardTarget | null {
   const file = item.file.trim();
-  if (!file || !canDiscardWorkingFile(item)) {
+  if (!file) {
     return null;
   }
 
   return {
     file,
-    mode: isStagedAddedWorkingFile(item) ? "delete" : "restore",
+    mode: isPureUntrackedWorkingFile(item) || isStagedAddedWorkingFile(item) ? "delete" : "restore",
   };
 }
 
@@ -44,7 +44,7 @@ export function getWorkingTreeDiscardConfirmMessage(target: WorkingTreeDiscardTa
     return [
       `${target.file} の変更を取り消しますか？`,
       "",
-      "このファイルは HEAD に存在しないため、取り消すとファイル自体が削除されます。",
+      "このパスは HEAD に存在しないため、取り消すとファイルまたはディレクトリ自体が削除されます。",
     ].join("\n");
   }
 
@@ -57,7 +57,7 @@ export function getWorkingTreeDiscardConfirmMessage(target: WorkingTreeDiscardTa
 
 export function getWorkingTreeDiscardMenuHint(target: WorkingTreeDiscardTarget): string {
   if (target.mode === "delete") {
-    return "HEAD に存在しないため、取り消すとこのファイルは削除されます。";
+    return "HEAD に存在しないため、取り消すとこのパスは削除されます。";
   }
 
   return "staged / unstaged のローカル変更をまとめて破棄して HEAD に戻します。";

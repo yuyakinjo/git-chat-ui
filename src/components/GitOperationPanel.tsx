@@ -549,22 +549,17 @@ export function GitOperationPanel({
     : false;
   const columnCount = resolveGitOperationPanelColumnCount(containerWidth);
   const isMediumLayout = columnCount === 3;
-  const showStashBucket = !isMediumLayout;
-  const stashDropCandidate =
-    showStashBucket && draggedFile
-      ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "stash" })
-      : false;
+  const useSplitStagedStashLayout = columnCount > 1;
+  const stashDropCandidate = draggedFile
+    ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "stash" })
+    : false;
 
   const dragHint = draggedFile
     ? dropZone
       ? `${draggedFile.file} を ${getWorkingTreeDropActionLabel(dropZone)} へドロップ`
       : draggedFile.source === "unstaged"
-        ? showStashBucket
-          ? "Staged Files または Stash Area にドロップ"
-          : "Staged Files にドロップ"
-        : showStashBucket
-          ? "Unstaged Files または Stash Area にドロップ"
-          : "Unstaged Files にドロップ"
+        ? "Staged Files または Stash Area にドロップ"
+        : "Unstaged Files または Stash Area にドロップ"
     : null;
 
   const dragPreviewPortal =
@@ -631,11 +626,13 @@ export function GitOperationPanel({
     containerHeight > 0 &&
     containerHeight <= GIT_OPERATION_PANEL_COMPACT_HEIGHT_THRESHOLD;
   const bucketGridHeightClass = shouldFitGridHeight ? "git-operation-panel__grid--fit-height" : "";
-  const stackedBucketClass = columnCount === 4 ? "git-operation-panel__stacked-buckets--split" : "";
+  const stackedBucketClass = useSplitStagedStashLayout
+    ? "git-operation-panel__stacked-buckets--split"
+    : "";
   const commitColumnClass = columnCount === 4 ? "git-operation-panel__commit-column--span-2" : "";
   const unstagedDropZoneMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
-  const stagedDropZoneMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
-  const stashDropZoneMinHeightClass = "min-h-[148px]";
+  const stagedDropZoneMinHeightClass = useSplitStagedStashLayout ? "min-h-0" : "min-h-[148px]";
+  const stashDropZoneMinHeightClass = useSplitStagedStashLayout ? "min-h-0" : "min-h-[148px]";
   const commitCardMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
   const commitCardDensityClass = isCompactMediumLayout
     ? "git-operation-panel__commit-card--compact"
@@ -687,7 +684,7 @@ export function GitOperationPanel({
   );
 
   const renderStagedBucket = (): JSX.Element => (
-    <div className="flex min-h-0 min-w-0 flex-col">
+    <div className="flex flex-1 min-h-0 min-w-0 flex-col">
       <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
         <span>Staged Files ({staged.length})</span>
         {staged.length > 0 ? (
@@ -718,15 +715,15 @@ export function GitOperationPanel({
 
   const renderStackedBuckets = (): JSX.Element => (
     <div className={`git-operation-panel__stacked-buckets min-h-0 min-w-0 ${stackedBucketClass}`}>
-      <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged min-h-0 min-w-0">
+      <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--staged flex h-full min-h-0 min-w-0 flex-col">
         {renderStagedBucket()}
       </div>
-      {showStashBucket ? renderStashBucket() : null}
+      {renderStashBucket()}
     </div>
   );
 
   const renderStashBucket = (): JSX.Element => (
-    <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex min-h-0 min-w-0 flex-col">
+    <div className="git-operation-panel__stacked-bucket git-operation-panel__stacked-bucket--stash flex h-full min-h-0 min-w-0 flex-col">
       <div className="mb-1 px-1 text-xs text-ink-subtle">Stash Area</div>
       <div
         data-working-tree-drop-zone="stash"
@@ -910,17 +907,8 @@ export function GitOperationPanel({
             className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass} ${bucketGridHeightClass}`.trim()}
           >
             {renderUnstagedBucket()}
-            {isMediumLayout ? (
-              <>
-                {renderStagedBucket()}
-                {renderCommitColumn()}
-              </>
-            ) : (
-              <>
-                {renderStackedBuckets()}
-                {renderCommitColumn()}
-              </>
-            )}
+            {renderStackedBuckets()}
+            {renderCommitColumn()}
           </div>
         </div>
       </section>

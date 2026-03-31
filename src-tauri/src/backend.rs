@@ -3423,8 +3423,14 @@ fn path_exists_in_head(repo_path: &str, file: &str) -> bool {
 
 fn remove_working_tree_path(repo_path: &str, file: &str) -> Result<(), String> {
     let absolute_path = Path::new(repo_path).join(file);
-    match fs::remove_file(&absolute_path) {
-        Ok(()) => Ok(()),
+    match fs::symlink_metadata(&absolute_path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                fs::remove_dir_all(&absolute_path).map_err(|error| error.to_string())
+            } else {
+                fs::remove_file(&absolute_path).map_err(|error| error.to_string())
+            }
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.to_string()),
     }
@@ -3498,7 +3504,8 @@ pub fn discard_file(repo_path: String, file: String) -> Result<OkResponse, Strin
     };
 
     if entry.x == '?' && entry.y == '?' {
-        return Err("Pure untracked files cannot be discarded from this menu.".to_string());
+        remove_working_tree_path(&repo_path, &entry.file)?;
+        return Ok(OkResponse { ok: true });
     }
 
     let restore_paths = match entry.previous_file {
@@ -4840,18 +4847,23 @@ mod tests {
     }
 
     #[test]
-    fn discard_file_rejects_pure_untracked_file() {
+    fn discard_file_removes_pure_untracked_directory() {
         let fixture = create_working_tree_diff_fixture();
-        fs::write(
-            Path::new(&fixture.repo_path).join("notes.txt"),
-            "alpha\nbeta\n",
-        )
-        .expect("notes file should be written");
+        let nested_repo_path = Path::new(&fixture.repo_path).join("repo");
+        fs::create_dir(&nested_repo_path).expect("nested repo dir should be created");
+        run_command("git", &["init"], nested_repo_path.to_string_lossy().as_ref())
+            .expect("nested repo should be initialized");
+        fs::write(nested_repo_path.join("README.md"), "nested\n")
+            .expect("nested repo readme should be written");
 
-        let error = discard_file(fixture.repo_path.clone(), "notes.txt".to_string())
-            .expect_err("pure untracked files should be rejected");
+        discard_file(fixture.repo_path.clone(), "repo/".to_string())
+            .expect("pure untracked directory should be discarded");
 
-        assert_eq!(error, "Pure untracked files cannot be discarded from this menu.");
+        let status = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("git status should succeed");
+
+        assert!(!status.contains("repo/"));
+        assert!(!nested_repo_path.exists());
     }
 
     #[test]

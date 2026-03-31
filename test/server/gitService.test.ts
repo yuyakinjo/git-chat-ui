@@ -568,15 +568,19 @@ describe("discardFile", () => {
     }
   });
 
-  test("rejects pure untracked files", async () => {
+  test("removes pure untracked directories", async () => {
     const fixture = await createWorkingTreeDiffFixture();
+    const nestedRepoPath = path.join(fixture.repoPath, "repo");
 
     try {
-      await fs.writeFile(path.join(fixture.repoPath, "notes.txt"), "alpha\nbeta\n");
+      await fs.mkdir(nestedRepoPath);
+      await runGit(["init"], nestedRepoPath);
+      await fs.writeFile(path.join(nestedRepoPath, "README.md"), "nested\n");
 
-      await expect(discardFile(fixture.repoPath, "notes.txt")).rejects.toThrow(
-        "Pure untracked files cannot be discarded from this menu.",
-      );
+      await discardFile(fixture.repoPath, "repo/");
+
+      expect(await runGit(["status", "--porcelain"], fixture.repoPath)).not.toContain("repo/");
+      await expect(fs.stat(nestedRepoPath)).rejects.toThrow();
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }

@@ -7,24 +7,27 @@ import {
 } from "../../../src/lib/workingTreeDiscard";
 
 describe("workingTreeDiscard", () => {
-  test("rejects pure untracked files", () => {
+  test("treats pure untracked paths as delete targets", () => {
     expect(
       canDiscardWorkingFile({
         x: "?",
         y: "?",
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       resolveWorkingTreeDiscardTarget(
         {
-          file: "notes.txt",
+          file: "repo/",
           x: "?",
           y: "?",
         },
         "unstaged",
       ),
-    ).toBeNull();
+    ).toEqual({
+      file: "repo/",
+      mode: "delete",
+    });
   });
 
   test("uses delete copy for staged-added files", () => {
@@ -41,7 +44,9 @@ describe("workingTreeDiscard", () => {
       file: "src/new-file.ts",
       mode: "delete",
     });
-    expect(getWorkingTreeDiscardConfirmMessage(target!)).toContain("ファイル自体が削除されます。");
+    expect(getWorkingTreeDiscardConfirmMessage(target!)).toContain(
+      "ファイルまたはディレクトリ自体が削除されます。",
+    );
   });
 
   test("treats partial-stage files as file-level discard regardless of list source", () => {

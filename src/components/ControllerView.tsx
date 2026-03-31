@@ -309,10 +309,6 @@ export function ControllerView({
           return;
         }
 
-        if (data.reportBlockedMutation("開発中のアプリ自身の repo は変更を取り消せません")) {
-          return;
-        }
-
         if (!window.confirm(getWorkingTreeDiscardConfirmMessage(target))) {
           return;
         }

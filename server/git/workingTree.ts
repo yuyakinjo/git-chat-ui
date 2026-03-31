@@ -130,7 +130,7 @@ async function restorePathsFromHead(
 
     const removedPaths = files.filter((candidate) => !headPaths.includes(candidate));
     for (const removedPath of removedPaths) {
-      await fs.rm(path.join(repoPath, removedPath), { force: true });
+      await fs.rm(path.join(repoPath, removedPath), { recursive: true, force: true });
     }
   }
 }
@@ -142,7 +142,7 @@ async function removePathsFromIndexAndWorkingTree(
   await runGit(["rm", "--cached", "--force", "--", ...files], repoPath);
 
   for (const file of files) {
-    await fs.rm(path.join(repoPath, file), { force: true });
+    await fs.rm(path.join(repoPath, file), { recursive: true, force: true });
   }
 }
 
@@ -160,7 +160,8 @@ export async function discardFile(repoPath: string, file: string): Promise<void>
   }
 
   if (entry.x === "?" && entry.y === "?") {
-    throw new Error("Pure untracked files cannot be discarded from this menu.");
+    await fs.rm(path.join(repoPath, entry.file), { recursive: true, force: true });
+    return;
   }
 
   const restorePaths = entry.previousFile ? [entry.previousFile, entry.file] : [entry.file];
