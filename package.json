@@ -19,7 +19,12 @@
     "build": "tsgo -b && vite build",
     "test": "bun test",
     "preview": "vite preview",
-    "typecheck": "tsgo --noEmit -p tsconfig.app.json && tsgo --noEmit -p tsconfig.node.json"
+    "typecheck": "tsgo --noEmit -p tsconfig.app.json && tsgo --noEmit -p tsconfig.node.json",
+    "lint": "oxlint src/ server/ test/",
+    "lint:fix": "oxlint --fix src/ server/ test/",
+    "format": "oxfmt --check src/ server/ test/",
+    "format:fix": "oxfmt --write src/ server/ test/",
+    "check": "bun run typecheck && bun run lint && bun run format"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -42,6 +47,8 @@
     "@typescript/native-preview": "^7.0.0-dev.20260330.1",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.1.2",
+    "oxfmt": "^0.42.0",
+    "oxlint": "^1.57.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
