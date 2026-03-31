@@ -123,3 +123,32 @@ describe('api.renameStash', () => {
     });
   });
 });
+
+describe('api.deleteBranch', () => {
+  test('posts the force delete flag to the branch delete endpoint', async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = ((async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as unknown) as typeof fetch;
+
+    await api.deleteBranch('/tmp/repo', 'feature/delete-me', 'local', true);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('http://localhost:4141/api/branches/delete');
+    expect(requests[0]?.body).toEqual({
+      repoPath: '/tmp/repo',
+      branchName: 'feature/delete-me',
+      branchType: 'local',
+      forceDelete: true
+    });
+  });
+});

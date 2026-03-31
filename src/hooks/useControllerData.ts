@@ -15,29 +15,25 @@ import {
   resolveCompareRefs,
   resolveLogRef
 } from '../lib/controllerViewUtils';
-import { describeGitError, type UiError } from '../lib/errors';
+import { describeGitError } from '../lib/errors';
 import { getSelfMutationBlockedReason } from '../lib/repositoryMutationSafety';
 import type {
-  AppConfig,
-  Branch,
   BranchDiffDetail,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
   CommitListItem,
   RepositoryMutationSafety,
+  StashDiffDetail,
   StashEntry,
   WorkingTreeDiffArea,
   WorkingTreeDiffDetail,
   WorkingTreeStatus
 } from '../types';
+import type { UiError } from '../lib/errors';
 
-interface UseControllerDataParams {
-  repoPath: string;
-  appConfig: AppConfig | null;
-  onNotify: (message: string) => void;
-  onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
-}
+export type { UseControllerDataParams, UseControllerDataResult } from './useControllerDataTypes';
+import type { UseControllerDataParams, UseControllerDataResult } from './useControllerDataTypes';
 
 function readInitialCommitMessageDraft(repoPath: string): {
   title: string;
@@ -62,93 +58,6 @@ function readInitialCommitMessageDraft(repoPath: string): {
       description: ''
     };
   }
-}
-
-export interface UseControllerDataResult {
-  branches: BranchResponse | null;
-  currentBranchName: string | null;
-  currentLocalBranch: Branch | null;
-  branchDiffBaseBranch: Branch | null;
-  branchDiffBaseLabel: string | null;
-  showBranchDiffButton: boolean;
-  branchDiffMatchesCurrentBranch: boolean;
-  branchDiffButtonLabel: string;
-  selfMutationBlockedReason: string | null;
-
-  activeLogRef: string;
-  setActiveLogRef: (ref: string) => void;
-  activeCompareRefs: string[];
-  setActiveCompareRefs: (refs: string[]) => void;
-
-  commits: CommitListItem[];
-  hasMoreCommits: boolean;
-  loadingCommits: boolean;
-  loadingMoreCommits: boolean;
-
-  activeCommit: CommitListItem | null;
-  setActiveCommit: (commit: CommitListItem | null) => void;
-  isWipSelected: boolean;
-  setIsWipSelected: (wip: boolean) => void;
-
-  commitDetail: CommitDetail | null;
-  setCommitDetail: (detail: CommitDetail | null) => void;
-  loadingCommitDetail: boolean;
-
-  branchDiffDetail: BranchDiffDetail | null;
-  setBranchDiffDetail: (detail: BranchDiffDetail | null) => void;
-  loadingBranchDiffDetail: boolean;
-  showBranchDiff: boolean;
-  setShowBranchDiff: (show: boolean) => void;
-
-  focusedCommitDiffFile: string | null;
-  setFocusedCommitDiffFile: (file: string | null) => void;
-
-  focusedWorkingTreeDiff: { file: string; area: WorkingTreeDiffArea } | null;
-  workingTreeDiffDetail: WorkingTreeDiffDetail | null;
-  loadingWorkingTreeDiffDetail: boolean;
-
-  workingStatus: WorkingTreeStatus | null;
-  stashes: StashEntry[];
-
-  operationBusy: boolean;
-  setOperationBusy: (busy: boolean) => void;
-  generatingCommitMessage: boolean;
-  setGeneratingCommitMessage: (generating: boolean) => void;
-
-  commitTitle: string;
-  setCommitTitle: (title: string) => void;
-  commitDescription: string;
-  setCommitDescription: (desc: string) => void;
-  clearCommitMessageDraft: () => void;
-
-  commitGraphMode: CommitGraphMode;
-  inlineError: UiError | null;
-  setInlineError: (error: UiError | null) => void;
-
-  checkedOutCommitSha: string | null;
-  commitMessageFiles: string[];
-
-  reportError: (error: unknown, fallbackTitle: string) => void;
-  reportBlockedMutation: (title: string) => boolean;
-  loadCommitDetail: (sha: string) => Promise<void>;
-  loadBranchDiffDetail: () => Promise<void>;
-  loadWorkingTreeDiffDetail: (file: string, area: WorkingTreeDiffArea) => Promise<void>;
-  closeWorkingTreeDiffOverlay: () => void;
-  loadCommits: (options: {
-    append: boolean;
-    offset: number;
-    ref: string;
-    compareRefs?: string[];
-    focusCommitSha?: string;
-  }) => Promise<void>;
-  loadWorkingState: () => Promise<void>;
-  loadBranches: () => Promise<BranchResponse | null>;
-  refreshAll: (refOverride?: string) => Promise<void>;
-  reloadAfterBranchMutation: (preferredBranchName?: string) => Promise<void>;
-  mutateAndReload: (
-    task: () => Promise<void>,
-    options?: { reloadCommits?: boolean }
-  ) => Promise<void>;
 }
 
 export function useControllerData({
@@ -180,6 +89,9 @@ export function useControllerData({
   } | null>(null);
   const [workingTreeDiffDetail, setWorkingTreeDiffDetail] = useState<WorkingTreeDiffDetail | null>(null);
   const [loadingWorkingTreeDiffDetail, setLoadingWorkingTreeDiffDetail] = useState(false);
+  const [focusedStash, setFocusedStash] = useState<StashEntry | null>(null);
+  const [stashDiffDetail, setStashDiffDetail] = useState<StashDiffDetail | null>(null);
+  const [loadingStashDiffDetail, setLoadingStashDiffDetail] = useState(false);
 
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
@@ -197,6 +109,7 @@ export function useControllerData({
   });
   const refreshLockRef = useRef(false);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
+  const stashDiffRequestKeyRef = useRef<string | null>(null);
 
   const currentBranchName = branches?.current ?? null;
   const currentLocalBranch = useMemo(
@@ -299,6 +212,13 @@ export function useControllerData({
     setLoadingWorkingTreeDiffDetail(false);
   }, []);
 
+  const closeStashDiffOverlay = useCallback((): void => {
+    stashDiffRequestKeyRef.current = null;
+    setFocusedStash(null);
+    setStashDiffDetail(null);
+    setLoadingStashDiffDetail(false);
+  }, []);
+
   const loadWorkingTreeDiffDetail = useCallback(
     async (file: string, area: WorkingTreeDiffArea): Promise<void> => {
       const normalizedFile = file.trim();
@@ -333,6 +253,45 @@ export function useControllerData({
       }
     },
     [repoPath, reportError]
+  );
+
+  const loadStashDiffDetail = useCallback(
+    async (stash: StashEntry): Promise<void> => {
+      const stashId = stash.id.trim();
+      if (!stashId) {
+        return;
+      }
+
+      const requestKey = stashId;
+      stashDiffRequestKeyRef.current = requestKey;
+      setShowBranchDiff(false);
+      setFocusedCommitDiffFile(null);
+      closeWorkingTreeDiffOverlay();
+      setFocusedStash(stash);
+      setStashDiffDetail(null);
+      setLoadingStashDiffDetail(true);
+
+      try {
+        const detail = await api.getStashDiffDetail(repoPath, stashId);
+        if (stashDiffRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setStashDiffDetail(detail);
+      } catch (error) {
+        if (stashDiffRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setStashDiffDetail(null);
+        reportError(error, 'stash 差分の取得に失敗しました。');
+      } finally {
+        if (stashDiffRequestKeyRef.current === requestKey) {
+          setLoadingStashDiffDetail(false);
+        }
+      }
+    },
+    [closeWorkingTreeDiffOverlay, repoPath, reportError]
   );
 
   const loadCommits = useCallback(
@@ -526,9 +485,17 @@ export function useControllerData({
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
     closeWorkingTreeDiffOverlay();
+    closeStashDiffOverlay();
     setInlineError(null);
     void refreshAll(defaultRef);
-  }, [closeWorkingTreeDiffOverlay, initialCommitMessageDraft.description, initialCommitMessageDraft.title, refreshAll, repoPath]);
+  }, [
+    closeStashDiffOverlay,
+    closeWorkingTreeDiffOverlay,
+    initialCommitMessageDraft.description,
+    initialCommitMessageDraft.title,
+    refreshAll,
+    repoPath
+  ]);
 
   // Load mutation safety
   useEffect(() => {
@@ -583,6 +550,22 @@ export function useControllerData({
       closeWorkingTreeDiffOverlay();
     }
   }, [closeWorkingTreeDiffOverlay, focusedWorkingTreeDiff, workingStatus]);
+
+  useEffect(() => {
+    if (!focusedStash) {
+      return;
+    }
+
+    const nextStash = stashes.find((stash) => stash.id === focusedStash.id) ?? null;
+    if (!nextStash) {
+      closeStashDiffOverlay();
+      return;
+    }
+
+    if (nextStash !== focusedStash) {
+      setFocusedStash(nextStash);
+    }
+  }, [closeStashDiffOverlay, focusedStash, stashes]);
 
   // Load branch diff when toggled
   useEffect(() => {
@@ -699,6 +682,9 @@ export function useControllerData({
     focusedWorkingTreeDiff,
     workingTreeDiffDetail,
     loadingWorkingTreeDiffDetail,
+    focusedStash,
+    stashDiffDetail,
+    loadingStashDiffDetail,
 
     workingStatus,
     stashes,
@@ -727,6 +713,8 @@ export function useControllerData({
     loadBranchDiffDetail,
     loadWorkingTreeDiffDetail,
     closeWorkingTreeDiffOverlay,
+    loadStashDiffDetail,
+    closeStashDiffOverlay,
     loadCommits,
     loadWorkingState,
     loadBranches,

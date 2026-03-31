@@ -14,6 +14,7 @@ import type {
   PullRequestResponse,
   Repository,
   RepositoryMutationSafety,
+  StashDiffDetail,
   StashEntry,
   TokenValidationResult,
   WorkingTreeDiffArea,
@@ -265,6 +266,15 @@ export const api = {
     return request(`/stashes?${params.toString()}`);
   },
 
+  getStashDiffDetail(repoPath: string, stashId: string): Promise<StashDiffDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_stash_diff_detail', { repoPath, stashId });
+    }
+
+    const params = new URLSearchParams({ repoPath, stashId });
+    return request(`/stashes/diff?${params.toString()}`);
+  },
+
   renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
       return invokeCommand('rename_stash', { repoPath, stashId, message });
@@ -273,6 +283,28 @@ export const api = {
     return request('/stashes/rename', {
       method: 'POST',
       body: JSON.stringify({ repoPath, stashId, message })
+    });
+  },
+
+  applyStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('apply_stash', { repoPath, stashId });
+    }
+
+    return request('/stashes/apply', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, stashId })
+    });
+  },
+
+  popStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
+    if (isTauriRuntime()) {
+      return invokeCommand('pop_stash', { repoPath, stashId });
+    }
+
+    return request('/stashes/pop', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, stashId })
     });
   },
 
@@ -309,14 +341,19 @@ export const api = {
     });
   },
 
-  deleteBranch(repoPath: string, branchName: string, branchType: 'local' | 'remote'): Promise<{ ok: boolean }> {
+  deleteBranch(
+    repoPath: string,
+    branchName: string,
+    branchType: 'local' | 'remote',
+    forceDelete = false
+  ): Promise<{ ok: boolean }> {
     if (isTauriRuntime()) {
-      return invokeCommand('delete_branch', { repoPath, branchName, branchType });
+      return invokeCommand('delete_branch', { repoPath, branchName, branchType, forceDelete });
     }
 
     return request('/branches/delete', {
       method: 'POST',
-      body: JSON.stringify({ repoPath, branchName, branchType })
+      body: JSON.stringify({ repoPath, branchName, branchType, forceDelete })
     });
   },
 

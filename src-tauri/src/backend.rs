@@ -220,6 +220,15 @@ pub struct WorkingTreeDiffDetail {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StashDiffDetail {
+    pub stash_id: String,
+    pub files: Vec<CommitFileStat>,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StashEntry {
     pub id: String,
     pub relative_date: String,
@@ -2851,6 +2860,36 @@ pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String>
 }
 
 #[tauri::command]
+pub fn get_stash_diff_detail(
+    repo_path: String,
+    stash_id: String,
+) -> Result<StashDiffDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    parse_stash_index(&stash_id)?;
+
+    let file_stats_output = run_git(
+        &["stash", "show", "--numstat", "--format=", stash_id.as_str()],
+        &repo_path,
+    )?;
+    let files = parse_commit_file_stats(&file_stats_output);
+
+    let diff = run_git(
+        &["stash", "show", "--patch", "--format=", stash_id.as_str()],
+        &repo_path,
+    )?;
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(StashDiffDetail {
+        stash_id,
+        files,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
+    })
+}
+
+#[tauri::command]
 pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
     ensure_repo_path(&repo_path)?;
 
@@ -2948,6 +2987,28 @@ pub fn rename_stash(
 }
 
 #[tauri::command]
+pub fn apply_stash(repo_path: String, stash_id: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    parse_stash_index(&stash_id)?;
+    run_git(&["stash", "apply", stash_id.as_str()], &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn pop_stash(repo_path: String, stash_id: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    parse_stash_index(&stash_id)?;
+    run_git(&["stash", "pop", stash_id.as_str()], &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
 pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, String> {
     if reference.trim().is_empty() {
         return Err("ref is required.".to_string());
@@ -3027,11 +3088,15 @@ pub fn delete_branch(
     repo_path: String,
     branch_name: String,
     branch_type: String,
+    force_delete: Option<bool>,
 ) -> Result<OkResponse, String> {
+    let should_force_delete = force_delete.unwrap_or(false);
+
     match branch_type.as_str() {
         "local" => {
             ensure_deletable_local_branch(&repo_path, &branch_name)?;
-            run_git(&["branch", "-d", branch_name.as_str()], &repo_path)?;
+            let delete_flag = if should_force_delete { "-D" } else { "-d" };
+            run_git(&["branch", delete_flag, branch_name.as_str()], &repo_path)?;
         }
         "remote" => {
             let (remote_name, remote_branch_name) =
@@ -3340,6 +3405,80 @@ mod tests {
         }
     }
 
+    fn create_stash_fixture() -> TestRepoFixture {
+        let temp_dir = std::env::temp_dir();
+        let mut root_dir = None;
+
+        for _ in 0..32 {
+            let candidate = temp_dir.join(format!(
+                "git-chat-ui-tauri-stash-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("current time should be after epoch")
+                    .as_nanos(),
+                NEXT_TEMP_REPO_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => {
+                    root_dir = Some(candidate);
+                    break;
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("temporary root dir should be created: {error}"),
+            }
+        }
+
+        let root_dir = root_dir.expect("temporary root dir should be unique");
+        let repo_path = root_dir.join("repo");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        fs::write(repo_path.join("README.md"), "root\n").expect("README should be written");
+        fs::write(repo_path.join("alpha.txt"), "alpha base\n")
+            .expect("alpha should be written");
+        fs::write(repo_path.join("beta.txt"), "beta base\n")
+            .expect("beta should be written");
+        run_command("git", &["add", "README.md", "alpha.txt", "beta.txt"], &repo_path_str)
+            .expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        fs::write(repo_path.join("alpha.txt"), "alpha updated\n")
+            .expect("alpha update should be written");
+        run_command(
+            "git",
+            &["stash", "push", "-m", "first stash", "--", "alpha.txt"],
+            &repo_path_str,
+        )
+        .expect("first stash should succeed");
+
+        fs::write(repo_path.join("beta.txt"), "beta updated\n")
+            .expect("beta update should be written");
+        run_command(
+            "git",
+            &["stash", "push", "-m", "second stash", "--", "beta.txt"],
+            &repo_path_str,
+        )
+        .expect("second stash should succeed");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
+
     #[test]
     fn normalize_window_state_clamps_small_dimensions() {
         let value = json!({
@@ -3556,6 +3695,23 @@ mod tests {
         assert!(detail.diff.contains("--- /dev/null"));
         assert!(detail.diff.contains("+alpha"));
         assert!(detail.diff.contains("+beta"));
+        assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn get_stash_diff_detail_returns_selected_stash_diff() {
+        let fixture = create_stash_fixture();
+
+        let detail = get_stash_diff_detail(fixture.repo_path.clone(), "stash@{0}".to_string())
+            .expect("stash diff detail should be returned");
+
+        assert_eq!(detail.stash_id, "stash@{0}");
+        assert_eq!(detail.files.len(), 1);
+        assert_eq!(detail.files[0].file, "beta.txt");
+        assert_eq!(detail.files[0].additions, 1);
+        assert_eq!(detail.files[0].deletions, 1);
+        assert!(detail.diff.contains("diff --git a/beta.txt b/beta.txt"));
+        assert!(detail.diff.contains("+beta updated"));
         assert!(!detail.is_diff_truncated);
     }
 

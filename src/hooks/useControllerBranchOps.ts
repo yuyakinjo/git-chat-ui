@@ -6,7 +6,7 @@ import { resolveCompareRefs } from '../lib/controllerViewUtils';
 import { type UiError } from '../lib/errors';
 import { canCheckoutBranchWithoutWorkingTreeChange } from '../lib/repositoryMutationSafety';
 import type { UseControllerDataResult } from './useControllerData';
-import { type BranchActionDialogStep } from './BranchActionDialog';
+import { type BranchActionDialogStep } from '../components/BranchActionDialog';
 import type { Branch, CommitListItem, StashEntry } from '../types';
 
 interface UseControllerBranchOpsParams {
@@ -23,7 +23,9 @@ export interface UseControllerBranchOpsResult {
   branchCreateSource: Branch | null;
   setBranchCreateSource: (source: Branch | null) => void;
   branchDeleteTarget: Branch | null;
+  branchDeleteForce: boolean;
   setBranchDeleteTarget: (target: Branch | null) => void;
+  setBranchDeleteForce: (forceDelete: boolean) => void;
   stashRenameTarget: StashEntry | null;
   setStashRenameTarget: (target: StashEntry | null) => void;
 
@@ -35,6 +37,8 @@ export interface UseControllerBranchOpsResult {
   handleRequestDeleteBranch: (branch: Branch) => void;
   handleRequestCreateBranch: (branch: Branch) => void;
   handleRequestRenameStash: (stash: StashEntry) => void;
+  handleApplyStash: (stash: StashEntry) => Promise<void>;
+  handlePopStash: (stash: StashEntry) => Promise<void>;
   handleCreateBranch: (newBranchName: string) => Promise<void>;
   handleMergeBranchAction: () => Promise<void>;
   handleDeleteBranch: () => Promise<void>;
@@ -57,6 +61,7 @@ export function useControllerBranchOps({
   } | null>(null);
   const [branchCreateSource, setBranchCreateSource] = useState<Branch | null>(null);
   const [branchDeleteTarget, setBranchDeleteTarget] = useState<Branch | null>(null);
+  const [branchDeleteForce, setBranchDeleteForce] = useState(false);
   const [stashRenameTarget, setStashRenameTarget] = useState<StashEntry | null>(null);
 
   const handleCheckoutBranch = async (branch: Branch): Promise<void> => {
@@ -147,6 +152,7 @@ export function useControllerBranchOps({
     setStashRenameTarget(null);
     setBranchCreateSource(null);
     setBranchDeleteTarget(null);
+    setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setBranchAction({
@@ -171,6 +177,7 @@ export function useControllerBranchOps({
     setBranchAction(null);
     setStashRenameTarget(null);
     setBranchCreateSource(null);
+    setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setBranchDeleteTarget(branch);
@@ -184,6 +191,7 @@ export function useControllerBranchOps({
     setBranchAction(null);
     setStashRenameTarget(null);
     setBranchDeleteTarget(null);
+    setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setBranchCreateSource(branch);
@@ -193,6 +201,7 @@ export function useControllerBranchOps({
     setBranchAction(null);
     setBranchCreateSource(null);
     setBranchDeleteTarget(null);
+    setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setStashRenameTarget(stash);
@@ -211,6 +220,7 @@ export function useControllerBranchOps({
       setBranchCreateSource(null);
       setBranchAction(null);
       setBranchDeleteTarget(null);
+      setBranchDeleteForce(false);
       setSelectedBranchForHover(null);
       setPendingScrollCommitSha(null);
       data.setShowBranchDiff(false);
@@ -264,6 +274,7 @@ export function useControllerBranchOps({
     if (!currentTarget) {
       return;
     }
+    const shouldForceDelete = currentTarget.type === 'local' && branchDeleteForce;
 
     const disabledReason = getBranchDeleteDisabledReason(currentTarget, data.branches?.current ?? null);
     if (disabledReason) {
@@ -272,6 +283,7 @@ export function useControllerBranchOps({
         detail: disabledReason
       };
       setBranchDeleteTarget(null);
+      setBranchDeleteForce(false);
       data.setInlineError(nextError);
       onNotify(nextError.title);
       return;
@@ -280,8 +292,9 @@ export function useControllerBranchOps({
     data.setOperationBusy(true);
 
     try {
-      await api.deleteBranch(repoPath, currentTarget.name, currentTarget.type);
+      await api.deleteBranch(repoPath, currentTarget.name, currentTarget.type, shouldForceDelete);
       setBranchDeleteTarget(null);
+      setBranchDeleteForce(false);
       setBranchAction(null);
       setSelectedBranchForHover(null);
       setPendingScrollCommitSha(null);
@@ -292,6 +305,7 @@ export function useControllerBranchOps({
       await data.reloadAfterBranchMutation();
     } catch (error) {
       setBranchDeleteTarget(null);
+      setBranchDeleteForce(false);
       data.reportError(error, 'ブランチ削除に失敗しました。');
     } finally {
       data.setOperationBusy(false);
@@ -317,6 +331,52 @@ export function useControllerBranchOps({
     } finally {
       data.setOperationBusy(false);
     }
+  };
+
+  const handleApplyOrPopStash = async (stash: StashEntry, mode: 'apply' | 'pop'): Promise<void> => {
+    if (mode === 'apply') {
+      if (data.reportBlockedMutation('開発中のアプリ自身の repo は stash を apply できません')) {
+        return;
+      }
+    } else if (data.reportBlockedMutation('開発中のアプリ自身の repo は stash を pop できません')) {
+      return;
+    }
+
+    data.setOperationBusy(true);
+    let primaryError = false;
+
+    try {
+      if (mode === 'apply') {
+        await api.applyStash(repoPath, stash.id);
+        onNotify(`${stash.id} を apply しました。`);
+      } else {
+        await api.popStash(repoPath, stash.id);
+        onNotify(`${stash.id} を pop しました。`);
+      }
+
+      data.setInlineError(null);
+    } catch (error) {
+      primaryError = true;
+      data.reportError(error, mode === 'apply' ? 'stash の apply に失敗しました。' : 'stash の pop に失敗しました。');
+    } finally {
+      try {
+        await data.refreshAll();
+      } catch (refreshError) {
+        if (!primaryError) {
+          data.reportError(refreshError, '画面の更新に失敗しました。');
+        }
+      } finally {
+        data.setOperationBusy(false);
+      }
+    }
+  };
+
+  const handleApplyStash = async (stash: StashEntry): Promise<void> => {
+    await handleApplyOrPopStash(stash, 'apply');
+  };
+
+  const handlePopStash = async (stash: StashEntry): Promise<void> => {
+    await handleApplyOrPopStash(stash, 'pop');
   };
 
   const handleCreatePullRequest = async (pushSourceBranch: boolean): Promise<void> => {
@@ -388,7 +448,9 @@ export function useControllerBranchOps({
     branchCreateSource,
     setBranchCreateSource,
     branchDeleteTarget,
+    branchDeleteForce,
     setBranchDeleteTarget,
+    setBranchDeleteForce,
     stashRenameTarget,
     setStashRenameTarget,
 
@@ -400,6 +462,8 @@ export function useControllerBranchOps({
     handleRequestDeleteBranch,
     handleRequestCreateBranch,
     handleRequestRenameStash,
+    handleApplyStash,
+    handlePopStash,
     handleCreateBranch,
     handleMergeBranchAction,
     handleDeleteBranch,

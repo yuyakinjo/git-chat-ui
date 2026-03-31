@@ -12,7 +12,6 @@ import {
   findRepositoryForTab,
   getRepositoryTabBranchLabel,
   getRepositoryTabId,
-  parsePersistedAppSession,
   resolveConfigEscapeTabId,
   resolveGithubButtonRepository,
   resolveRestoredActiveTabId,
@@ -29,68 +28,14 @@ import {
   normalizeAppTheme,
   type AppThemeId
 } from './lib/appTheme';
+import {
+  APP_SESSION_STORAGE_KEY,
+  APP_THEME_STORAGE_KEY,
+  getInitialLaunchState,
+  getInitialPersistedAppSession,
+  pickAiGenerationConfig
+} from './lib/sessionInit';
 import type { AiGenerationConfig, AppConfig, Repository } from './types';
-
-const APP_SESSION_STORAGE_KEY = 'git-chat-ui.app-session';
-const APP_THEME_STORAGE_KEY = 'git-chat-ui.app-theme';
-
-function getInitialPersistedAppSession(): PersistedAppSession {
-  if (typeof window === 'undefined') {
-    return parsePersistedAppSession(null);
-  }
-
-  try {
-    const fallbackThemeId = normalizeAppTheme(window.localStorage.getItem(APP_THEME_STORAGE_KEY));
-    return parsePersistedAppSession(window.localStorage.getItem(APP_SESSION_STORAGE_KEY), fallbackThemeId);
-  } catch {
-    return parsePersistedAppSession(null);
-  }
-}
-
-function getInitialLaunchState(search: string): {
-  repoPath: string | null;
-  activeTabIdOverride: AppTabId | null;
-} {
-  const params = new URLSearchParams(search);
-  const screen = params.get('screen')?.trim();
-  const repoPath = params.get('repoPath')?.trim() || null;
-
-  if (screen === CONFIG_TAB_ID) {
-    return {
-      repoPath,
-      activeTabIdOverride: CONFIG_TAB_ID
-    };
-  }
-
-  if (screen === DASHBOARD_TAB_ID) {
-    return {
-      repoPath,
-      activeTabIdOverride: DASHBOARD_TAB_ID
-    };
-  }
-
-  if (repoPath) {
-    return {
-      repoPath,
-      activeTabIdOverride: getRepositoryTabId(repoPath)
-    };
-  }
-
-  return {
-    repoPath: null,
-    activeTabIdOverride: null
-  };
-}
-
-function pickAiGenerationConfig(config: AppConfig): AiGenerationConfig {
-  return {
-    openAiToken: config.openAiToken,
-    openAiModel: config.openAiModel,
-    claudeCodeToken: config.claudeCodeToken,
-    selectedAiProvider: config.selectedAiProvider,
-    commitTitlePrompt: config.commitTitlePrompt
-  };
-}
 
 export default function App(): JSX.Element {
   const [initialPersistedAppSession] = useState<PersistedAppSession>(getInitialPersistedAppSession);

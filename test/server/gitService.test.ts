@@ -5,13 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
+  applyStash,
   createBranch,
   deleteBranch,
   getBranches,
   getDiffSnippet,
+  getStashDiffDetail,
   getStashes,
   getWorkingTreeDiffDetail,
   normalizeGithubRemoteUrl,
+  popStash,
   renameStash,
   resolveRepositories
 } from '../../server/gitService';
@@ -196,6 +199,63 @@ describe('renameStash', () => {
   });
 });
 
+describe('getStashDiffDetail', () => {
+  test('returns diff detail for the selected stash entry', async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      const detail = await getStashDiffDetail(fixture.repoPath, 'stash@{0}');
+
+      expect(detail.stashId).toBe('stash@{0}');
+      expect(detail.files).toEqual([
+        {
+          file: 'beta.txt',
+          additions: 1,
+          deletions: 1
+        }
+      ]);
+      expect(detail.diff).toContain('diff --git a/beta.txt b/beta.txt');
+      expect(detail.diff).toContain('+beta updated');
+      expect(detail.isDiffTruncated).toBe(false);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('applyStash', () => {
+  test('applies the selected stash without removing it from the stack', async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      await applyStash(fixture.repoPath, 'stash@{1}');
+
+      const stashes = await getStashes(fixture.repoPath);
+      expect(stashes.map((stash) => stash.id)).toEqual(['stash@{0}', 'stash@{1}']);
+      expect(await runGit(['status', '--porcelain'], fixture.repoPath)).toContain('alpha.txt');
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('popStash', () => {
+  test('applies the selected stash and removes it from the stack', async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      await popStash(fixture.repoPath, 'stash@{0}');
+
+      const stashes = await getStashes(fixture.repoPath);
+      expect(stashes.map((stash) => stash.id)).toEqual(['stash@{0}']);
+      expect(stashes.map((stash) => stash.message)).toEqual(['On main: first stash']);
+      expect(await runGit(['status', '--porcelain'], fixture.repoPath)).toContain('beta.txt');
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('getWorkingTreeDiffDetail', () => {
   test('returns unstaged diff detail for a changed file', async () => {
     const fixture = await createWorkingTreeDiffFixture();
@@ -276,6 +336,37 @@ describe('getDiffSnippet', () => {
 });
 
 describe('deleteBranch', () => {
+  test('deletes merged local branches with safe delete', async () => {
+    const fixture = await createRemoteDeleteFixture();
+
+    try {
+      await runGit(['checkout', '-b', 'feature/local-merged-delete'], fixture.repoPath);
+      await fs.writeFile(path.join(fixture.repoPath, 'merged.txt'), 'merged\n');
+      await runGit(['add', 'merged.txt'], fixture.repoPath);
+      await runGit(['commit', '-m', 'merged local branch'], fixture.repoPath);
+      await runGit(['checkout', 'main'], fixture.repoPath);
+      await runGit(['merge', 'feature/local-merged-delete'], fixture.repoPath);
+
+      await deleteBranch(fixture.repoPath, 'feature/local-merged-delete', 'local');
+
+      expect(await runGit(['branch', '--list', 'feature/local-merged-delete'], fixture.repoPath)).toBe('');
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('force deletes unmerged local branches when requested', async () => {
+    const fixture = await createRemoteDeleteFixture();
+
+    try {
+      await deleteBranch(fixture.repoPath, 'feature/remote-delete', 'local', true);
+
+      expect(await runGit(['branch', '--list', 'feature/remote-delete'], fixture.repoPath)).toBe('');
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   test('marks remote default branches in branch listings', async () => {
     const fixture = await createRemoteDeleteFixture();
 

@@ -52,7 +52,10 @@ describe('BranchTree', () => {
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
         onRequestRenameStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
       />
@@ -61,9 +64,12 @@ describe('BranchTree', () => {
     expect(html).toContain('Branch List');
     expect(html).toContain('main');
     expect(html).toContain('Stashes');
-    expect(html).toContain('stash@{0}');
+    expect(html).toContain('1 file • 2 minutes ago');
+    expect(html).toContain('1 file • 5 minutes ago');
     expect(html).toContain('WIP on develop');
     expect(html).toContain('Auto stash before cherry pick');
+    expect(html).not.toContain('stash@{0}');
+    expect(html).not.toContain('stash@{1}');
     expect(html).not.toContain('右クリックで branch 作成 / 削除。local branch は別の local branch にドロップできます。');
   });
 });

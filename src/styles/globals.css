@@ -985,7 +985,7 @@ body[data-theme='default-dark'] .text-slate-700 {
   color: var(--text-primary);
   padding: 10px 12px;
   text-align: left;
-  cursor: context-menu;
+  cursor: pointer;
   transition:
     background 140ms ease,
     border-color 140ms ease;

@@ -89,7 +89,7 @@ export function describeGitError(error: unknown, fallbackTitle: string): UiError
   if (/branch .* is not fully merged/i.test(message) || /not fully merged/i.test(message)) {
     return {
       title: '未マージのため削除できません',
-      detail: `${message} 先に merge するか、意図的に消すなら手元で force delete を検討してください。`
+      detail: `${message} 先に merge するか、意図的に消すなら force delete を選択してください。`
     };
   }
 

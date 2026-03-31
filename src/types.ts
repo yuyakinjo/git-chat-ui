@@ -77,6 +77,17 @@ export interface WorkingTreeDiffDetail {
   isDiffTruncated: boolean;
 }
 
+export interface StashDiffDetail {
+  stashId: string;
+  files: Array<{
+    file: string;
+    additions: number;
+    deletions: number;
+  }>;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
 export interface PullRequestPreparation {
   pushRequired: boolean;
 }

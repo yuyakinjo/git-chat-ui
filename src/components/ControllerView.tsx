@@ -14,10 +14,11 @@ import { CommitDetailPanel } from './CommitDetailPanel';
 import { CommitDiffOverlay } from './CommitDiffOverlay';
 import { CommitGraph } from './CommitGraph';
 import { GitOperationPanel } from './GitOperationPanel';
+import { StashDiffOverlay } from './StashDiffOverlay';
 import { StashRenameDialog } from './StashRenameDialog';
-import { useControllerBranchOps } from './useControllerBranchOps';
-import { useControllerData } from './useControllerData';
-import { useControllerPanelDrag } from './useControllerPanelDrag';
+import { useControllerBranchOps } from '../hooks/useControllerBranchOps';
+import { useControllerData } from '../hooks/useControllerData';
+import { useControllerPanelDrag } from '../hooks/useControllerPanelDrag';
 import { WorkingTreeDiffOverlay } from './WorkingTreeDiffOverlay';
 import type { AppConfig, Branch, Repository } from '../types';
 
@@ -315,7 +316,16 @@ export function ControllerView({
             void branchOps.handleCheckoutBranch(branch);
           }}
           onBranchDrop={branchOps.handleBranchDrop}
+          onOpenStashDiff={(stash) => {
+            void data.loadStashDiffDetail(stash);
+          }}
           onRequestRenameStash={branchOps.handleRequestRenameStash}
+          onRequestApplyStash={(stash) => {
+            void branchOps.handleApplyStash(stash);
+          }}
+          onRequestPopStash={(stash) => {
+            void branchOps.handlePopStash(stash);
+          }}
           onRequestCreateBranch={branchOps.handleRequestCreateBranch}
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
         />
@@ -398,6 +408,15 @@ export function ControllerView({
         />
       ) : null}
 
+      {data.focusedStash ? (
+        <StashDiffOverlay
+          stash={data.focusedStash}
+          detail={data.stashDiffDetail}
+          loading={data.loadingStashDiffDetail}
+          onClose={data.closeStashDiffOverlay}
+        />
+      ) : null}
+
       {data.showBranchDiff ? (
         <BranchDiffOverlay
           detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
@@ -447,7 +466,12 @@ export function ControllerView({
           branchName={branchOps.branchDeleteTarget.name}
           branchType={branchOps.branchDeleteTarget.type}
           busy={data.operationBusy}
-          onClose={() => branchOps.setBranchDeleteTarget(null)}
+          forceDelete={branchOps.branchDeleteForce}
+          onClose={() => {
+            branchOps.setBranchDeleteForce(false);
+            branchOps.setBranchDeleteTarget(null);
+          }}
+          onForceDeleteChange={branchOps.setBranchDeleteForce}
           onDelete={() => {
             void branchOps.handleDeleteBranch();
           }}

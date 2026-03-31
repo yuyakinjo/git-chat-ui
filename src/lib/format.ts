@@ -19,6 +19,10 @@ export function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
+export function formatFileCountLabel(count: number): string {
+  return `${count} file${count === 1 ? '' : 's'}`;
+}
+
 export function compactPath(fullPath: string): string {
   if (fullPath.length <= 65) {
     return fullPath;
