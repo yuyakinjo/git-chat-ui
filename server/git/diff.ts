@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 
-import type { BranchDiffDetail, WorkingTreeDiffArea, WorkingTreeDiffDetail } from '../types.js';
+import type { BranchDiffDetail, BranchDiffFileDetail, WorkingTreeDiffArea, WorkingTreeDiffDetail } from '../types.js';
 
 import {
   ensureRepoPath,
@@ -107,6 +107,44 @@ export async function getBranchDiffDetail(options: {
     targetRef,
     mergeBaseSha,
     files,
+    diff: diff.slice(0, 25000),
+    isDiffTruncated
+  };
+}
+
+export async function getBranchDiffFileDetail(options: {
+  repoPath: string;
+  baseRef: string;
+  targetRef: string;
+  file: string;
+}): Promise<BranchDiffFileDetail> {
+  await ensureRepoPath(options.repoPath);
+
+  const baseRef = options.baseRef.trim();
+  const targetRef = options.targetRef.trim();
+  const file = options.file.trim();
+
+  if (!baseRef) {
+    throw new Error('baseRef is required.');
+  }
+
+  if (!targetRef) {
+    throw new Error('targetRef is required.');
+  }
+
+  if (!file) {
+    throw new Error('file is required.');
+  }
+
+  const mergeBaseSha = await runGit(['merge-base', baseRef, targetRef], options.repoPath);
+  const range = `${mergeBaseSha}..${targetRef}`;
+  const diff = await runGit(['diff', range, '--', file], options.repoPath);
+  const isDiffTruncated = diff.length > 25000;
+
+  return {
+    baseRef,
+    targetRef,
+    file,
     diff: diff.slice(0, 25000),
     isDiffTruncated
   };

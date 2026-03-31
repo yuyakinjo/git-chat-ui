@@ -1,3 +1,7 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { Branch } from '../types.js';
 
 import { ensureRepoPath, runGit } from './command.js';
@@ -22,6 +26,10 @@ async function ensureLocalBranch(repoPath: string, branchName: string): Promise<
   }
 
   await runGit(['rev-parse', '--verify', `refs/heads/${branchName}`], repoPath);
+}
+
+async function getBranchHeadSha(repoPath: string, branchName: string): Promise<string> {
+  return runGit(['rev-parse', '--verify', `refs/heads/${branchName}`], repoPath);
 }
 
 export async function ensureBranchPair(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
@@ -246,16 +254,49 @@ export async function checkoutRef(repoPath: string, ref: string): Promise<void> 
   await runGit(['checkout', ref], repoPath);
 }
 
+async function removeTemporaryWorktree(repoPath: string, tempRootPath: string, worktreePath: string): Promise<void> {
+  try {
+    await runGit(['worktree', 'remove', '--force', worktreePath], repoPath);
+  } catch {
+    // best-effort cleanup; remove the temporary root below even if git metadata cleanup fails
+  }
+
+  await fs.rm(tempRootPath, { recursive: true, force: true });
+}
+
+async function mergeBranchWithoutCheckout(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
+  const tempRootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'git-chat-ui-merge-'));
+  const worktreePath = path.join(tempRootPath, 'worktree');
+  const targetBranchRef = `refs/heads/${targetBranch}`;
+  const previousTargetSha = await getBranchHeadSha(repoPath, targetBranch);
+
+  try {
+    await runGit(['worktree', 'add', '--detach', worktreePath, targetBranch], repoPath);
+    await runGit(['merge', sourceBranch], worktreePath);
+
+    const mergedTargetSha = await runGit(['rev-parse', 'HEAD'], worktreePath);
+    if (mergedTargetSha !== previousTargetSha) {
+      await runGit(
+        ['update-ref', '-m', `branch action merge ${sourceBranch} into ${targetBranch}`, targetBranchRef, mergedTargetSha, previousTargetSha],
+        repoPath
+      );
+    }
+  } finally {
+    await removeTemporaryWorktree(repoPath, tempRootPath, worktreePath);
+  }
+}
+
 export async function mergeBranches(repoPath: string, sourceBranch: string, targetBranch: string): Promise<void> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
 
   const currentBranch = await getCurrentBranch(repoPath);
-  if (currentBranch !== targetBranch) {
-    await runGit(['checkout', targetBranch], repoPath);
+  if (currentBranch === targetBranch) {
+    await runGit(['merge', sourceBranch], repoPath);
+    return;
   }
 
-  await runGit(['merge', sourceBranch], repoPath);
+  await mergeBranchWithoutCheckout(repoPath, sourceBranch, targetBranch);
 }
 
 export async function createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<void> {
