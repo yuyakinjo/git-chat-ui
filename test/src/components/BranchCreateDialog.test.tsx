@@ -23,6 +23,11 @@ describe('BranchCreateDialog', () => {
     expect(html).toContain('title="Close"');
     expect(html).toContain('aria-label="Close"');
     expect(html).not.toContain('>Close<');
+
+    const submitButtonMarkup = html.match(/<button[^>]*type="submit"[^>]*>.*?<\/button>/)?.[0];
+    expect(submitButtonMarkup).toBeDefined();
+    expect(submitButtonMarkup).toContain('inline-flex items-center gap-2');
+    expect(submitButtonMarkup!.indexOf('lucide-plus')).toBeLessThan(submitButtonMarkup!.indexOf('Create Branch'));
   });
 
   test('uses a scroll-safe layout without truncating the branch name', () => {

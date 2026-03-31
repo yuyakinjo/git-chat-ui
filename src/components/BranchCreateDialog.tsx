@@ -106,7 +106,11 @@ export function BranchCreateDialog({
             <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="submit" className="button button-primary" disabled={busy || !normalizedBranchName}>
+            <button
+              type="submit"
+              className="button button-primary inline-flex items-center gap-2"
+              disabled={busy || !normalizedBranchName}
+            >
               <Plus size={14} />
               {busy ? 'Creating...' : 'Create Branch'}
             </button>
