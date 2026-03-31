@@ -6,6 +6,7 @@ import {
   buildOpenAiModelOptions,
   ConfigView,
   filterOpenAiModelOptions,
+  resolveListboxScrollTop,
   resolveSelectedAiProvider,
   TokenValidationIndicator,
 } from "../../../src/components/ConfigView";
@@ -95,6 +96,41 @@ describe("filterOpenAiModelOptions", () => {
 
   test("returns no option when nothing matches the filter", () => {
     expect(filterOpenAiModelOptions(["gpt-5", "gpt-5-mini", "gpt-4.1"], "audio")).toEqual([]);
+  });
+});
+
+describe("resolveListboxScrollTop", () => {
+  test("keeps the current scroll when the active option is already visible", () => {
+    expect(
+      resolveListboxScrollTop({
+        optionOffsetTop: 120,
+        optionOffsetHeight: 28,
+        listScrollTop: 100,
+        listClientHeight: 80,
+      }),
+    ).toBe(100);
+  });
+
+  test("scrolls upward when the active option is above the viewport", () => {
+    expect(
+      resolveListboxScrollTop({
+        optionOffsetTop: 72,
+        optionOffsetHeight: 28,
+        listScrollTop: 100,
+        listClientHeight: 80,
+      }),
+    ).toBe(72);
+  });
+
+  test("scrolls downward when the active option is below the viewport", () => {
+    expect(
+      resolveListboxScrollTop({
+        optionOffsetTop: 196,
+        optionOffsetHeight: 32,
+        listScrollTop: 100,
+        listClientHeight: 80,
+      }),
+    ).toBe(148);
   });
 });
 

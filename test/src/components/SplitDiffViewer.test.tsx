@@ -176,6 +176,40 @@ index 1111111..2222222 100644
     expect(html).not.toContain("Text diff unavailable for this file.");
   });
 
+  test("prefers the requested file path over the first file when focused diff content is shown", () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/focused.ts b/src/focused.ts
+index 1111111..2222222 100644
+--- a/src/focused.ts
++++ b/src/focused.ts
+@@ -1 +1 @@
+-base
++feature
+`}
+        files={[
+          {
+            file: "src/first.ts",
+            additions: 3,
+            deletions: 1,
+          },
+          {
+            file: "src/focused.ts",
+            additions: 1,
+            deletions: 1,
+          },
+        ]}
+        preferredFilePath="src/focused.ts"
+      />,
+    );
+
+    expect(html).toContain("src/first.ts");
+    expect(html).toContain("src/focused.ts");
+    expect(html).toContain('diff-file__path">src/focused.ts<');
+    expect(html).toContain("diff-workbench__file-tab is-active");
+    expect(html).not.toContain("Text diff unavailable for this file.");
+  });
+
   test("can hide the changed-files sidebar for single-file overlays", () => {
     const html = renderToStaticMarkup(
       <SplitDiffViewer

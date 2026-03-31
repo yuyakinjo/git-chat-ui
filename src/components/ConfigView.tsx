@@ -115,6 +115,30 @@ export function filterOpenAiModelOptions(modelOptions: string[], filterQuery: st
   );
 }
 
+export function resolveListboxScrollTop(args: {
+  optionOffsetTop: number;
+  optionOffsetHeight: number;
+  listScrollTop: number;
+  listClientHeight: number;
+}): number {
+  const { optionOffsetTop, optionOffsetHeight, listScrollTop, listClientHeight } = args;
+  if (listClientHeight <= 0) {
+    return listScrollTop;
+  }
+
+  const optionBottom = optionOffsetTop + optionOffsetHeight;
+  const visibleBottom = listScrollTop + listClientHeight;
+  if (optionOffsetTop < listScrollTop) {
+    return optionOffsetTop;
+  }
+
+  if (optionBottom > visibleBottom) {
+    return optionBottom - listClientHeight;
+  }
+
+  return listScrollTop;
+}
+
 export function resolveSelectedAiProvider(
   currentProvider: AiProvider,
   openAiToken: string,
@@ -279,6 +303,8 @@ export function ConfigView({
   const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const openAiModelComboboxRef = useRef<HTMLDivElement | null>(null);
   const openAiModelInputRef = useRef<HTMLInputElement | null>(null);
+  const openAiModelMenuRef = useRef<HTMLDivElement | null>(null);
+  const openAiModelOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const openAiModelComboboxId = useId();
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, openAiModel),
@@ -345,6 +371,25 @@ export function ConfigView({
       return 0;
     });
   }, [filteredOpenAiModelOptions, isOpenAiModelComboboxOpen, openAiModel]);
+
+  useEffect(() => {
+    if (!isOpenAiModelComboboxOpen || activeOpenAiModelIndex < 0) {
+      return;
+    }
+
+    const menu = openAiModelMenuRef.current;
+    const option = openAiModelOptionRefs.current[activeOpenAiModelIndex];
+    if (!menu || !option) {
+      return;
+    }
+
+    menu.scrollTop = resolveListboxScrollTop({
+      optionOffsetTop: option.offsetTop,
+      optionOffsetHeight: option.offsetHeight,
+      listScrollTop: menu.scrollTop,
+      listClientHeight: menu.clientHeight,
+    });
+  }, [activeOpenAiModelIndex, isOpenAiModelComboboxOpen]);
 
   useEffect(() => {
     if (!isOpenAiModelComboboxOpen) {
@@ -874,6 +919,7 @@ export function ConfigView({
                       {isOpenAiModelComboboxOpen ? (
                         <div
                           id={`${openAiModelComboboxId}-listbox`}
+                          ref={openAiModelMenuRef}
                           className="config-view__combobox-menu"
                           role="listbox"
                         >
@@ -886,6 +932,9 @@ export function ConfigView({
                                 <button
                                   key={modelId}
                                   id={`${openAiModelComboboxId}-option-${index}`}
+                                  ref={(element) => {
+                                    openAiModelOptionRefs.current[index] = element;
+                                  }}
                                   type="button"
                                   role="option"
                                   aria-selected={isSelected}

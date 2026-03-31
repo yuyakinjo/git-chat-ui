@@ -84,13 +84,23 @@ function resolveDisplayPath(oldPath: string | null, newPath: string | null): str
   return newPath ?? oldPath ?? "Unknown file";
 }
 
+function buildParsedDiffFileKey(
+  oldPath: string | null,
+  newPath: string | null,
+  fallbackKey: string,
+): string {
+  return newPath ?? oldPath ?? fallbackKey;
+}
+
 function createWorkingFile(
   keyIndex: number,
   oldPath: string | null,
   newPath: string | null,
 ): ParsedDiffFile {
+  const fallbackKey = `unknown:${keyIndex}`;
+
   return {
-    key: `${keyIndex}:${newPath ?? oldPath ?? "unknown"}`,
+    key: buildParsedDiffFileKey(oldPath, newPath, fallbackKey),
     kind: resolveFileKind(oldPath, newPath),
     oldPath,
     newPath,
@@ -106,6 +116,7 @@ function finalizeFile(file: ParsedDiffFile): ParsedDiffFile {
 
   return {
     ...file,
+    key: buildParsedDiffFileKey(file.oldPath, file.newPath, file.key),
     kind,
     displayPath: resolveDisplayPath(file.oldPath, file.newPath),
     previousPath: kind === "renamed" ? file.oldPath : null,

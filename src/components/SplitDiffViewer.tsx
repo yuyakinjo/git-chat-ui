@@ -132,9 +132,9 @@ function summarizeFile(
   };
 }
 
-function createStatOnlyFile(stat: SplitDiffFileStat, index: number): SplitDiffDisplayFile {
+function createStatOnlyFile(stat: SplitDiffFileStat): SplitDiffDisplayFile {
   return {
-    key: `stat:${index}:${stat.file}`,
+    key: stat.file,
     kind: "changed",
     oldPath: stat.file,
     newPath: stat.file,
@@ -157,10 +157,10 @@ function buildDisplayFiles(
   }
 
   const unmatchedParsedFiles = [...summarizedParsed];
-  const orderedFiles = stats.map((stat, index) => {
+  const orderedFiles = stats.map((stat) => {
     const matchedIndex = unmatchedParsedFiles.findIndex((file) => matchesFilePath(file, stat.file));
     if (matchedIndex === -1) {
-      return createStatOnlyFile(stat, index);
+      return createStatOnlyFile(stat);
     }
 
     const [matchedFile] = unmatchedParsedFiles.splice(matchedIndex, 1);
@@ -466,8 +466,13 @@ export function SplitDiffViewer({
     });
   }, [preferredFilePath, visibleFiles]);
 
+  const preferredFile =
+    visibleFiles.find((file) => matchesFilePath(file, preferredFilePath)) ?? null;
   const activeFile =
-    visibleFiles.find((file) => file.key === activeFileKey) ?? visibleFiles[0] ?? null;
+    visibleFiles.find((file) => file.key === activeFileKey) ??
+    preferredFile ??
+    visibleFiles[0] ??
+    null;
 
   useEffect(() => {
     if (!onActiveFileChange) {

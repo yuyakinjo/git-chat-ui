@@ -96,4 +96,35 @@ rename to src/new-name.ts
     expect(files[0]?.displayPath).toBe("src/new-name.ts");
     expect(files[0]?.previousPath).toBe("src/old-name.ts");
   });
+
+  test("keeps the same file key for the same path across aggregate and focused diffs", () => {
+    const aggregateFiles = parseUnifiedDiff(`diff --git a/src/first.ts b/src/first.ts
+index 1111111..2222222 100644
+--- a/src/first.ts
++++ b/src/first.ts
+@@ -1 +1 @@
+-old
++new
+diff --git a/src/second.ts b/src/second.ts
+index 3333333..4444444 100644
+--- a/src/second.ts
++++ b/src/second.ts
+@@ -1 +1 @@
+-before
++after
+`);
+    const focusedFiles = parseUnifiedDiff(`diff --git a/src/second.ts b/src/second.ts
+index 3333333..4444444 100644
+--- a/src/second.ts
++++ b/src/second.ts
+@@ -1 +1 @@
+-before
++after
+`);
+
+    expect(aggregateFiles[1]?.displayPath).toBe("src/second.ts");
+    expect(aggregateFiles[1]?.key).toBe("src/second.ts");
+    expect(focusedFiles[0]?.displayPath).toBe("src/second.ts");
+    expect(focusedFiles[0]?.key).toBe("src/second.ts");
+  });
 });
