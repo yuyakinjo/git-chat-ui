@@ -57,4 +57,18 @@ describe('globals.css', () => {
     expect(wipSection).toContain('background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;');
     expect(wipSection).toContain('color: rgb(254 243 199 / 0.82);');
   });
+
+  test('diff viewer defaults to a light palette and scopes dark styling to explicit dark-theme overrides', () => {
+    const diffSection = getSection('.diff-workbench {', '.diff-empty-state,');
+
+    expect(globalsCss).toContain('--diff-surface: #f7faff;');
+    expect(globalsCss).toContain('--diff-text: #11233f;');
+    expect(diffSection).toContain(
+      'background: linear-gradient(180deg, rgb(var(--theme-elevated-rgb) / 0.96), rgb(var(--theme-elevated-strong-rgb) / 0.88));'
+    );
+    expect(diffSection).toContain('background: rgb(var(--theme-elevated-rgb) / 0.72);');
+    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-workbench__sidebar {");
+    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-workbench__file-tab.is-active {");
+    expect(diffSection).toContain("body[data-theme='default-dark'] .diff-file__columns {");
+  });
 });

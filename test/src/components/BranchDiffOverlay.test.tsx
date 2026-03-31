@@ -30,13 +30,22 @@ index 1111111..2222222 100644
 describe('BranchDiffOverlay', () => {
   test('renders branch diff inside a dialog-style overlay', () => {
     const html = renderToStaticMarkup(
-      <BranchDiffOverlay detail={detail} loading={false} baseBranchName="main" targetBranchName="feature/dialog" onClose={() => {}} />
+      <BranchDiffOverlay
+        repoPath="/tmp/example"
+        detail={detail}
+        loading={false}
+        baseBranchName="main"
+        targetBranchName="feature/dialog"
+        onClose={() => {}}
+        onNotify={() => {}}
+      />
     );
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain('Diffs');
     expect(html).toContain('feature/dialog vs main');
     expect(html).toContain('1 files');
+    expect(html).toContain('aria-label="Merge base abc1234 をクリップボードにコピー"');
     expect(html).toContain('Filter changed files by path');
   });
 });

@@ -10,6 +10,7 @@ use std::hash::{Hash, Hasher};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,7 +27,7 @@ const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
-    "- The first line must be an Angular-style conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.\n",
+    "- The first line must be an conventional commit title such as feat:, fix:, docs:, style:, refactor:, perf:, test:, build:, ci:, chore:, or revert:. Use an optional scope when it adds clarity.\n",
     "- Keep the title in imperative mood. The title line must be 72 characters or fewer including prefix, scope, spaces, and punctuation.\n",
     "- If the title would exceed 72 characters, rewrite it shorter. Do not continue the overflow on the next line or in the description.\n",
     "- After the title, insert a blank line and always include a short description of the key changes.\n",
@@ -40,6 +41,7 @@ const KEYCHAIN_ACCOUNT: &str = "git-chat-ui";
 const KEYCHAIN_SERVICE_OPENAI: &str = "git-chat-ui.openai-token";
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE_CLAUDE: &str = "git-chat-ui.claudecode-token";
+static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -106,7 +108,7 @@ impl Default for AppConfig {
             open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
             claude_code_token: String::new(),
             selected_ai_provider: AiProvider::OpenAi,
-            commit_title_prompt: String::new(),
+            commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_mode: CommitGraphMode::Detailed,
             repository_scan_depth: 4,
             recently_used: Vec::new(),
@@ -183,11 +185,30 @@ pub struct CommitDetail {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommitFileDiffDetail {
+    pub sha: String,
+    pub file: String,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BranchDiffDetail {
     pub base_ref: String,
     pub target_ref: String,
     pub merge_base_sha: String,
     pub files: Vec<CommitFileStat>,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchDiffFileDetail {
+    pub base_ref: String,
+    pub target_ref: String,
+    pub file: String,
     pub diff: String,
     pub is_diff_truncated: bool,
 }
@@ -223,6 +244,15 @@ pub struct WorkingTreeDiffDetail {
 pub struct StashDiffDetail {
     pub stash_id: String,
     pub files: Vec<CommitFileStat>,
+    pub diff: String,
+    pub is_diff_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashDiffFileDetail {
+    pub stash_id: String,
+    pub file: String,
     pub diff: String,
     pub is_diff_truncated: bool,
 }
@@ -513,11 +543,11 @@ fn normalize_config_value(value: Value) -> AppConfig {
         .to_string();
 
     let selected_ai_provider = normalize_selected_ai_provider(value.get("selectedAiProvider"));
-    let commit_title_prompt = value
-        .get("commitTitlePrompt")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let commit_title_prompt = resolve_commit_title_prompt(
+        value.get("commitTitlePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    );
 
     let commit_graph_mode = match value.get("commitGraphMode").and_then(Value::as_str) {
         Some("simple") => CommitGraphMode::Simple,
@@ -589,7 +619,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         open_ai_model: normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone()))),
         claude_code_token: config.claude_code_token.clone(),
         selected_ai_provider: config.selected_ai_provider,
-        commit_title_prompt: config.commit_title_prompt.clone(),
+        commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_mode: config.commit_graph_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         recently_used: config.recently_used.clone(),
@@ -1225,6 +1255,95 @@ fn ensure_deletable_local_branch(repo_path: &str, branch_name: &str) -> Result<(
     }
 
     Ok(())
+}
+
+fn create_temporary_directory(prefix: &str) -> Result<PathBuf, String> {
+    let temp_dir = std::env::temp_dir();
+
+    for _ in 0..32 {
+        let candidate = temp_dir.join(format!(
+            "git-chat-ui-{prefix}-{}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|error| error.to_string())?
+                .as_nanos(),
+            NEXT_TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+
+    Err("Failed to create temporary directory.".to_string())
+}
+
+fn remove_temporary_worktree(
+    repo_path: &str,
+    temp_root_path: &Path,
+    worktree_path: &Path,
+) -> Result<(), String> {
+    let worktree_path_str = worktree_path.to_string_lossy().to_string();
+    let _ = run_git(
+        &["worktree", "remove", "--force", worktree_path_str.as_str()],
+        repo_path,
+    );
+
+    match fs::remove_dir_all(temp_root_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn merge_branch_without_checkout(
+    repo_path: &str,
+    source_branch: &str,
+    target_branch: &str,
+) -> Result<(), String> {
+    let temp_root_path = create_temporary_directory("merge")?;
+    let worktree_path = temp_root_path.join("worktree");
+    let worktree_path_str = worktree_path.to_string_lossy().to_string();
+    let target_reference = format!("refs/heads/{target_branch}");
+    let previous_target_oid = run_git(
+        &["rev-parse", "--verify", target_reference.as_str()],
+        repo_path,
+    )?;
+
+    let merge_result = (|| {
+        run_git(
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                worktree_path_str.as_str(),
+                target_branch,
+            ],
+            repo_path,
+        )?;
+        run_git(&["merge", source_branch], worktree_path_str.as_str())?;
+
+        let merged_target_oid = run_git(&["rev-parse", "HEAD"], worktree_path_str.as_str())?;
+        if merged_target_oid != previous_target_oid {
+            let args = vec![
+                "update-ref".to_string(),
+                "-m".to_string(),
+                format!("branch action merge {source_branch} into {target_branch}"),
+                target_reference.clone(),
+                merged_target_oid,
+                previous_target_oid.clone(),
+            ];
+            run_git_owned(&args, repo_path)?;
+        }
+
+        Ok(())
+    })();
+
+    let cleanup_result = remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path);
+    merge_result.and(cleanup_result)
 }
 
 fn parse_remote_branch_name(branch_name: &str) -> Result<(String, String), String> {
@@ -2653,6 +2772,39 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
 }
 
 #[tauri::command]
+pub fn get_commit_file_diff_detail(
+    repo_path: String,
+    sha: String,
+    file: String,
+) -> Result<CommitFileDiffDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let sha = sha.trim().to_string();
+    let file = file.trim().to_string();
+
+    if sha.is_empty() {
+        return Err("sha is required.".to_string());
+    }
+
+    if file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let diff = run_git(
+        &["show", "--pretty=format:", sha.as_str(), "--", file.as_str()],
+        &repo_path,
+    )?;
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(CommitFileDiffDetail {
+        sha,
+        file,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
+    })
+}
+
+#[tauri::command]
 pub fn get_branch_diff_detail(
     repo_path: String,
     base_ref: String,
@@ -2688,6 +2840,48 @@ pub fn get_branch_diff_detail(
         target_ref,
         merge_base_sha,
         files,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
+    })
+}
+
+#[tauri::command]
+pub fn get_branch_diff_file_detail(
+    repo_path: String,
+    base_ref: String,
+    target_ref: String,
+    file: String,
+) -> Result<BranchDiffFileDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let base_ref = base_ref.trim().to_string();
+    let target_ref = target_ref.trim().to_string();
+    let file = file.trim().to_string();
+
+    if base_ref.is_empty() {
+        return Err("baseRef is required.".to_string());
+    }
+
+    if target_ref.is_empty() {
+        return Err("targetRef is required.".to_string());
+    }
+
+    if file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let merge_base_sha = run_git(
+        &["merge-base", base_ref.as_str(), target_ref.as_str()],
+        &repo_path,
+    )?;
+    let range = format!("{merge_base_sha}..{target_ref}");
+    let diff = run_git(&["diff", range.as_str(), "--", file.as_str()], &repo_path)?;
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(BranchDiffFileDetail {
+        base_ref,
+        target_ref,
+        file,
         diff: diff.chars().take(25_000).collect(),
         is_diff_truncated,
     })
@@ -2890,6 +3084,37 @@ pub fn get_stash_diff_detail(
 }
 
 #[tauri::command]
+pub fn get_stash_diff_file_detail(
+    repo_path: String,
+    stash_id: String,
+    file: String,
+) -> Result<StashDiffFileDetail, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    let file = file.trim().to_string();
+    parse_stash_index(&stash_id)?;
+
+    if file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let stash_base = format!("{stash_id}^1");
+    let diff = run_git(
+        &["diff", stash_base.as_str(), stash_id.as_str(), "--", file.as_str()],
+        &repo_path,
+    )?;
+    let is_diff_truncated = diff.chars().count() > 25_000;
+
+    Ok(StashDiffFileDetail {
+        stash_id,
+        file,
+        diff: diff.chars().take(25_000).collect(),
+        is_diff_truncated,
+    })
+}
+
+#[tauri::command]
 pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
     ensure_repo_path(&repo_path)?;
 
@@ -3074,11 +3299,11 @@ pub fn merge_branches(
     ensure_branch_pair(&repo_path, &source_branch, &target_branch)?;
 
     let current_branch = get_current_branch(&repo_path)?;
-    if current_branch != target_branch {
-        run_git(&["checkout", target_branch.as_str()], &repo_path)?;
+    if current_branch == target_branch {
+        run_git(&["merge", source_branch.as_str()], &repo_path)?;
+    } else {
+        merge_branch_without_checkout(&repo_path, &source_branch, &target_branch)?;
     }
-
-    run_git(&["merge", source_branch.as_str()], &repo_path)?;
 
     Ok(OkResponse { ok: true })
 }
@@ -3446,12 +3671,14 @@ mod tests {
         .expect("git user.email config should succeed");
 
         fs::write(repo_path.join("README.md"), "root\n").expect("README should be written");
-        fs::write(repo_path.join("alpha.txt"), "alpha base\n")
-            .expect("alpha should be written");
-        fs::write(repo_path.join("beta.txt"), "beta base\n")
-            .expect("beta should be written");
-        run_command("git", &["add", "README.md", "alpha.txt", "beta.txt"], &repo_path_str)
-            .expect("git add should succeed");
+        fs::write(repo_path.join("alpha.txt"), "alpha base\n").expect("alpha should be written");
+        fs::write(repo_path.join("beta.txt"), "beta base\n").expect("beta should be written");
+        run_command(
+            "git",
+            &["add", "README.md", "alpha.txt", "beta.txt"],
+            &repo_path_str,
+        )
+        .expect("git add should succeed");
         run_command("git", &["commit", "-m", "init"], &repo_path_str)
             .expect("git commit should succeed");
 
@@ -3472,6 +3699,112 @@ mod tests {
             &repo_path_str,
         )
         .expect("second stash should succeed");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
+
+    fn create_merge_fixture() -> TestRepoFixture {
+        let root_dir = create_temporary_directory("tauri-merge-fixture")
+            .expect("temporary root dir should be created");
+        let repo_path = root_dir.join("repo");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        fs::write(repo_path.join("README.md"), "root\n").expect("README should be written");
+        run_command("git", &["add", "README.md"], &repo_path_str).expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/dnd-merge"],
+            &repo_path_str,
+        )
+        .expect("feature branch should be created");
+        fs::write(repo_path.join("feature.txt"), "feature\n")
+            .expect("feature file should be written");
+        run_command("git", &["add", "feature.txt"], &repo_path_str)
+            .expect("git add should succeed");
+        run_command("git", &["commit", "-m", "feature"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
+
+    fn create_branch_diff_fixture() -> TestRepoFixture {
+        let root_dir = create_temporary_directory("tauri-branch-diff-fixture")
+            .expect("temporary root dir should be created");
+        let repo_path = root_dir.join("repo");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        let base_lines = (0..3200)
+            .map(|index| format!("base line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(repo_path.join("big.txt"), format!("{base_lines}\n"))
+            .expect("initial large file should be written");
+        fs::create_dir_all(repo_path.join("src")).expect("src directory should be created");
+        fs::write(
+            repo_path.join("src").join("app.ts"),
+            "export const version = 'base';\n",
+        )
+        .expect("initial app.ts should be written");
+        run_command("git", &["add", "big.txt", "src/app.ts"], &repo_path_str)
+            .expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/syntax"],
+            &repo_path_str,
+        )
+        .expect("feature branch should be created");
+
+        let feature_lines = (0..3200)
+            .map(|index| format!("feature line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(repo_path.join("big.txt"), format!("{feature_lines}\n"))
+            .expect("updated large file should be written");
+        fs::write(
+            repo_path.join("src").join("app.ts"),
+            "export const version = 'feature';\n",
+        )
+        .expect("updated app.ts should be written");
+        run_command("git", &["add", "big.txt", "src/app.ts"], &repo_path_str)
+            .expect("git add should succeed");
+        run_command("git", &["commit", "-m", "feature"], &repo_path_str)
+            .expect("git commit should succeed");
 
         TestRepoFixture {
             root_dir,
@@ -3528,6 +3861,19 @@ mod tests {
     }
 
     #[test]
+    fn normalize_config_value_uses_default_commit_title_prompt_when_missing_or_blank() {
+        let missing_prompt = normalize_config_value(json!({
+            "openAiModel": "gpt-4.1-mini"
+        }));
+        let blank_prompt = normalize_config_value(json!({
+            "commitTitlePrompt": "   "
+        }));
+
+        assert_eq!(missing_prompt.commit_title_prompt, DEFAULT_COMMIT_TITLE_PROMPT);
+        assert_eq!(blank_prompt.commit_title_prompt, DEFAULT_COMMIT_TITLE_PROMPT);
+    }
+
+    #[test]
     fn resolve_commit_title_prompt_uses_default_when_blank() {
         assert_eq!(
             resolve_commit_title_prompt("   "),
@@ -3564,9 +3910,11 @@ mod tests {
 
     #[test]
     fn default_commit_title_prompt_requests_description() {
+        assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("conventional commit title such as feat:"));
         assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("always include a short description"));
         assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("72 characters or fewer"));
         assert!(DEFAULT_COMMIT_TITLE_PROMPT.contains("rewrite it shorter"));
+        assert!(!DEFAULT_COMMIT_TITLE_PROMPT.contains("Angular-style"));
     }
 
     #[test]
@@ -3670,6 +4018,60 @@ mod tests {
     }
 
     #[test]
+    fn get_branch_diff_file_detail_returns_selected_file_when_aggregate_diff_is_truncated() {
+        let fixture = create_branch_diff_fixture();
+
+        let overall = get_branch_diff_detail(
+            fixture.repo_path.clone(),
+            "main".to_string(),
+            "feature/syntax".to_string(),
+        )
+        .expect("branch diff detail should be returned");
+
+        assert!(overall.is_diff_truncated);
+        assert!(overall.files.iter().any(|file| file.file == "src/app.ts"));
+        assert!(!overall.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+
+        let detail = get_branch_diff_file_detail(
+            fixture.repo_path.clone(),
+            "main".to_string(),
+            "feature/syntax".to_string(),
+            "src/app.ts".to_string(),
+        )
+        .expect("branch file diff detail should be returned");
+
+        assert_eq!(detail.file, "src/app.ts");
+        assert!(detail.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+        assert!(detail.diff.contains("+export const version = 'feature';"));
+        assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn get_commit_file_diff_detail_returns_selected_file_when_aggregate_diff_is_truncated() {
+        let fixture = create_branch_diff_fixture();
+        let sha = run_command("git", &["rev-parse", "HEAD"], &fixture.repo_path)
+            .expect("head sha should resolve");
+        let overall = get_commit_detail(fixture.repo_path.clone(), sha.clone())
+            .expect("commit detail should be returned");
+
+        assert!(overall.files.iter().any(|file| file.file == "src/app.ts"));
+        assert!(!overall.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+
+        let detail = get_commit_file_diff_detail(
+            fixture.repo_path.clone(),
+            sha.clone(),
+            "src/app.ts".to_string(),
+        )
+        .expect("commit file diff detail should be returned");
+
+        assert_eq!(detail.sha, sha);
+        assert_eq!(detail.file, "src/app.ts");
+        assert!(detail.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+        assert!(detail.diff.contains("+export const version = 'feature';"));
+        assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
     fn get_working_tree_diff_detail_returns_untracked_diff_for_new_file() {
         let fixture = create_working_tree_diff_fixture();
         fs::write(
@@ -3710,6 +4112,24 @@ mod tests {
         assert_eq!(detail.files[0].file, "beta.txt");
         assert_eq!(detail.files[0].additions, 1);
         assert_eq!(detail.files[0].deletions, 1);
+        assert!(detail.diff.contains("diff --git a/beta.txt b/beta.txt"));
+        assert!(detail.diff.contains("+beta updated"));
+        assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn get_stash_diff_file_detail_returns_selected_file_diff() {
+        let fixture = create_stash_fixture();
+
+        let detail = get_stash_diff_file_detail(
+            fixture.repo_path.clone(),
+            "stash@{0}".to_string(),
+            "beta.txt".to_string(),
+        )
+        .expect("stash file diff detail should be returned");
+
+        assert_eq!(detail.stash_id, "stash@{0}");
+        assert_eq!(detail.file, "beta.txt");
         assert!(detail.diff.contains("diff --git a/beta.txt b/beta.txt"));
         assert!(detail.diff.contains("+beta updated"));
         assert!(!detail.is_diff_truncated);
@@ -3772,5 +4192,35 @@ mod tests {
             error,
             "Local branch 'feature/remote-delete' already exists."
         );
+    }
+
+    #[test]
+    fn merge_branches_updates_non_current_target_without_switching_head() {
+        let fixture = create_merge_fixture();
+
+        let feature_sha = run_command(
+            "git",
+            &["rev-parse", "feature/dnd-merge"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch sha should resolve");
+
+        merge_branches(
+            fixture.repo_path.clone(),
+            "feature/dnd-merge".to_string(),
+            "main".to_string(),
+        )
+        .expect("merge command should succeed");
+
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let main_sha = run_command("git", &["rev-parse", "main"], &fixture.repo_path)
+            .expect("main sha should resolve");
+        let feature_file = fs::read_to_string(Path::new(&fixture.repo_path).join("feature.txt"))
+            .expect("feature file should remain present");
+
+        assert_eq!(current_branch, "feature/dnd-merge");
+        assert_eq!(main_sha, feature_sha);
+        assert_eq!(feature_file, "feature\n");
     }
 }

@@ -1,7 +1,20 @@
 import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react';
 
 import { parseUnifiedDiff, type ParsedDiffCell, type ParsedDiffFile, type ParsedDiffRow } from '../lib/diff';
-import { buildDiffSyntaxTokens, resolveDiffSyntaxLanguage, type DiffSyntaxDisplayToken, type DiffSyntaxLanguage } from '../lib/diffSyntax';
+import { useDiffSyntaxTokenMap } from '../hooks/useDiffSyntaxTokenMap';
+import { canUseDiffSyntaxWorker } from '../lib/diffSyntaxWorkerClient';
+import {
+  buildDiffSyntaxDisplayTokens,
+  buildDiffSyntaxTokens,
+  getDiffSyntaxCacheKey,
+  resolveDiffSyntaxLanguage,
+  resolveDiffSyntaxTheme,
+  type DiffSyntaxDisplayToken,
+  type DiffSyntaxLanguage,
+  type DiffSyntaxTheme,
+  type DiffSyntaxToken,
+  type DiffSyntaxWorkerRequestItem
+} from '../lib/diffSyntax';
 import { buildIntralineSegments, type IntralineSegment } from '../lib/intralineDiff';
 
 interface SplitDiffFileStat {
@@ -15,18 +28,30 @@ interface SplitDiffViewerProps {
   files?: SplitDiffFileStat[];
   isDiffTruncated?: boolean;
   preferredFilePath?: string | null;
+  showFileList?: boolean;
   emptyMessage?: string;
   enableFileFilter?: boolean;
   fileFilterPlaceholder?: string;
+  activeFileLoading?: boolean;
+  activeFileError?: string | null;
+  activeFileLoadingMessage?: string;
+  onActiveFileChange?: (filePath: string | null, hasInlineDiff: boolean) => void;
 }
 
 type DiffDisplayMode = 'split' | 'after-only';
+type SplitDiffFileKind = ParsedDiffFile['kind'] | 'changed';
+type SplitDiffDisplayFile = Omit<ParsedDiffFile, 'kind'> & {
+  kind: SplitDiffFileKind;
+  additions: number;
+  deletions: number;
+};
 
-const fileKindLabel: Record<ParsedDiffFile['kind'], string> = {
+const fileKindLabel: Record<SplitDiffFileKind, string> = {
   modified: 'Modified',
   added: 'Added',
   deleted: 'Deleted',
-  renamed: 'Renamed'
+  renamed: 'Renamed',
+  changed: 'Changed'
 };
 
 function matchesFilePath(
@@ -58,10 +83,7 @@ function matchesFileQuery(
     .some((value) => value.toLowerCase().includes(normalizedQuery));
 }
 
-function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefined): ParsedDiffFile & {
-  additions: number;
-  deletions: number;
-} {
+function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefined): SplitDiffDisplayFile {
   const matched = stats?.find((item) => matchesFilePath(file, item.file));
   if (matched) {
     return {
@@ -91,6 +113,41 @@ function summarizeFile(file: ParsedDiffFile, stats: SplitDiffFileStat[] | undefi
     additions,
     deletions
   };
+}
+
+function createStatOnlyFile(stat: SplitDiffFileStat, index: number): SplitDiffDisplayFile {
+  return {
+    key: `stat:${index}:${stat.file}`,
+    kind: 'changed',
+    oldPath: stat.file,
+    newPath: stat.file,
+    displayPath: stat.file,
+    previousPath: null,
+    meta: [],
+    hunks: [],
+    additions: stat.additions,
+    deletions: stat.deletions
+  };
+}
+
+function buildDisplayFiles(parsedFiles: ParsedDiffFile[], stats: SplitDiffFileStat[] | undefined): SplitDiffDisplayFile[] {
+  const summarizedParsed = parsedFiles.map((file) => summarizeFile(file, stats));
+  if (!stats?.length) {
+    return summarizedParsed;
+  }
+
+  const unmatchedParsedFiles = [...summarizedParsed];
+  const orderedFiles = stats.map((stat, index) => {
+    const matchedIndex = unmatchedParsedFiles.findIndex((file) => matchesFilePath(file, stat.file));
+    if (matchedIndex === -1) {
+      return createStatOnlyFile(stat, index);
+    }
+
+    const [matchedFile] = unmatchedParsedFiles.splice(matchedIndex, 1);
+    return matchedFile;
+  });
+
+  return [...orderedFiles, ...unmatchedParsedFiles];
 }
 
 const FONT_STYLE_ITALIC = 1;
@@ -138,7 +195,10 @@ function buildTokenStyle(token: DiffSyntaxDisplayToken): CSSProperties | undefin
 function renderContent(
   content: string,
   language: DiffSyntaxLanguage | null,
-  segments: IntralineSegment[] | null
+  theme: DiffSyntaxTheme,
+  segments: IntralineSegment[] | null,
+  baseTokens: DiffSyntaxToken[] | null,
+  preferAsyncHighlighting: boolean
 ): JSX.Element {
   if (!content) {
     return <>{' '}</>;
@@ -148,7 +208,11 @@ function renderContent(
     return <>{content}</>;
   }
 
-  const tokens = buildDiffSyntaxTokens(content, language, segments);
+  const tokens = baseTokens
+    ? buildDiffSyntaxDisplayTokens(baseTokens, content, segments)
+    : language && !preferAsyncHighlighting
+      ? buildDiffSyntaxTokens(content, language, segments, theme)
+      : buildDiffSyntaxDisplayTokens([{ content }], content, segments);
   if (tokens.length === 0) {
     return <>{' '}</>;
   }
@@ -193,6 +257,9 @@ function renderCell(
   cell: ParsedDiffCell | null,
   side: 'left' | 'right',
   language: DiffSyntaxLanguage | null,
+  theme: DiffSyntaxTheme,
+  baseTokens: DiffSyntaxToken[] | null,
+  preferAsyncHighlighting: boolean,
   segments: IntralineSegment[] | null = null
 ): JSX.Element {
   if (!cell) {
@@ -202,14 +269,26 @@ function renderCell(
   return (
     <div className={`diff-cell diff-cell--${cell.kind} diff-cell--${side}`}>
       <div className="diff-cell__line-number">{cell.lineNumber ?? ''}</div>
-      <code className="diff-cell__content">{renderContent(cell.content, language, segments)}</code>
+      <code className="diff-cell__content">{renderContent(cell.content, language, theme, segments, baseTokens, preferAsyncHighlighting)}</code>
     </div>
   );
 }
 
-function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMode, language: DiffSyntaxLanguage | null): JSX.Element {
+function renderRow(
+  row: ParsedDiffRow,
+  index: number,
+  displayMode: DiffDisplayMode,
+  language: DiffSyntaxLanguage | null,
+  theme: DiffSyntaxTheme,
+  syntaxTokenMap: Record<string, DiffSyntaxToken[]>,
+  preferAsyncHighlighting: boolean
+): JSX.Element {
   const segments =
     row.kind === 'change' && row.left && row.right ? buildIntralineSegments(row.left.content, row.right.content) : null;
+  const leftTokens =
+    language && row.left ? syntaxTokenMap[getDiffSyntaxCacheKey(theme, language, row.left.content)] ?? null : null;
+  const rightTokens =
+    language && row.right ? syntaxTokenMap[getDiffSyntaxCacheKey(theme, language, row.right.content)] ?? null : null;
 
   return (
     <div
@@ -219,14 +298,48 @@ function renderRow(row: ParsedDiffRow, index: number, displayMode: DiffDisplayMo
       }`}
     >
       {displayMode === 'after-only'
-        ? renderCell(row.right, 'right', language, segments?.right ?? null)
-        : renderCell(row.left, 'left', language, segments?.left ?? null)}
-      {displayMode === 'split' ? renderCell(row.right, 'right', language, segments?.right ?? null) : null}
+        ? renderCell(row.right, 'right', language, theme, rightTokens, preferAsyncHighlighting, segments?.right ?? null)
+        : renderCell(row.left, 'left', language, theme, leftTokens, preferAsyncHighlighting, segments?.left ?? null)}
+      {displayMode === 'split'
+        ? renderCell(row.right, 'right', language, theme, rightTokens, preferAsyncHighlighting, segments?.right ?? null)
+        : null}
     </div>
   );
 }
 
-function renderFileMeta(file: ParsedDiffFile): JSX.Element | null {
+function collectSyntaxHighlightRequests(
+  file: Pick<SplitDiffDisplayFile, 'hunks'> | null,
+  language: DiffSyntaxLanguage | null,
+  theme: DiffSyntaxTheme
+): DiffSyntaxWorkerRequestItem[] {
+  if (!file || !language) {
+    return [];
+  }
+
+  const requests = new Map<string, DiffSyntaxWorkerRequestItem>();
+  for (const hunk of file.hunks) {
+    for (const row of hunk.rows) {
+      const cells = [row.left, row.right];
+      for (const cell of cells) {
+        if (!cell || !cell.content) {
+          continue;
+        }
+
+        const cacheKey = getDiffSyntaxCacheKey(theme, language, cell.content);
+        requests.set(cacheKey, {
+          cacheKey,
+          content: cell.content,
+          language,
+          theme
+        });
+      }
+    }
+  }
+
+  return [...requests.values()];
+}
+
+function renderFileMeta(file: Pick<SplitDiffDisplayFile, 'meta' | 'previousPath'>): JSX.Element | null {
   const meta = file.meta.filter((line) => !line.startsWith('index ')).slice(0, 3);
   if (meta.length === 0 && !file.previousPath) {
     return null;
@@ -247,12 +360,17 @@ export function SplitDiffViewer({
   files: fileStats,
   isDiffTruncated = false,
   preferredFilePath = null,
+  showFileList = true,
   emptyMessage = 'No diff',
   enableFileFilter = false,
-  fileFilterPlaceholder = 'Filter files by path'
+  fileFilterPlaceholder = 'Filter files by path',
+  activeFileLoading = false,
+  activeFileError = null,
+  activeFileLoadingMessage = 'Loading diff...',
+  onActiveFileChange
 }: SplitDiffViewerProps): JSX.Element {
   const parsedFiles = useMemo(() => parseUnifiedDiff(diff), [diff]);
-  const files = useMemo(() => parsedFiles.map((file) => summarizeFile(file, fileStats)), [fileStats, parsedFiles]);
+  const files = useMemo(() => buildDisplayFiles(parsedFiles, fileStats), [fileStats, parsedFiles]);
   const [fileFilterQuery, setFileFilterQuery] = useState('');
   const [activeFileKey, setActiveFileKey] = useState<string | null>(null);
   const deferredFileFilterQuery = useDeferredValue(fileFilterQuery);
@@ -284,11 +402,30 @@ export function SplitDiffViewer({
     });
   }, [preferredFilePath, visibleFiles]);
 
+  const activeFile = visibleFiles.find((file) => file.key === activeFileKey) ?? visibleFiles[0] ?? null;
+
+  useEffect(() => {
+    if (!onActiveFileChange) {
+      return;
+    }
+
+    onActiveFileChange(activeFile?.displayPath ?? null, Boolean(activeFile?.hunks.length));
+  }, [activeFile, onActiveFileChange]);
+
+  const activeFileLanguage = resolveDiffSyntaxLanguage(activeFile?.newPath ?? activeFile?.oldPath ?? activeFile?.displayPath ?? null);
+  const activeDiffSyntaxTheme = resolveDiffSyntaxTheme(typeof document === 'undefined' ? null : document.body.dataset.theme);
+  const preferAsyncSyntaxHighlighting = activeFileLanguage !== null && canUseDiffSyntaxWorker();
+  const syntaxHighlightRequests = useMemo(
+    () => (preferAsyncSyntaxHighlighting ? collectSyntaxHighlightRequests(activeFile, activeFileLanguage, activeDiffSyntaxTheme) : []),
+    [activeDiffSyntaxTheme, activeFile, activeFileLanguage, preferAsyncSyntaxHighlighting]
+  );
+  const syntaxTokenMap = useDiffSyntaxTokenMap(syntaxHighlightRequests);
+
   if (!diff.trim()) {
     return <div className="diff-empty-state">{emptyMessage}</div>;
   }
 
-  if (files.length === 0) {
+  if (parsedFiles.length === 0 && files.length === 0) {
     return (
       <pre className="diff-raw-view" aria-label="Raw diff fallback">
         {diff}
@@ -296,61 +433,61 @@ export function SplitDiffViewer({
     );
   }
 
-  const activeFile = visibleFiles.find((file) => file.key === activeFileKey) ?? visibleFiles[0] ?? null;
   const fileCountLabel = isFiltering ? `${visibleFiles.length}/${files.length}` : String(files.length);
   const activeFileDisplayMode: DiffDisplayMode = activeFile?.kind === 'added' ? 'after-only' : 'split';
-  const activeFileLanguage = resolveDiffSyntaxLanguage(activeFile?.newPath ?? activeFile?.oldPath ?? activeFile?.displayPath ?? null);
 
   return (
-    <div className="diff-workbench">
-      <aside className="diff-workbench__sidebar">
-        <div className="diff-workbench__sidebar-header">
-          <div>
-            <div className="diff-workbench__eyebrow">Diff View</div>
-            <div className="diff-workbench__sidebar-title">Changed Files</div>
-          </div>
-          <span className="diff-workbench__file-count">{fileCountLabel}</span>
-        </div>
-
-        {enableFileFilter ? (
-          <div className="diff-workbench__sidebar-controls">
-            <input
-              type="text"
-              className="input diff-workbench__filter-input"
-              value={fileFilterQuery}
-              onChange={(event) => setFileFilterQuery(event.target.value)}
-              placeholder={fileFilterPlaceholder}
-              aria-label="Filter changed files by path"
-            />
-          </div>
-        ) : null}
-
-        <div className="diff-workbench__sidebar-list">
-          {visibleFiles.length === 0 ? (
-            <div className="diff-workbench__sidebar-empty">
-              {`"${fileFilterQuery.trim()}" に一致する変更ファイルはありません。`}
+    <div className={`diff-workbench ${showFileList ? '' : 'diff-workbench--single-file'}`}>
+      {showFileList ? (
+        <aside className="diff-workbench__sidebar">
+          <div className="diff-workbench__sidebar-header">
+            <div>
+              <div className="diff-workbench__eyebrow">Diff View</div>
+              <div className="diff-workbench__sidebar-title">Changed Files</div>
             </div>
-          ) : (
-            visibleFiles.map((file) => (
-              <button
-                key={file.key}
-                type="button"
-                className={`diff-workbench__file-tab ${file.key === activeFile?.key ? 'is-active' : ''}`}
-                onClick={() => setActiveFileKey(file.key)}
-              >
-                <div className="diff-workbench__file-tab-top">
-                  <span className={`diff-file__badge diff-file__badge--${file.kind}`}>{fileKindLabel[file.kind]}</span>
-                  <span className="diff-workbench__file-tab-stats">
-                    <span className="diff-workbench__file-tab-add">+{file.additions}</span>
-                    <span className="diff-workbench__file-tab-del">-{file.deletions}</span>
-                  </span>
-                </div>
-                <div className="diff-workbench__file-tab-path">{file.displayPath}</div>
-              </button>
-            ))
-          )}
-        </div>
-      </aside>
+            <span className="diff-workbench__file-count">{fileCountLabel}</span>
+          </div>
+
+          {enableFileFilter ? (
+            <div className="diff-workbench__sidebar-controls">
+              <input
+                type="text"
+                className="input diff-workbench__filter-input"
+                value={fileFilterQuery}
+                onChange={(event) => setFileFilterQuery(event.target.value)}
+                placeholder={fileFilterPlaceholder}
+                aria-label="Filter changed files by path"
+              />
+            </div>
+          ) : null}
+
+          <div className="diff-workbench__sidebar-list">
+            {visibleFiles.length === 0 ? (
+              <div className="diff-workbench__sidebar-empty">
+                {`"${fileFilterQuery.trim()}" に一致する変更ファイルはありません。`}
+              </div>
+            ) : (
+              visibleFiles.map((file) => (
+                <button
+                  key={file.key}
+                  type="button"
+                  className={`diff-workbench__file-tab ${file.key === activeFile?.key ? 'is-active' : ''}`}
+                  onClick={() => setActiveFileKey(file.key)}
+                >
+                  <div className="diff-workbench__file-tab-top">
+                    <span className={`diff-file__badge diff-file__badge--${file.kind}`}>{fileKindLabel[file.kind]}</span>
+                    <span className="diff-workbench__file-tab-stats">
+                      <span className="diff-workbench__file-tab-add">+{file.additions}</span>
+                      <span className="diff-workbench__file-tab-del">-{file.deletions}</span>
+                    </span>
+                  </div>
+                  <div className="diff-workbench__file-tab-path">{file.displayPath}</div>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+      ) : null}
 
       <section className="diff-workbench__main">
         {activeFile ? (
@@ -380,14 +517,28 @@ export function SplitDiffViewer({
             </div>
 
             <div className="diff-workbench__body">
-              {activeFile.hunks.length === 0 ? (
+              {activeFile.hunks.length === 0 && activeFileLoading ? (
+                <div className="diff-empty-state">{activeFileLoadingMessage}</div>
+              ) : activeFile.hunks.length === 0 && activeFileError ? (
+                <div className="diff-empty-state">{activeFileError}</div>
+              ) : activeFile.hunks.length === 0 ? (
                 <div className="diff-empty-state">Text diff unavailable for this file.</div>
               ) : (
                 activeFile.hunks.map((hunk) => (
                   <section key={`${activeFile.key}:${hunk.header}`} className="diff-hunk">
                     <div className="diff-hunk__header">{hunk.header}</div>
                     <div className="diff-hunk__body">
-                      {hunk.rows.map((row, index) => renderRow(row, index, activeFileDisplayMode, activeFileLanguage))}
+                      {hunk.rows.map((row, index) =>
+                        renderRow(
+                          row,
+                          index,
+                          activeFileDisplayMode,
+                          activeFileLanguage,
+                          activeDiffSyntaxTheme,
+                          syntaxTokenMap,
+                          preferAsyncSyntaxHighlighting
+                        )
+                      )}
                     </div>
                   </section>
                 ))

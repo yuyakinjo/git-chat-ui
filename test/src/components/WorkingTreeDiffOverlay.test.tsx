@@ -48,7 +48,8 @@ describe('WorkingTreeDiffOverlay', () => {
     expect(html).toContain('WIP');
     expect(html).toContain('Unstaged');
     expect(html).toContain('diff-overlay__meta');
-    expect(html).toContain('Changed Files');
     expect(html).toContain('Split View');
+    expect(html).not.toContain('diff-workbench__sidebar');
+    expect(html).not.toContain('Changed Files');
   });
 });

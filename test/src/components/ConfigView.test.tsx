@@ -1,7 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { buildOpenAiModelOptions, resolveSelectedAiProvider, TokenValidationIndicator } from '../../../src/components/ConfigView';
+import { DEFAULT_COMMIT_TITLE_PROMPT } from '../../../src/lib/commitTitlePrompt';
+import {
+  buildOpenAiModelOptions,
+  ConfigView,
+  resolveSelectedAiProvider,
+  TokenValidationIndicator
+} from '../../../src/components/ConfigView';
+import type { AppConfig } from '../../../src/types';
+
+const config: AppConfig = {
+  openAiToken: '',
+  openAiModel: 'gpt-4.1-mini',
+  claudeCodeToken: '',
+  selectedAiProvider: 'openAi',
+  commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
+  commitGraphMode: 'detailed',
+  repositoryScanDepth: 4,
+  recentlyUsed: [],
+  windowState: null
+};
 
 describe('TokenValidationIndicator', () => {
   test('renders the done icon when the token is valid', () => {
@@ -51,5 +70,37 @@ describe('buildOpenAiModelOptions', () => {
 
   test('falls back to the default model when no fetched model exists', () => {
     expect(buildOpenAiModelOptions([], '')).toEqual(['gpt-4.1-mini']);
+  });
+});
+
+describe('ConfigView', () => {
+  test('renders the default commit title prompt as the textarea value instead of a placeholder', () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={config}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />
+    );
+
+    expect(html).toContain(
+      'You are a Git assistant. Write a Git commit message from the provided staged changes.'
+    );
+    expect(html).not.toContain('placeholder="You are a Git assistant..."');
+  });
+
+  test('renders a reset button for restoring the default prompt', () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={config}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />
+    );
+
+    expect(html).toContain('デフォルトに戻す');
+    expect(html).toContain('disabled=""');
   });
 });

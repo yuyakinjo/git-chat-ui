@@ -9,10 +9,16 @@ import {
   createBranch,
   deleteBranch,
   getBranches,
+  getBranchDiffDetail,
+  getBranchDiffFileDetail,
+  getCommitDetail,
+  getCommitFileDiffDetail,
   getDiffSnippet,
   getStashDiffDetail,
+  getStashDiffFileDetail,
   getStashes,
   getWorkingTreeDiffDetail,
+  mergeBranches,
   normalizeGithubRemoteUrl,
   popStash,
   renameStash,
@@ -67,6 +73,51 @@ async function createWorkingTreeDiffFixture(): Promise<{ rootDir: string; repoPa
   await runGit(['commit', '-m', 'init'], repoPath);
 
   await fs.writeFile(path.join(repoPath, 'README.md'), 'line 1\nline changed\nline 3\n');
+
+  return { rootDir, repoPath };
+}
+
+async function createMergeFixture(): Promise<{ rootDir: string; repoPath: string }> {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'git-chat-ui-merge-'));
+  const repoPath = path.join(rootDir, 'repo');
+
+  await runGit(['init', '-b', 'main', repoPath], rootDir);
+  await runGit(['config', 'user.name', 'Test User'], repoPath);
+  await runGit(['config', 'user.email', 'test@example.com'], repoPath);
+
+  await fs.writeFile(path.join(repoPath, 'README.md'), 'root\n');
+  await runGit(['add', 'README.md'], repoPath);
+  await runGit(['commit', '-m', 'init'], repoPath);
+
+  await runGit(['checkout', '-b', 'feature/dnd-merge'], repoPath);
+  await fs.writeFile(path.join(repoPath, 'feature.txt'), 'feature\n');
+  await runGit(['add', 'feature.txt'], repoPath);
+  await runGit(['commit', '-m', 'feature'], repoPath);
+
+  return { rootDir, repoPath };
+}
+
+async function createBranchDiffFixture(): Promise<{ rootDir: string; repoPath: string }> {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'git-chat-ui-branch-diff-'));
+  const repoPath = path.join(rootDir, 'repo');
+
+  await runGit(['init', '-b', 'main', repoPath], rootDir);
+  await runGit(['config', 'user.name', 'Test User'], repoPath);
+  await runGit(['config', 'user.email', 'test@example.com'], repoPath);
+
+  const baseLines = Array.from({ length: 3200 }, (_, index) => `base line ${index}`).join('\n');
+  await fs.writeFile(path.join(repoPath, 'big.txt'), `${baseLines}\n`);
+  await fs.mkdir(path.join(repoPath, 'src'), { recursive: true });
+  await fs.writeFile(path.join(repoPath, 'src', 'app.ts'), "export const version = 'base';\n");
+  await runGit(['add', 'big.txt', 'src/app.ts'], repoPath);
+  await runGit(['commit', '-m', 'init'], repoPath);
+
+  await runGit(['checkout', '-b', 'feature/syntax'], repoPath);
+  const featureLines = Array.from({ length: 3200 }, (_, index) => `feature line ${index}`).join('\n');
+  await fs.writeFile(path.join(repoPath, 'big.txt'), `${featureLines}\n`);
+  await fs.writeFile(path.join(repoPath, 'src', 'app.ts'), "export const version = 'feature';\n");
+  await runGit(['add', 'big.txt', 'src/app.ts'], repoPath);
+  await runGit(['commit', '-m', 'feature'], repoPath);
 
   return { rootDir, repoPath };
 }
@@ -178,6 +229,24 @@ describe('createBranch', () => {
   });
 });
 
+describe('mergeBranches', () => {
+  test('merges into a non-current target branch without switching HEAD', async () => {
+    const fixture = await createMergeFixture();
+
+    try {
+      const featureSha = await runGit(['rev-parse', 'feature/dnd-merge'], fixture.repoPath);
+
+      await mergeBranches(fixture.repoPath, 'feature/dnd-merge', 'main');
+
+      expect(await runGit(['branch', '--show-current'], fixture.repoPath)).toBe('feature/dnd-merge');
+      expect(await runGit(['rev-parse', 'main'], fixture.repoPath)).toBe(featureSha);
+      expect(await fs.readFile(path.join(fixture.repoPath, 'feature.txt'), 'utf8')).toBe('feature\n');
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('renameStash', () => {
   test('renames the selected stash without changing stack order', async () => {
     const fixture = await createStashFixture();
@@ -214,6 +283,24 @@ describe('getStashDiffDetail', () => {
           deletions: 1
         }
       ]);
+      expect(detail.diff).toContain('diff --git a/beta.txt b/beta.txt');
+      expect(detail.diff).toContain('+beta updated');
+      expect(detail.isDiffTruncated).toBe(false);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('getStashDiffFileDetail', () => {
+  test('returns diff detail for a selected file inside the stash', async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      const detail = await getStashDiffFileDetail(fixture.repoPath, 'stash@{0}', 'beta.txt');
+
+      expect(detail.stashId).toBe('stash@{0}');
+      expect(detail.file).toBe('beta.txt');
       expect(detail.diff).toContain('diff --git a/beta.txt b/beta.txt');
       expect(detail.diff).toContain('+beta updated');
       expect(detail.isDiffTruncated).toBe(false);
@@ -309,6 +396,62 @@ describe('getWorkingTreeDiffDetail', () => {
       expect(detail.diff).toContain('--- /dev/null');
       expect(detail.diff).toContain('+alpha');
       expect(detail.diff).toContain('+beta');
+      expect(detail.isDiffTruncated).toBe(false);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('getBranchDiffFileDetail', () => {
+  test('returns a selected file diff even when the aggregate branch diff is truncated earlier', async () => {
+    const fixture = await createBranchDiffFixture();
+
+    try {
+      const overall = await getBranchDiffDetail({
+        repoPath: fixture.repoPath,
+        baseRef: 'main',
+        targetRef: 'feature/syntax'
+      });
+
+      expect(overall.isDiffTruncated).toBe(true);
+      expect(overall.files.some((file) => file.file === 'src/app.ts')).toBe(true);
+      expect(overall.diff).not.toContain('diff --git a/src/app.ts b/src/app.ts');
+
+      const detail = await getBranchDiffFileDetail({
+        repoPath: fixture.repoPath,
+        baseRef: 'main',
+        targetRef: 'feature/syntax',
+        file: 'src/app.ts'
+      });
+
+      expect(detail.file).toBe('src/app.ts');
+      expect(detail.diff).toContain('diff --git a/src/app.ts b/src/app.ts');
+      expect(detail.diff).toContain("+export const version = 'feature';");
+      expect(detail.isDiffTruncated).toBe(false);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('getCommitFileDiffDetail', () => {
+  test('returns a selected file diff even when the aggregate commit diff is truncated earlier', async () => {
+    const fixture = await createBranchDiffFixture();
+
+    try {
+      const sha = await runGit(['rev-parse', 'HEAD'], fixture.repoPath);
+      const overall = await getCommitDetail(fixture.repoPath, sha);
+
+      expect(overall.files.some((file) => file.file === 'src/app.ts')).toBe(true);
+      expect(overall.diff).not.toContain('diff --git a/src/app.ts b/src/app.ts');
+
+      const detail = await getCommitFileDiffDetail(fixture.repoPath, sha, 'src/app.ts');
+
+      expect(detail.sha).toBe(sha);
+      expect(detail.file).toBe('src/app.ts');
+      expect(detail.diff).toContain('diff --git a/src/app.ts b/src/app.ts');
+      expect(detail.diff).toContain("+export const version = 'feature';");
       expect(detail.isDiffTruncated).toBe(false);
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });

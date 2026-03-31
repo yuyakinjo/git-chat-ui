@@ -8,12 +8,15 @@ import js from '@shikijs/langs/js';
 import go from '@shikijs/langs/go';
 import rs from '@shikijs/langs/rs';
 import githubDark from '@shikijs/themes/github-dark';
+import githubLight from '@shikijs/themes/github-light';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import { createHighlighterCoreSync } from 'shiki/core';
 
+import type { NativeWindowTheme } from './appTheme';
 import type { IntralineSegment } from './intralineDiff';
 
 export type DiffSyntaxLanguage = 'ts' | 'tsx' | 'json' | 'md' | 'css' | 'html' | 'js' | 'go' | 'rs';
+export type DiffSyntaxTheme = NativeWindowTheme;
 
 export interface DiffSyntaxToken {
   content: string;
@@ -26,14 +29,35 @@ export interface DiffSyntaxDisplayToken extends DiffSyntaxToken {
   emphasized: boolean;
 }
 
-const highlighter = createHighlighterCoreSync({
-  engine: createJavaScriptRegexEngine(),
-  langs: [ts, tsx, json, md, css, html, js, go, rs],
-  themes: [githubDark]
-});
+export interface DiffSyntaxWorkerRequestItem {
+  cacheKey: string;
+  content: string;
+  language: DiffSyntaxLanguage;
+  theme: DiffSyntaxTheme;
+}
 
+export interface DiffSyntaxWorkerRequestMessage {
+  requestId: number;
+  items: DiffSyntaxWorkerRequestItem[];
+}
+
+export interface DiffSyntaxWorkerResponseItem {
+  cacheKey: string;
+  tokens: DiffSyntaxToken[];
+}
+
+export interface DiffSyntaxWorkerResponseMessage {
+  requestId: number;
+  items: DiffSyntaxWorkerResponseItem[];
+}
+
+let highlighter: ReturnType<typeof createHighlighterCoreSync> | null = null;
 const lineCache = new Map<string, DiffSyntaxToken[]>();
 const MAX_CACHE_SIZE = 2000;
+const SHIKI_THEME_BY_DIFF_THEME = {
+  light: githubLight,
+  dark: githubDark
+} as const;
 
 export function resolveDiffSyntaxLanguage(filePath: string | null | undefined): DiffSyntaxLanguage | null {
   if (!filePath) {
@@ -83,13 +107,30 @@ export function resolveDiffSyntaxLanguage(filePath: string | null | undefined): 
 export function buildDiffSyntaxTokens(
   content: string,
   language: DiffSyntaxLanguage | null,
+  segments: IntralineSegment[] | null,
+  theme: DiffSyntaxTheme
+): DiffSyntaxDisplayToken[] {
+  if (!content) {
+    return [];
+  }
+
+  const baseTokens = language ? highlightDiffSyntaxLineSync(content, language, theme) : [{ content }];
+  return buildDiffSyntaxDisplayTokens(baseTokens, content, segments);
+}
+
+export function resolveDiffSyntaxTheme(themeId: string | null | undefined): DiffSyntaxTheme {
+  return themeId === 'default-dark' ? 'dark' : 'light';
+}
+
+export function buildDiffSyntaxDisplayTokens(
+  baseTokens: DiffSyntaxToken[],
+  content: string,
   segments: IntralineSegment[] | null
 ): DiffSyntaxDisplayToken[] {
   if (!content) {
     return [];
   }
 
-  const baseTokens = language ? highlightLine(content, language) : [{ content }];
   const normalizedSegments = normalizeSegments(content, segments);
   if (normalizedSegments.length === 1 && !normalizedSegments[0]?.emphasized) {
     return baseTokens.map((token) => ({ ...token, emphasized: false }));
@@ -118,16 +159,20 @@ export function buildDiffSyntaxTokens(
   return displayTokens;
 }
 
-function highlightLine(content: string, language: DiffSyntaxLanguage): DiffSyntaxToken[] {
-  const cacheKey = `${language}\u0000${content}`;
+export function getDiffSyntaxCacheKey(theme: DiffSyntaxTheme, language: DiffSyntaxLanguage, content: string): string {
+  return `${theme}\u0000${language}\u0000${content}`;
+}
+
+export function highlightDiffSyntaxLineSync(content: string, language: DiffSyntaxLanguage, theme: DiffSyntaxTheme): DiffSyntaxToken[] {
+  const cacheKey = getDiffSyntaxCacheKey(theme, language, content);
   const cached = lineCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const [tokens = []] = highlighter.codeToTokensBase(content, {
+  const [tokens = []] = getHighlighter().codeToTokensBase(content, {
     lang: language,
-    theme: githubDark,
+    theme: SHIKI_THEME_BY_DIFF_THEME[theme],
     tokenizeMaxLineLength: 4000,
     tokenizeTimeLimit: 100
   });
@@ -139,6 +184,18 @@ function highlightLine(content: string, language: DiffSyntaxLanguage): DiffSynta
   lineCache.set(cacheKey, normalized);
 
   return normalized;
+}
+
+function getHighlighter(): ReturnType<typeof createHighlighterCoreSync> {
+  if (!highlighter) {
+    highlighter = createHighlighterCoreSync({
+      engine: createJavaScriptRegexEngine(),
+      langs: [ts, tsx, json, md, css, html, js, go, rs],
+      themes: [githubLight, githubDark]
+    });
+  }
+
+  return highlighter;
 }
 
 function normalizeHighlightedTokens(

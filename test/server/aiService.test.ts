@@ -25,11 +25,12 @@ describe('resolveCommitTitlePrompt', () => {
     expect(resolveCommitTitlePrompt(undefined)).toBe(DEFAULT_COMMIT_TITLE_PROMPT);
   });
 
-  test('uses a default prompt that asks for an Angular-style prefix, short title, and description', () => {
-    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('Angular-style conventional commit title');
+  test('uses a default prompt that asks for a conventional prefix, short title, and description', () => {
+    expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('conventional commit title such as feat:');
     expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('72 characters or fewer');
     expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('rewrite it shorter');
     expect(DEFAULT_COMMIT_TITLE_PROMPT).toContain('always include a short description');
+    expect(DEFAULT_COMMIT_TITLE_PROMPT).not.toContain('Angular-style');
   });
 
   test('preserves a custom prompt', () => {

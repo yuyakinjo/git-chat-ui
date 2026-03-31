@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import { api } from '../lib/api';
+import { DEFAULT_COMMIT_TITLE_PROMPT } from '../lib/commitTitlePrompt';
 import type { AiGenerationConfig, AiProvider, AppConfig, CommitGraphMode, TokenValidationResult } from '../types';
 
 interface ConfigViewProps {
@@ -16,6 +17,7 @@ export type TokenValidationState = 'idle' | 'checking' | 'valid' | 'invalid';
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
 const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
+const COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX = 128;
 
 function normalizeDepth(value: number): number {
   if (!Number.isFinite(value)) {
@@ -209,13 +211,22 @@ export function ConfigView({
   onConfigSaved,
   onAiGenerationConfigChange
 }: ConfigViewProps): JSX.Element {
-  const [openAiToken, setOpenAiToken] = useState('');
-  const [openAiModel, setOpenAiModel] = useState(DEFAULT_OPENAI_MODEL);
-  const [claudeCodeToken, setClaudeCodeToken] = useState('');
-  const [selectedAiProvider, setSelectedAiProvider] = useState<AiProvider>('openAi');
-  const [commitTitlePrompt, setCommitTitlePrompt] = useState('');
-  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>('detailed');
-  const [repositoryScanDepth, setRepositoryScanDepth] = useState(4);
+  const initialConfigState = config ? applyConfigToState(config) : null;
+  const [openAiToken, setOpenAiToken] = useState(initialConfigState?.openAiToken ?? '');
+  const [openAiModel, setOpenAiModel] = useState(initialConfigState?.openAiModel ?? DEFAULT_OPENAI_MODEL);
+  const [claudeCodeToken, setClaudeCodeToken] = useState(initialConfigState?.claudeCodeToken ?? '');
+  const [selectedAiProvider, setSelectedAiProvider] = useState<AiProvider>(
+    initialConfigState
+      ? resolveSelectedAiProvider(
+          initialConfigState.selectedAiProvider,
+          initialConfigState.openAiToken,
+          initialConfigState.claudeCodeToken
+        )
+      : 'openAi'
+  );
+  const [commitTitlePrompt, setCommitTitlePrompt] = useState(initialConfigState?.commitTitlePrompt ?? '');
+  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>(initialConfigState?.commitGraphMode ?? 'detailed');
+  const [repositoryScanDepth, setRepositoryScanDepth] = useState(initialConfigState?.repositoryScanDepth ?? 4);
   const [loading, setLoading] = useState(config === null);
   const [saving, setSaving] = useState(false);
   const [openAiModels, setOpenAiModels] = useState<string[]>([]);
@@ -224,10 +235,30 @@ export function ConfigView({
   const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
   const claudeCodeTokenValidation = useTokenValidation(claudeCodeToken, api.validateClaudeCodeToken);
   const openAiModelsRequestIdRef = useRef(0);
+  const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, openAiModel),
     [openAiModel, openAiModels]
   );
+  const isDefaultCommitTitlePrompt = commitTitlePrompt === DEFAULT_COMMIT_TITLE_PROMPT;
+
+  useEffect(() => {
+    const textarea = commitTitlePromptTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const resizeTextarea = (): void => {
+      textarea.style.height = '0px';
+      textarea.style.height = `${Math.max(textarea.scrollHeight, COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX)}px`;
+    };
+
+    resizeTextarea();
+    window.addEventListener('resize', resizeTextarea);
+    return () => {
+      window.removeEventListener('resize', resizeTextarea);
+    };
+  }, [commitTitlePrompt]);
 
   useEffect(() => {
     if (!config) {
@@ -403,6 +434,10 @@ export function ConfigView({
     }
   };
 
+  const handleResetCommitTitlePrompt = (): void => {
+    setCommitTitlePrompt(DEFAULT_COMMIT_TITLE_PROMPT);
+  };
+
   return (
     <section className="panel mx-auto h-full w-full max-w-3xl p-6">
       <div className="mb-4">
@@ -533,17 +568,27 @@ export function ConfigView({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                Commit Title Prompt
-              </label>
+              <div className="mb-1 flex items-center justify-between gap-3">
+                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  Commit Title Prompt
+                </label>
+                <button
+                  type="button"
+                  className="button button-secondary px-2! py-1! text-[11px]"
+                  disabled={isDefaultCommitTitlePrompt}
+                  onClick={handleResetCommitTitlePrompt}
+                >
+                  デフォルトに戻す
+                </button>
+              </div>
               <textarea
+                ref={commitTitlePromptTextareaRef}
                 className="input min-h-32 resize-y"
-                placeholder="You are a Git assistant..."
                 value={commitTitlePrompt}
                 onChange={(event) => setCommitTitlePrompt(event.target.value)}
               />
               <p className="mt-1 text-xs text-ink-subtle">
-                AIでタイトル生成を押したときの instruction です。空で保存すると既定プロンプトに戻ります。
+                AIでタイトル生成を押したときの instruction です。右のボタンか、空で保存すると既定プロンプトに戻ります。
               </p>
             </div>
           </div>

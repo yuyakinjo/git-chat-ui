@@ -95,6 +95,12 @@ export function GitOperationPanel({
   const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
   const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
   const generateCommitMessageTitle = generatingCommitMessage ? 'AIでコミット文を生成中' : 'AIでタイトル生成';
+  const generateCommitMessageButtonClassName = [
+    'git-operation-panel__title-action',
+    generatingCommitMessage ? 'git-operation-panel__title-action--generating' : null
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const updateDraggedFile = (value: WorkingTreeDragPayload | null): void => {
     draggedFileRef.current = value;
@@ -481,9 +487,9 @@ export function GitOperationPanel({
                 <span>Commit</span>
               </div>
               <div className="flex min-h-[148px] flex-1 flex-col gap-2 rounded-2xl border border-black/10 bg-white/65 p-3">
-                <div className="relative isolate">
+                <div className="git-operation-panel__title-row">
                   <textarea
-                    className={`git-operation-panel__title-input input relative z-0 block ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
+                    className={`git-operation-panel__title-input input block ${commitTitleOverflowCount > 0 ? 'is-over-limit' : ''}`}
                     placeholder="Commit summary"
                     value={commitTitle}
                     rows={1}
@@ -495,7 +501,7 @@ export function GitOperationPanel({
                   {showGenerateCommitMessageButton ? (
                     <button
                       type="button"
-                      className="git-operation-panel__title-action absolute inset-y-0 right-1 z-10 my-auto flex h-8 w-8 items-center justify-center rounded-lg text-accent transition hover:bg-accent-soft"
+                      className={generateCommitMessageButtonClassName}
                       onClick={onGenerateCommitMessage}
                       disabled={busy || generatingCommitMessage}
                       title={generateCommitMessageTitle}

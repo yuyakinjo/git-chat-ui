@@ -4,7 +4,10 @@ import { api } from '../lib/api';
 import { getBranchDeleteDisabledReason, getBranchDeleteTargetName } from '../lib/branchDelete';
 import { resolveCompareRefs } from '../lib/controllerViewUtils';
 import { type UiError } from '../lib/errors';
-import { canCheckoutBranchWithoutWorkingTreeChange } from '../lib/repositoryMutationSafety';
+import {
+  canCheckoutBranchWithoutWorkingTreeChange,
+  canMergeBranchWithoutWorkingTreeChange
+} from '../lib/repositoryMutationSafety';
 import type { UseControllerDataResult } from './useControllerData';
 import { type BranchActionDialogStep } from '../components/BranchActionDialog';
 import type { Branch, CommitListItem, StashEntry } from '../types';
@@ -241,7 +244,11 @@ export function useControllerBranchOps({
       return;
     }
 
-    if (data.reportBlockedMutation('開発中のアプリ自身の repo は merge できません')) {
+    const canBypassSelfMutationBlock = canMergeBranchWithoutWorkingTreeChange(
+      data.currentBranchName,
+      currentAction.target
+    );
+    if (!canBypassSelfMutationBlock && data.reportBlockedMutation('開発中のアプリ自身の repo は merge できません')) {
       return;
     }
 

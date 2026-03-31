@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Branch, RepositoryMutationSafety } from '../../../src/types';
-import { canCheckoutBranchWithoutWorkingTreeChange, getSelfMutationBlockedReason } from '../../../src/lib/repositoryMutationSafety';
+import {
+  canCheckoutBranchWithoutWorkingTreeChange,
+  canMergeBranchWithoutWorkingTreeChange,
+  getSelfMutationBlockedReason
+} from '../../../src/lib/repositoryMutationSafety';
 
 const currentBranch: Branch = {
   name: 'main',
@@ -24,6 +28,13 @@ const differentCommitTarget: Branch = {
   commit: 'def456'
 };
 
+const remoteTarget: Branch = {
+  name: 'origin/main',
+  fullRef: 'refs/remotes/origin/main',
+  type: 'remote',
+  commit: 'abc123'
+};
+
 describe('getSelfMutationBlockedReason', () => {
   test('returns a reason only for the app repository in dev mode', () => {
     const mutationSafety: RepositoryMutationSafety = { isSelfRepository: true };
@@ -42,5 +53,17 @@ describe('canCheckoutBranchWithoutWorkingTreeChange', () => {
   test('blocks branch checkout when the target commit differs or current branch is unknown', () => {
     expect(canCheckoutBranchWithoutWorkingTreeChange(currentBranch, differentCommitTarget)).toBe(false);
     expect(canCheckoutBranchWithoutWorkingTreeChange(null, sameCommitTarget)).toBe(false);
+  });
+});
+
+describe('canMergeBranchWithoutWorkingTreeChange', () => {
+  test('allows merge when the target branch is not currently checked out', () => {
+    expect(canMergeBranchWithoutWorkingTreeChange('feature/new-branch', currentBranch)).toBe(true);
+  });
+
+  test('blocks merge when the target branch is current, unknown, or remote', () => {
+    expect(canMergeBranchWithoutWorkingTreeChange('main', currentBranch)).toBe(false);
+    expect(canMergeBranchWithoutWorkingTreeChange(null, currentBranch)).toBe(false);
+    expect(canMergeBranchWithoutWorkingTreeChange('feature/new-branch', remoteTarget)).toBe(false);
   });
 });

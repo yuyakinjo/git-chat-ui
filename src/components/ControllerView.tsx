@@ -1,9 +1,12 @@
 import { AlertTriangle, GripVertical, X } from 'lucide-react';
-import { useMemo, useState, type JSX } from 'react';
+import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from 'react';
+import { flushSync } from 'react-dom';
 
 import { api } from '../lib/api';
+import { describeGitError, type UiError } from '../lib/errors';
 import { canSwapControllerPanel, type ControllerPanelId } from '../lib/controllerPanelOrder';
 import { controllerPanelLabels } from '../lib/controllerViewUtils';
+import { canMergeBranchWithoutWorkingTreeChange } from '../lib/repositoryMutationSafety';
 import { waitForNextPaint } from '../lib/waitForNextPaint';
 import { BranchActionDialog } from './BranchActionDialog';
 import { BranchCreateDialog } from './BranchCreateDialog';
@@ -29,6 +32,13 @@ interface ControllerViewProps {
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
 }
 
+type CommitMessageGenerationState =
+  | { status: 'idle' }
+  | { status: 'success'; title: string; description: string }
+  | { status: 'error'; error: UiError };
+
+const COMMIT_MESSAGE_GENERATION_DELAY_MS = 3000;
+
 export function ControllerView({
   repository,
   appConfig,
@@ -39,8 +49,41 @@ export function ControllerView({
 
   const [selectedBranchForHover, setSelectedBranchForHover] = useState<Branch | null>(null);
   const [pendingScrollCommitSha, setPendingScrollCommitSha] = useState<string | null>(null);
+  const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
+  const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] = useActionState(
+    async (
+      _previousState: CommitMessageGenerationState,
+      files: string[]
+    ): Promise<CommitMessageGenerationState> => {
+      if (files.length === 0) {
+        return {
+          status: 'error',
+          error: describeGitError(
+            new Error('No staged changes are available for commit message generation.'),
+            'コミット文生成に失敗しました。'
+          )
+        };
+      }
+
+      try {
+        const response = await api.generateCommitMessage(repoPath, files);
+        return {
+          status: 'success',
+          title: response.title,
+          description: response.description
+        };
+      } catch (error) {
+        return {
+          status: 'error',
+          error: describeGitError(error, 'コミット文生成に失敗しました。')
+        };
+      }
+    },
+    { status: 'idle' }
+  );
+  const isCommitMessageGenerating = commitMessageAnimationPending || generatingCommitMessage;
 
   const {
     panelOrder,
@@ -58,6 +101,55 @@ export function ControllerView({
     setSelectedBranchForHover,
     setPendingScrollCommitSha
   });
+
+  useEffect(() => {
+    if (generatingCommitMessage) {
+      setCommitMessageAnimationPending(false);
+    }
+  }, [generatingCommitMessage]);
+
+  useEffect(() => {
+    if (commitMessageGenerationState.status === 'idle') {
+      return;
+    }
+
+    if (commitMessageGenerationState.status === 'success') {
+      data.setInlineError(null);
+      data.setCommitTitle(commitMessageGenerationState.title);
+      data.setCommitDescription(commitMessageGenerationState.description);
+    } else {
+      data.setInlineError(commitMessageGenerationState.error);
+      onNotify(commitMessageGenerationState.error.title);
+    }
+
+    setCommitMessageAnimationPending(false);
+    data.setOperationBusy(false);
+  }, [
+    commitMessageGenerationState,
+    data.setCommitDescription,
+    data.setCommitTitle,
+    data.setInlineError,
+    data.setOperationBusy,
+    onNotify
+  ]);
+
+  useEffect(() => {
+    setCommitMessageAnimationPending(false);
+  }, [repoPath]);
+
+  useEffect(() => {
+    if (data.commitMessageFiles.length > 0) {
+      return;
+    }
+
+    setCommitMessageAnimationPending(false);
+  }, [data.commitMessageFiles.length]);
+
+  useEffect(() => {
+    if (!data.operationBusy) {
+      setCommitMessageAnimationPending(false);
+    }
+  }, [data.operationBusy]);
 
   const highlightedCommitSha = selectedBranchForHover?.commit ?? null;
 
@@ -92,6 +184,12 @@ export function ControllerView({
     () => (data.commitDetail && data.activeCommit && data.commitDetail.sha === data.activeCommit.sha ? data.commitDetail : null),
     [data.activeCommit, data.commitDetail]
   );
+  const branchActionMergeDisabledReason =
+    branchOps.branchAction?.step === 'select-action' &&
+    data.selfMutationBlockedReason &&
+    !canMergeBranchWithoutWorkingTreeChange(data.currentBranchName, branchOps.branchAction.target)
+      ? data.selfMutationBlockedReason
+      : null;
 
   // --- Panel JSX ---
 
@@ -146,7 +244,7 @@ export function ControllerView({
       commitTitle={data.commitTitle}
       commitDescription={data.commitDescription}
       busy={data.operationBusy}
-      generatingCommitMessage={data.generatingCommitMessage}
+      generatingCommitMessage={isCommitMessageGenerating}
       activeWorkingTreeDiff={data.focusedWorkingTreeDiff}
       onCommitTitleChange={data.setCommitTitle}
       onCommitDescriptionChange={data.setCommitDescription}
@@ -201,42 +299,45 @@ export function ControllerView({
       }}
       onGenerateCommitMessage={() => {
         if (data.commitMessageFiles.length === 0) {
-          data.reportError(
+          const nextError = describeGitError(
             new Error('No staged changes are available for commit message generation.'),
             'コミット文生成に失敗しました。'
           );
+          data.setInlineError(nextError);
+          onNotify(nextError.title);
           return;
         }
 
-        void (async () => {
-          data.setGeneratingCommitMessage(true);
+        const files = data.commitMessageFiles;
+
+        flushSync(() => {
+          data.clearCommitMessageDraft();
+          setCommitMessageAnimationPending(true);
           data.setOperationBusy(true);
+        });
 
+        void (async () => {
           await waitForNextPaint();
-
-          try {
-            const response = await api.generateCommitMessage(repoPath, data.commitMessageFiles);
-            data.setInlineError(null);
-            data.setCommitTitle(response.title);
-            data.setCommitDescription(response.description);
-          } catch (error) {
-            data.reportError(error, 'コミット文生成に失敗しました。');
-          } finally {
-            data.setGeneratingCommitMessage(false);
-            data.setOperationBusy(false);
-          }
+          await new Promise((resolve) => window.setTimeout(resolve, COMMIT_MESSAGE_GENERATION_DELAY_MS));
+          startTransition(() => {
+            runCommitMessageGeneration(files);
+          });
         })();
       }}
       onCommit={() => {
         void data.mutateAndReload(async () => {
           await api.commit(repoPath, data.commitTitle, data.commitDescription);
-          data.clearCommitMessageDraft();
+          flushSync(() => {
+            data.clearCommitMessageDraft();
+          });
         });
       }}
       onPush={() => {
         void data.mutateAndReload(async () => {
           await api.push(repoPath);
-          data.clearCommitMessageDraft();
+          flushSync(() => {
+            data.clearCommitMessageDraft();
+          });
         });
       }}
       headerAccessory={
@@ -392,9 +493,11 @@ export function ControllerView({
 
       {selectedCommitDetail && data.focusedCommitDiffFile ? (
         <CommitDiffOverlay
+          repoPath={repoPath}
           detail={selectedCommitDetail}
           filePath={data.focusedCommitDiffFile}
           onClose={() => data.setFocusedCommitDiffFile(null)}
+          onNotify={onNotify}
         />
       ) : null}
 
@@ -410,6 +513,7 @@ export function ControllerView({
 
       {data.focusedStash ? (
         <StashDiffOverlay
+          repoPath={repoPath}
           stash={data.focusedStash}
           detail={data.stashDiffDetail}
           loading={data.loadingStashDiffDetail}
@@ -419,11 +523,13 @@ export function ControllerView({
 
       {data.showBranchDiff ? (
         <BranchDiffOverlay
+          repoPath={repoPath}
           detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
           loading={data.loadingBranchDiffDetail}
           baseBranchName={data.branchDiffBaseLabel}
           targetBranchName={data.currentLocalBranch?.name ?? null}
           onClose={() => data.setShowBranchDiff(false)}
+          onNotify={onNotify}
         />
       ) : null}
 
@@ -433,7 +539,7 @@ export function ControllerView({
           targetBranchName={branchOps.branchAction.target.name}
           step={branchOps.branchAction.step}
           busy={data.operationBusy}
-          mergeDisabledReason={branchOps.branchAction.step === 'select-action' ? data.selfMutationBlockedReason : null}
+          mergeDisabledReason={branchActionMergeDisabledReason}
           onClose={() => branchOps.setBranchAction(null)}
           onMerge={() => {
             void branchOps.handleMergeBranchAction();

@@ -16,3 +16,10 @@ export function canCheckoutBranchWithoutWorkingTreeChange(
 ): boolean {
   return Boolean(currentLocalBranch && currentLocalBranch.commit === targetBranch.commit);
 }
+
+export function canMergeBranchWithoutWorkingTreeChange(
+  currentBranchName: string | null,
+  targetBranch: Branch
+): boolean {
+  return Boolean(currentBranchName && targetBranch.type === 'local' && currentBranchName !== targetBranch.name);
+}

@@ -50,6 +50,13 @@ export interface CommitDetail {
   diff: string;
 }
 
+export interface CommitFileDiffDetail {
+  sha: string;
+  file: string;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
 export interface BranchDiffDetail {
   baseRef: string;
   targetRef: string;
@@ -59,6 +66,14 @@ export interface BranchDiffDetail {
     additions: number;
     deletions: number;
   }>;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
+export interface BranchDiffFileDetail {
+  baseRef: string;
+  targetRef: string;
+  file: string;
   diff: string;
   isDiffTruncated: boolean;
 }
@@ -84,6 +99,13 @@ export interface StashDiffDetail {
     additions: number;
     deletions: number;
   }>;
+  diff: string;
+  isDiffTruncated: boolean;
+}
+
+export interface StashDiffFileDetail {
+  stashId: string;
+  file: string;
   diff: string;
   isDiffTruncated: boolean;
 }

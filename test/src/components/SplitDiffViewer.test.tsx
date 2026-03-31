@@ -109,4 +109,137 @@ ${sample.line}
       expect(html).toContain('diff-token');
     }
   });
+
+  test('lists all file stats even when the diff body is truncated before later files', () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/visible.ts b/src/visible.ts
+index 1111111..2222222 100644
+--- a/src/visible.ts
++++ b/src/visible.ts
+@@ -1 +1 @@
+-old
++new
+`}
+        files={[
+          {
+            file: 'src/visible.ts',
+            additions: 1,
+            deletions: 1
+          },
+          {
+            file: 'src/missing.ts',
+            additions: 12,
+            deletions: 3
+          }
+        ]}
+        isDiffTruncated
+      />
+    );
+
+    expect(html).toContain('src/visible.ts');
+    expect(html).toContain('src/missing.ts');
+    expect(html).toContain('Changed');
+    expect(html).toContain('Truncated');
+  });
+
+  test('renders a selected file diff while keeping the full changed-files list', () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/app.ts b/src/app.ts
+index 1111111..2222222 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1 @@
+-export const version = 'base';
++export const version = 'feature';
+`}
+        files={[
+          {
+            file: 'src/app.ts',
+            additions: 1,
+            deletions: 1
+          },
+          {
+            file: 'big.txt',
+            additions: 3200,
+            deletions: 3200
+          }
+        ]}
+        isDiffTruncated
+      />
+    );
+
+    expect(html).toContain('src/app.ts');
+    expect(html).toContain('big.txt');
+    expect(html).toContain('diff-row--change');
+    expect(html).not.toContain('Text diff unavailable for this file.');
+  });
+
+  test('can hide the changed-files sidebar for single-file overlays', () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/app.ts b/src/app.ts
+index 1111111..2222222 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1 @@
+-export const version = 'base';
++export const version = 'feature';
+`}
+        files={[
+          {
+            file: 'src/app.ts',
+            additions: 1,
+            deletions: 1
+          },
+          {
+            file: 'src/other.ts',
+            additions: 2,
+            deletions: 0
+          }
+        ]}
+        preferredFilePath="src/app.ts"
+        showFileList={false}
+      />
+    );
+
+    expect(html).toContain('diff-workbench--single-file');
+    expect(html).not.toContain('diff-workbench__sidebar');
+    expect(html).not.toContain('Changed Files');
+    expect(html).toContain('src/app.ts');
+    expect(html).toContain('Split View');
+  });
+
+  test('shows the active file loading message for stats-only rows while a file diff is being fetched', () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/visible.ts b/src/visible.ts
+index 1111111..2222222 100644
+--- a/src/visible.ts
++++ b/src/visible.ts
+@@ -1 +1 @@
+-old
++new
+`}
+        files={[
+          {
+            file: 'src/missing.ts',
+            additions: 12,
+            deletions: 3
+          },
+          {
+            file: 'src/visible.ts',
+            additions: 1,
+            deletions: 1
+          }
+        ]}
+        activeFileLoading
+        activeFileLoadingMessage="差分を読み込み中..."
+      />
+    );
+
+    expect(html).toContain('差分を読み込み中...');
+    expect(html).not.toContain('Text diff unavailable for this file.');
+  });
 });

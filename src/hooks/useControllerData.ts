@@ -9,7 +9,11 @@ import {
   resolveBranchDiffBaseBranch
 } from '../lib/branchDiff';
 import { getCommitMessageFiles } from '../lib/commitMessage';
-import { readCommitMessageDraftFromStorage, writeCommitMessageDraftToStorage } from '../lib/commitMessageDrafts';
+import {
+  readCommitMessageDraftFromStorage,
+  writeCommitMessageDraftToStorage,
+  type CommitMessageDraftInput
+} from '../lib/commitMessageDrafts';
 import {
   isHeadDecoration,
   resolveCompareRefs,
@@ -96,10 +100,9 @@ export function useControllerData({
   const [workingStatus, setWorkingStatus] = useState<WorkingTreeStatus | null>(null);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [operationBusy, setOperationBusy] = useState(false);
-  const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
 
-  const [commitTitle, setCommitTitle] = useState(initialCommitMessageDraft.title);
-  const [commitDescription, setCommitDescription] = useState(initialCommitMessageDraft.description);
+  const [commitTitle, setCommitTitleState] = useState(initialCommitMessageDraft.title);
+  const [commitDescription, setCommitDescriptionState] = useState(initialCommitMessageDraft.description);
   const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>('detailed');
   const [inlineError, setInlineError] = useState<UiError | null>(null);
 
@@ -108,6 +111,7 @@ export function useControllerData({
     isSelfRepository: false
   });
   const refreshLockRef = useRef(false);
+  const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
   const stashDiffRequestKeyRef = useRef<string | null>(null);
 
@@ -137,10 +141,64 @@ export function useControllerData({
 
   const commitMessageFiles = useMemo(() => getCommitMessageFiles(workingStatus), [workingStatus]);
 
+  const persistCommitMessageDraft = useCallback((draft: CommitMessageDraftInput): void => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      writeCommitMessageDraftToStorage(window.localStorage, repoPath, draft);
+    } catch {
+      // Ignore storage failures and keep the in-memory draft.
+    }
+  }, [repoPath]);
+
+  const applyCommitMessageDraft = useCallback(
+    (
+      draft: CommitMessageDraftInput,
+      options: {
+        persist?: boolean;
+      } = {}
+    ): void => {
+      commitMessageDraftRef.current = draft;
+      setCommitTitleState(draft.title);
+      setCommitDescriptionState(draft.description);
+
+      if (options.persist === false) {
+        return;
+      }
+
+      persistCommitMessageDraft(draft);
+    },
+    [persistCommitMessageDraft]
+  );
+
+  const setCommitTitle = useCallback(
+    (title: string): void => {
+      applyCommitMessageDraft({
+        title,
+        description: commitMessageDraftRef.current.description
+      });
+    },
+    [applyCommitMessageDraft]
+  );
+
+  const setCommitDescription = useCallback(
+    (description: string): void => {
+      applyCommitMessageDraft({
+        title: commitMessageDraftRef.current.title,
+        description
+      });
+    },
+    [applyCommitMessageDraft]
+  );
+
   const clearCommitMessageDraft = useCallback((): void => {
-    setCommitTitle('');
-    setCommitDescription('');
-  }, []);
+    applyCommitMessageDraft({
+      title: '',
+      description: ''
+    });
+  }, [applyCommitMessageDraft]);
 
   const reportError = useCallback(
     (error: unknown, fallbackTitle: string): void => {
@@ -479,8 +537,7 @@ export function useControllerData({
     setActiveCommit(null);
     setIsWipSelected(false);
     setCommitDetail(null);
-    setCommitTitle(initialCommitMessageDraft.title);
-    setCommitDescription(initialCommitMessageDraft.description);
+    applyCommitMessageDraft(initialCommitMessageDraft, { persist: false });
     setBranchDiffDetail(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
@@ -491,6 +548,7 @@ export function useControllerData({
   }, [
     closeStashDiffOverlay,
     closeWorkingTreeDiffOverlay,
+    applyCommitMessageDraft,
     initialCommitMessageDraft.description,
     initialCommitMessageDraft.title,
     refreshAll,
@@ -585,21 +643,6 @@ export function useControllerData({
     setCommitGraphMode(appConfig?.commitGraphMode ?? 'detailed');
   }, [appConfig?.commitGraphMode]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    try {
-      writeCommitMessageDraftToStorage(window.localStorage, repoPath, {
-        title: commitTitle,
-        description: commitDescription
-      });
-    } catch {
-      // Ignore storage failures and keep the in-memory draft.
-    }
-  }, [commitDescription, commitTitle, repoPath]);
-
   // Validate focused diff file exists
   useEffect(() => {
     if (!focusedCommitDiffFile) {
@@ -691,8 +734,6 @@ export function useControllerData({
 
     operationBusy,
     setOperationBusy,
-    generatingCommitMessage,
-    setGeneratingCommitMessage,
 
     commitTitle,
     setCommitTitle,

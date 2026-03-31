@@ -3,7 +3,9 @@ import { Router } from 'express';
 import {
   commitChanges,
   getBranchDiffDetail,
+  getBranchDiffFileDetail,
   getCommitDetail,
+  getCommitFileDiffDetail,
   getCommits,
   getRepositoryFingerprint,
   pushChanges
@@ -51,6 +53,18 @@ router.get('/api/commits/detail', async (request, response, next) => {
   }
 });
 
+router.get('/api/commits/detail/file', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const sha = getRequiredString(request.query.sha, 'sha');
+    const file = getRequiredString(request.query.file, 'file');
+    const detail = await getCommitFileDiffDetail(repoPath, sha, file);
+    response.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/api/branches/diff', async (request, response, next) => {
   try {
     const repoPath = getRepoPathFromQuery(request);
@@ -60,6 +74,24 @@ router.get('/api/branches/diff', async (request, response, next) => {
       repoPath,
       baseRef,
       targetRef
+    });
+    response.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/api/branches/diff/file', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const baseRef = getRequiredString(request.query.baseRef, 'baseRef');
+    const targetRef = getRequiredString(request.query.targetRef, 'targetRef');
+    const file = getRequiredString(request.query.file, 'file');
+    const detail = await getBranchDiffFileDetail({
+      repoPath,
+      baseRef,
+      targetRef,
+      file
     });
     response.json(detail);
   } catch (error) {

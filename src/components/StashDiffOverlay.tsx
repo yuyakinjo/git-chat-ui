@@ -1,20 +1,37 @@
 import { X } from 'lucide-react';
-import { useEffect, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 
+import { api } from '../lib/api';
 import { formatFileCountLabel } from '../lib/format';
-import type { StashDiffDetail, StashEntry } from '../types';
+import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from '../types';
 import { SplitDiffViewer } from './SplitDiffViewer';
 
 interface StashDiffOverlayProps {
+  repoPath: string;
   stash: StashEntry;
   detail: StashDiffDetail | null;
   loading: boolean;
   onClose: () => void;
 }
 
-export function StashDiffOverlay({ stash, detail, loading, onClose }: StashDiffOverlayProps): JSX.Element {
+export function StashDiffOverlay({ repoPath, stash, detail, loading, onClose }: StashDiffOverlayProps): JSX.Element {
   const title = stash.message.trim() || stash.id;
   const fileCountLabel = formatFileCountLabel(detail?.files.length ?? stash.files.length);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(detail?.files[0]?.file ?? stash.files[0] ?? null);
+  const [activeFileHasInlineDiff, setActiveFileHasInlineDiff] = useState<boolean | null>(null);
+  const [fileDiffCache, setFileDiffCache] = useState<Record<string, StashDiffFileDetail>>({});
+  const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
+  const stashDiffFileRequestKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setActiveFilePath(detail?.files[0]?.file ?? stash.files[0] ?? null);
+    setActiveFileHasInlineDiff(null);
+    setFileDiffCache({});
+    setLoadingFilePath(null);
+    setFileErrors({});
+    stashDiffFileRequestKeyRef.current = null;
+  }, [detail?.stashId, stash.id]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -28,6 +45,64 @@ export function StashDiffOverlay({ stash, detail, loading, onClose }: StashDiffO
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
+
+  const activeFileDiff = activeFilePath ? fileDiffCache[activeFilePath] ?? null : null;
+  const activeFileError = activeFilePath ? fileErrors[activeFilePath] ?? null : null;
+  const stashDiffViewerDiff = activeFileDiff?.diff ?? detail?.diff ?? '';
+  const stashDiffViewerTruncated = activeFileDiff?.isDiffTruncated ?? detail?.isDiffTruncated ?? false;
+  const showActiveFileLoading =
+    Boolean(activeFilePath) && activeFileHasInlineDiff === false && !activeFileDiff && !activeFileError;
+
+  useEffect(() => {
+    if (!detail?.stashId || !activeFilePath || activeFileHasInlineDiff !== false || activeFileDiff || activeFileError) {
+      return;
+    }
+
+    const requestKey = `${detail.stashId}\u0000${activeFilePath}`;
+    stashDiffFileRequestKeyRef.current = requestKey;
+    setLoadingFilePath(activeFilePath);
+
+    void (async () => {
+      try {
+        const nextDetail = await api.getStashDiffFileDetail(repoPath, detail.stashId, activeFilePath);
+        if (stashDiffFileRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setFileDiffCache((current) => ({
+          ...current,
+          [activeFilePath]: nextDetail
+        }));
+        setFileErrors((current) => {
+          if (!(activeFilePath in current)) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[activeFilePath];
+          return next;
+        });
+      } catch {
+        if (stashDiffFileRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setFileErrors((current) => ({
+          ...current,
+          [activeFilePath]: '差分の取得に失敗しました。'
+        }));
+      } finally {
+        if (stashDiffFileRequestKeyRef.current === requestKey) {
+          setLoadingFilePath(null);
+        }
+      }
+    })();
+  }, [activeFileDiff, activeFileError, activeFileHasInlineDiff, activeFilePath, detail?.stashId, repoPath]);
+
+  const handleActiveFileChange = useCallback((nextFilePath: string | null, hasInlineDiff: boolean): void => {
+    setActiveFilePath(nextFilePath);
+    setActiveFileHasInlineDiff(hasInlineDiff);
+  }, []);
 
   return (
     <div
@@ -67,11 +142,17 @@ export function StashDiffOverlay({ stash, detail, loading, onClose }: StashDiffO
         {detail ? (
           <div className="min-h-0 flex-1">
             <SplitDiffViewer
-              diff={detail.diff}
+              diff={stashDiffViewerDiff}
               files={detail.files}
-              isDiffTruncated={detail.isDiffTruncated}
+              isDiffTruncated={stashDiffViewerTruncated}
+              preferredFilePath={activeFilePath}
+              showFileList={detail.files.length > 1}
               enableFileFilter
               fileFilterPlaceholder="Filter stashed files by path"
+              activeFileLoading={showActiveFileLoading || (Boolean(activeFilePath) && loadingFilePath === activeFilePath)}
+              activeFileError={activeFileError}
+              activeFileLoadingMessage="差分を読み込み中..."
+              onActiveFileChange={handleActiveFileChange}
               emptyMessage="この stash の差分はありません。"
             />
           </div>

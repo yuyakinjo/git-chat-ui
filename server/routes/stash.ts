@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   applyStash,
   getStashDiffDetail,
+  getStashDiffFileDetail,
   getStashes,
   popStash,
   renameStash,
@@ -39,6 +40,18 @@ router.get('/api/stashes/diff', async (request, response, next) => {
     const repoPath = getRepoPathFromQuery(request);
     const stashId = getRequiredString(request.query.stashId, 'stashId');
     const detail = await getStashDiffDetail(repoPath, stashId);
+    response.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/api/stashes/diff/file', async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const stashId = getRequiredString(request.query.stashId, 'stashId');
+    const file = getRequiredString(request.query.file, 'file');
+    const detail = await getStashDiffFileDetail(repoPath, stashId, file);
     response.json(detail);
   } catch (error) {
     next(error);

@@ -5,8 +5,10 @@ import type {
   AiGenerationConfig,
   AppConfig,
   BranchDiffDetail,
+  BranchDiffFileDetail,
   BranchResponse,
   CommitDetail,
+  CommitFileDiffDetail,
   CommitResponse,
   GeneratedCommitMessage,
   OpenAiModelsResponse,
@@ -15,6 +17,7 @@ import type {
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
+  StashDiffFileDetail,
   StashEntry,
   TokenValidationResult,
   WorkingTreeDiffArea,
@@ -197,6 +200,15 @@ export const api = {
     return request(`/commits/detail?${params.toString()}`);
   },
 
+  getCommitFileDiffDetail(repoPath: string, sha: string, file: string): Promise<CommitFileDiffDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_commit_file_diff_detail', { repoPath, sha, file });
+    }
+
+    const params = new URLSearchParams({ repoPath, sha, file });
+    return request(`/commits/detail/file?${params.toString()}`);
+  },
+
   getBranchDiffDetail(repoPath: string, baseRef: string, targetRef: string): Promise<BranchDiffDetail> {
     if (isTauriRuntime()) {
       return invokeCommand('get_branch_diff_detail', { repoPath, baseRef, targetRef });
@@ -204,6 +216,15 @@ export const api = {
 
     const params = new URLSearchParams({ repoPath, baseRef, targetRef });
     return request(`/branches/diff?${params.toString()}`);
+  },
+
+  getBranchDiffFileDetail(repoPath: string, baseRef: string, targetRef: string, file: string): Promise<BranchDiffFileDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_branch_diff_file_detail', { repoPath, baseRef, targetRef, file });
+    }
+
+    const params = new URLSearchParams({ repoPath, baseRef, targetRef, file });
+    return request(`/branches/diff/file?${params.toString()}`);
   },
 
   getWorkingTreeStatus(repoPath: string): Promise<WorkingTreeStatus> {
@@ -273,6 +294,15 @@ export const api = {
 
     const params = new URLSearchParams({ repoPath, stashId });
     return request(`/stashes/diff?${params.toString()}`);
+  },
+
+  getStashDiffFileDetail(repoPath: string, stashId: string, file: string): Promise<StashDiffFileDetail> {
+    if (isTauriRuntime()) {
+      return invokeCommand('get_stash_diff_file_detail', { repoPath, stashId, file });
+    }
+
+    const params = new URLSearchParams({ repoPath, stashId, file });
+    return request(`/stashes/diff/file?${params.toString()}`);
   },
 
   renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }> {

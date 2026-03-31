@@ -72,8 +72,6 @@ export interface UseControllerDataResult {
 
   operationBusy: boolean;
   setOperationBusy: (busy: boolean) => void;
-  generatingCommitMessage: boolean;
-  setGeneratingCommitMessage: (generating: boolean) => void;
 
   commitTitle: string;
   setCommitTitle: (title: string) => void;

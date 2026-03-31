@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { StashDiffDetail, StashEntry } from '../types.js';
+import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from '../types.js';
 
 import { ensureRepoPath, parseCommitFileStats, runGit } from './command.js';
 
@@ -136,6 +136,32 @@ export async function getStashDiffDetail(repoPath: string, stashId: string): Pro
   return {
     stashId: normalizedStashId,
     files,
+    diff: diff.slice(0, 25000),
+    isDiffTruncated
+  };
+}
+
+export async function getStashDiffFileDetail(
+  repoPath: string,
+  stashId: string,
+  file: string
+): Promise<StashDiffFileDetail> {
+  await ensureRepoPath(repoPath);
+
+  const normalizedStashId = stashId.trim();
+  const normalizedFile = file.trim();
+  parseStashIndex(normalizedStashId);
+
+  if (!normalizedFile) {
+    throw new Error('file is required.');
+  }
+
+  const diff = await runGit(['diff', `${normalizedStashId}^1`, normalizedStashId, '--', normalizedFile], repoPath);
+  const isDiffTruncated = diff.length > 25000;
+
+  return {
+    stashId: normalizedStashId,
+    file: normalizedFile,
     diff: diff.slice(0, 25000),
     isDiffTruncated
   };

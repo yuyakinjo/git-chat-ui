@@ -50,6 +50,7 @@ describe('StashDiffOverlay', () => {
   test('renders stash diff inside a dialog-style overlay', () => {
     const html = renderToStaticMarkup(
       <StashDiffOverlay
+        repoPath="/tmp/example"
         stash={stash}
         detail={detail}
         loading={false}

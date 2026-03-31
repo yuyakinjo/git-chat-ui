@@ -78,6 +78,7 @@ export function WorkingTreeDiffOverlay({
               files={detail.files}
               isDiffTruncated={detail.isDiffTruncated}
               preferredFilePath={detail.file}
+              showFileList={false}
               emptyMessage="このファイルの差分はありません。"
             />
           </div>

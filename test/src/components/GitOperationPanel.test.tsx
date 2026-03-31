@@ -317,9 +317,10 @@ describe('GitOperationPanel', () => {
 
     expect(html).toContain('animate-spin');
     expect(html).toContain('aria-label="AIでコミット文を生成中"');
-    expect(html).toContain('git-operation-panel__title-action absolute inset-y-0 right-1 z-10 my-auto flex h-8 w-8 items-center justify-center');
-    expect(html).toContain('git-operation-panel__title-input input relative z-0 block');
-    expect(html).toContain('relative isolate');
+    expect(html).toContain('git-operation-panel__title-row');
+    expect(html).toContain('git-operation-panel__title-action--generating');
+    expect(html).toContain('git-operation-panel__title-action');
+    expect(html).toContain('git-operation-panel__title-input input block');
     expect(html).not.toContain('<svg aria-hidden="true"[^>]*data-lucide="sparkles"');
   });
 });

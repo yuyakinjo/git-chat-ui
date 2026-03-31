@@ -6,7 +6,7 @@ import type { CommitDetail } from '../../../src/types';
 import { CommitDiffOverlay } from '../../../src/components/CommitDiffOverlay';
 
 const detail: CommitDetail = {
-  sha: '8726b86',
+  sha: '8726b86fe21c9a1',
   author: 'kinjo',
   email: 'kinjo@example.com',
   date: '2026-03-30T00:00:00.000Z',
@@ -31,16 +31,26 @@ index 1111111..2222222 100644
 };
 
 describe('CommitDiffOverlay', () => {
-  test('renders focused commit diff without the redundant overlay eyebrow', () => {
+  test('renders focused commit diff with a copyable sha badge', () => {
     const html = renderToStaticMarkup(
-      <CommitDiffOverlay detail={detail} filePath="server/gitService.test.ts" onClose={() => {}} />
+      <CommitDiffOverlay
+        repoPath="/tmp/example"
+        detail={detail}
+        filePath="server/gitService.test.ts"
+        onClose={() => {}}
+        onNotify={() => {}}
+      />
     );
 
     expect(html).toContain('diff-overlay__title');
     expect(html).toContain('diff-overlay__meta');
     expect(html).toContain('diff-overlay__meta-badge');
+    expect(html).toContain('aria-label="8726b86fe21c9a1 をクリップボードにコピー"');
+    expect(html).toContain('8726b86');
     expect(html).not.toContain('Focused Diff View');
     expect(html).toContain('server/gitService.test.ts');
     expect(html).toContain('Split View');
+    expect(html).not.toContain('diff-workbench__sidebar');
+    expect(html).not.toContain('Changed Files');
   });
 });
