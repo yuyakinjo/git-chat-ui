@@ -123,7 +123,7 @@ describe("GitOperationPanel", () => {
     expect(html).toContain("Unstage all");
     expect(html).toContain("Stash Area");
     expect(html).toContain("ファイルをここにドロップしてスタッシュ");
-    expect(html).toContain("git-operation-panel__stash-empty");
+    expect(html).toContain("git-operation-panel__drop-zone-empty");
     expect(html).toContain(
       "flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft",
     );
@@ -150,6 +150,7 @@ describe("GitOperationPanel", () => {
     );
     expect(html).toContain("git-operation-panel__bucket-header");
     expect((html.match(/git-operation-panel__bucket-header/g) ?? []).length).toBe(3);
+    expect((html.match(/git-operation-panel__drop-zone-empty/g) ?? []).length).toBe(1);
     expect(html).toContain("min-h-8");
     expect(html).toContain("rounded-2xl border border-black/10 bg-white/65 p-3");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
@@ -157,6 +158,10 @@ describe("GitOperationPanel", () => {
     expect(html).toContain('data-working-tree-drop-zone="unstaged"');
     expect(html).toContain('data-working-tree-drop-zone="staged"');
     expect(html).toContain('data-working-tree-drop-zone="stash"');
+    expect(
+      (html.match(/drop-zone min-h-\[148px\] flex flex-1 flex-col overflow-auto/g) ?? []).length,
+    ).toBe(2);
+    expect(html).toContain("drop-zone min-h-[148px] flex flex-1 flex-col overflow-auto");
     expect(html).toContain('git-file-path-label__directory">src/components/');
     expect(html).toContain('git-file-path-label__name">GitOperationPanel.tsx');
     expect(html).toContain('git-file-path-label__name">ControllerView.tsx');
@@ -240,7 +245,8 @@ describe("GitOperationPanel", () => {
     expect(html).toContain("未ステージの変更はありません。");
     expect(html).toContain("ステージされたファイルはありません。");
     expect(html).toContain("ファイルをここにドロップしてスタッシュ");
-    expect(html).toContain("git-operation-panel__stash-empty");
+    expect((html.match(/git-operation-panel__drop-zone-empty/g) ?? []).length).toBe(3);
+    expect(html).toContain("drop-zone min-h-[148px] flex flex-1 flex-col overflow-auto");
     expect(html).not.toContain("Stage all");
     expect(html).not.toContain("Unstage all");
     expect(html).not.toContain("スタッシュはありません。");

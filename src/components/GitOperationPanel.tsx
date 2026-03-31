@@ -670,12 +670,14 @@ export function GitOperationPanel({
       </div>
       <div
         data-working-tree-drop-zone="unstaged"
-        className={`drop-zone ${unstagedDropZoneMinHeightClass} flex-1 overflow-auto ${unstagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "unstaged" ? "is-drop-target" : ""}`}
+        className={`drop-zone ${unstagedDropZoneMinHeightClass} flex flex-1 flex-col overflow-auto ${unstagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "unstaged" ? "is-drop-target" : ""}`}
       >
         {dropZone === "unstaged" ? (
           renderDropPreview("unstaged")
         ) : unstaged.length === 0 ? (
-          <div className="text-xs text-ink-subtle">未ステージの変更はありません。</div>
+          <div className="git-operation-panel__drop-zone-empty flex flex-1 items-center justify-center text-center text-sm font-semibold text-ink-soft">
+            未ステージの変更はありません。
+          </div>
         ) : (
           unstaged.map((item) => renderWorkingFileRow(item, "unstaged", "Stage", onStageFile))
         )}
@@ -700,12 +702,14 @@ export function GitOperationPanel({
       </div>
       <div
         data-working-tree-drop-zone="staged"
-        className={`drop-zone ${stagedDropZoneMinHeightClass} flex-1 overflow-auto ${stagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "staged" ? "is-drop-target" : ""}`}
+        className={`drop-zone ${stagedDropZoneMinHeightClass} flex flex-1 flex-col overflow-auto ${stagedDropCandidate ? "is-drop-candidate" : ""} ${dropZone === "staged" ? "is-drop-target" : ""}`}
       >
         {dropZone === "staged" ? (
           renderDropPreview("staged")
         ) : staged.length === 0 ? (
-          <div className="text-xs text-ink-subtle">ステージされたファイルはありません。</div>
+          <div className="git-operation-panel__drop-zone-empty flex flex-1 items-center justify-center text-center text-sm font-semibold text-ink-soft">
+            ステージされたファイルはありません。
+          </div>
         ) : (
           staged.map((item) => renderWorkingFileRow(item, "staged", "Unstage", onUnstageFile))
         )}
@@ -732,7 +736,7 @@ export function GitOperationPanel({
         {dropZone === "stash" ? (
           renderDropPreview("stash")
         ) : (
-          <div className="git-operation-panel__stash-empty flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
+          <div className="git-operation-panel__drop-zone-empty flex flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-ink-soft">
             <UploadCloud size={16} />
             ファイルをここにドロップしてスタッシュ
           </div>

@@ -630,7 +630,7 @@ export function ConfigView({
               </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <div className="mb-1 flex items-center justify-between gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                   Commit Title Prompt
@@ -646,8 +646,9 @@ export function ConfigView({
               </div>
               <textarea
                 ref={commitTitlePromptTextareaRef}
-                className="input min-h-32 resize-y"
+                className="input config-view__commit-title-prompt min-h-32 resize-y"
                 value={commitTitlePrompt}
+                wrap="soft"
                 onChange={(event) => setCommitTitlePrompt(event.target.value)}
               />
               <p className="mt-1 text-xs text-ink-subtle">

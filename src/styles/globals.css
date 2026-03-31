@@ -576,6 +576,16 @@ button.app-tab {
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.13);
 }
 
+.config-view__commit-title-prompt {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .button {
   border: none;
   border-radius: 12px;
@@ -1739,7 +1749,7 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.git-operation-panel__stash-empty {
+.git-operation-panel__drop-zone-empty {
   line-height: 1;
   transform: translateY(-1px);
 }

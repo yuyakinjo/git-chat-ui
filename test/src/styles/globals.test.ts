@@ -73,7 +73,7 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("min-height: 44px;");
     expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--three {");
     expect(gitOperationSection).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
-    expect(gitOperationSection).toContain(".git-operation-panel__stash-empty {");
+    expect(gitOperationSection).toContain(".git-operation-panel__drop-zone-empty {");
     expect(gitOperationSection).toContain("line-height: 1;");
     expect(gitOperationSection).toContain("transform: translateY(-1px);");
   });
@@ -89,6 +89,16 @@ describe("globals.css", () => {
     expect(menuSection).toContain("border-top: 1px solid var(--surface-border);");
     expect(menuSection).not.toContain("rgba(255, 255, 255, 0.97)");
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
+  });
+
+  test("config commit prompt textarea can shrink within the panel and wrap long lines", () => {
+    const promptSection = getSection(".config-view__commit-title-prompt {", ".button {");
+
+    expect(promptSection).toContain("min-width: 0;");
+    expect(promptSection).toContain("max-width: 100%;");
+    expect(promptSection).toContain("white-space: pre-wrap;");
+    expect(promptSection).toContain("overflow-wrap: anywhere;");
+    expect(promptSection).toContain("word-break: break-word;");
   });
 
   test("working tree context menu uses the same theme tokens as floating branch actions", () => {

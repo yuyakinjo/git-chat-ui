@@ -96,6 +96,8 @@ describe("ConfigView", () => {
       "You are a Git assistant. Write a Git commit message from the provided staged changes.",
     );
     expect(html).not.toContain('placeholder="You are a Git assistant..."');
+    expect(html).toContain('class="input config-view__commit-title-prompt min-h-32 resize-y"');
+    expect(html).toContain('wrap="soft"');
   });
 
   test("renders a reset button for restoring the default prompt", () => {
