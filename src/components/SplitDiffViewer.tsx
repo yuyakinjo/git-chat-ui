@@ -2,6 +2,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type JSX,
@@ -419,6 +420,15 @@ function renderFileMeta(
   );
 }
 
+export function scrollFileTabIntoView(
+  target: Pick<HTMLButtonElement, "scrollIntoView"> | null,
+): void {
+  target?.scrollIntoView({
+    block: "nearest",
+    inline: "nearest",
+  });
+}
+
 export function SplitDiffViewer({
   diff,
   files: fileStats,
@@ -437,6 +447,7 @@ export function SplitDiffViewer({
   const files = useMemo(() => buildDisplayFiles(parsedFiles, fileStats), [fileStats, parsedFiles]);
   const [fileFilterQuery, setFileFilterQuery] = useState("");
   const [activeFileKey, setActiveFileKey] = useState<string | null>(null);
+  const activeFileTabRef = useRef<HTMLButtonElement | null>(null);
   const deferredFileFilterQuery = useDeferredValue(fileFilterQuery);
   const visibleFiles = useMemo(() => {
     if (!enableFileFilter) {
@@ -473,6 +484,14 @@ export function SplitDiffViewer({
     preferredFile ??
     visibleFiles[0] ??
     null;
+
+  useEffect(() => {
+    if (!showFileList || !activeFile) {
+      return;
+    }
+
+    scrollFileTabIntoView(activeFileTabRef.current);
+  }, [activeFile, showFileList, visibleFiles]);
 
   useEffect(() => {
     if (!onActiveFileChange) {
@@ -551,6 +570,7 @@ export function SplitDiffViewer({
                 <button
                   key={file.key}
                   type="button"
+                  ref={file.key === activeFile?.key ? activeFileTabRef : undefined}
                   className={`diff-workbench__file-tab ${file.key === activeFile?.key ? "is-active" : ""}`}
                   onClick={() => setActiveFileKey(file.key)}
                 >
