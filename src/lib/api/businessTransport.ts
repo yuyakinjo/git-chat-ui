@@ -7,6 +7,10 @@ import type {
   CommitDetail,
   CommitFileDiffDetail,
   CommitResponse,
+  ConflictFileDetail,
+  ConflictOperationResult,
+  ConflictResolutionSide,
+  ConflictSummary,
   GeneratedCommitMessage,
   OpenAiModelsResponse,
   PullStatus,
@@ -56,6 +60,20 @@ export interface BusinessTransport {
     file: string,
   ): Promise<BranchDiffFileDetail>;
   getWorkingTreeStatus(repoPath: string): Promise<WorkingTreeStatus>;
+  getConflictSummary(repoPath: string, sessionId?: string | null): Promise<ConflictSummary>;
+  getConflictFileDetail(
+    repoPath: string,
+    file: string,
+    sessionId?: string | null,
+  ): Promise<ConflictFileDetail>;
+  resolveConflictVersion(
+    repoPath: string,
+    file: string,
+    side: ConflictResolutionSide,
+    sessionId?: string | null,
+  ): Promise<{ ok: boolean }>;
+  completeMergeSession(repoPath: string, sessionId: string): Promise<{ ok: boolean }>;
+  abortMergeSession(repoPath: string, sessionId: string): Promise<{ ok: boolean }>;
   getWorkingTreeDiffDetail(
     repoPath: string,
     file: string,
@@ -74,14 +92,14 @@ export interface BusinessTransport {
     file: string,
   ): Promise<StashDiffFileDetail>;
   renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }>;
-  applyStash(repoPath: string, stashId: string): Promise<{ ok: boolean }>;
-  popStash(repoPath: string, stashId: string): Promise<{ ok: boolean }>;
+  applyStash(repoPath: string, stashId: string): Promise<ConflictOperationResult>;
+  popStash(repoPath: string, stashId: string): Promise<ConflictOperationResult>;
   checkout(repoPath: string, ref: string): Promise<{ ok: boolean }>;
   mergeBranches(
     repoPath: string,
     sourceBranch: string,
     targetBranch: string,
-  ): Promise<{ ok: boolean }>;
+  ): Promise<ConflictOperationResult>;
   getPullStatus(repoPath: string): Promise<PullStatus>;
   pull(repoPath: string): Promise<{ ok: boolean }>;
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }>;

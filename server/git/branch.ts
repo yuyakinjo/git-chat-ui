@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { Branch, PullStatus, PullStatusState } from "../types.js";
+import type { Branch, ConflictOperationResult, PullStatus, PullStatusState } from "../types.js";
 
 import { ensureRepoPath, runGit } from "./command.js";
+import { getConflictSummaryForContext, registerMergeSession } from "./conflict.js";
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
   await ensureRepoPath(repoPath);
@@ -372,11 +373,12 @@ async function mergeBranchWithoutCheckout(
   repoPath: string,
   sourceBranch: string,
   targetBranch: string,
-): Promise<void> {
+): Promise<ConflictOperationResult> {
   const tempRootPath = await fs.mkdtemp(path.join(os.tmpdir(), "git-chat-ui-merge-"));
   const worktreePath = path.join(tempRootPath, "worktree");
   const targetBranchRef = `refs/heads/${targetBranch}`;
   const previousTargetSha = await getBranchHeadSha(repoPath, targetBranch);
+  let keepWorktree = false;
 
   try {
     await runGit(["worktree", "add", "--detach", worktreePath, targetBranch], repoPath);
@@ -396,8 +398,37 @@ async function mergeBranchWithoutCheckout(
         repoPath,
       );
     }
+
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/merge conflict|conflict/i.test(message)) {
+      keepWorktree = true;
+      const session = registerMergeSession({
+        repoPath,
+        tempRootPath,
+        worktreePath,
+        sourceBranch,
+        targetBranch,
+        previousTargetSha,
+      });
+      return {
+        ok: false,
+        conflict: await getConflictSummaryForContext({
+          repoPath,
+          sessionId: session.id,
+          operation: "merge",
+          sourceBranch,
+          targetBranch,
+        }),
+      };
+    }
+
+    throw error;
   } finally {
-    await removeTemporaryWorktree(repoPath, tempRootPath, worktreePath);
+    if (!keepWorktree) {
+      await removeTemporaryWorktree(repoPath, tempRootPath, worktreePath);
+    }
   }
 }
 
@@ -405,17 +436,34 @@ export async function mergeBranches(
   repoPath: string,
   sourceBranch: string,
   targetBranch: string,
-): Promise<void> {
+): Promise<ConflictOperationResult> {
   await ensureRepoPath(repoPath);
   await ensureBranchPair(repoPath, sourceBranch, targetBranch);
 
   const currentBranch = await getCurrentBranch(repoPath);
   if (currentBranch === targetBranch) {
-    await runGit(["merge", sourceBranch], repoPath);
-    return;
+    try {
+      await runGit(["merge", sourceBranch], repoPath);
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/merge conflict|conflict/i.test(message)) {
+        return {
+          ok: false,
+          conflict: await getConflictSummaryForContext({
+            repoPath,
+            operation: "merge",
+            sourceBranch,
+            targetBranch,
+          }),
+        };
+      }
+
+      throw error;
+    }
   }
 
-  await mergeBranchWithoutCheckout(repoPath, sourceBranch, targetBranch);
+  return mergeBranchWithoutCheckout(repoPath, sourceBranch, targetBranch);
 }
 
 export async function createBranch(

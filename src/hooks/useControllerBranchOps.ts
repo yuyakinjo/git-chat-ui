@@ -10,7 +10,7 @@ import {
 } from "../lib/repositoryMutationSafety";
 import type { UseControllerDataResult } from "./useControllerData";
 import { type BranchActionDialogStep } from "../components/BranchActionDialog";
-import type { Branch, CommitListItem, StashEntry } from "../types";
+import type { Branch, CommitListItem, ConflictOperationResult, StashEntry } from "../types";
 
 interface UseControllerBranchOpsParams {
   repoPath: string;
@@ -68,6 +68,27 @@ export function useControllerBranchOps({
   const [branchDeleteTarget, setBranchDeleteTarget] = useState<Branch | null>(null);
   const [branchDeleteForce, setBranchDeleteForce] = useState(false);
   const [stashRenameTarget, setStashRenameTarget] = useState<StashEntry | null>(null);
+
+  const openConflictFromResult = async (
+    result: ConflictOperationResult,
+    title: string,
+    detail: string,
+  ): Promise<boolean> => {
+    if (result.ok) {
+      return false;
+    }
+
+    await data.loadWorkingState();
+    await data.openConflictViewer({
+      summary: result.conflict,
+      file: result.conflict.files[0]?.file ?? null,
+      sessionId: result.conflict.sessionId ?? null,
+    });
+    setBranchAction(null);
+    data.setInlineError({ title, detail });
+    onNotify(title);
+    return true;
+  };
 
   const handleCheckoutBranch = async (branch: Branch): Promise<void> => {
     const canBypassSelfMutationBlock = canCheckoutBranchWithoutWorkingTreeChange(
@@ -269,7 +290,21 @@ export function useControllerBranchOps({
     let primaryError = false;
 
     try {
-      await api.mergeBranches(repoPath, currentAction.source.name, currentAction.target.name);
+      const result = await api.mergeBranches(
+        repoPath,
+        currentAction.source.name,
+        currentAction.target.name,
+      );
+      if (
+        await openConflictFromResult(
+          result,
+          "競合が発生しました",
+          "Conflict Viewer を開きました。Take Ours / Take Theirs で解消してください。",
+        )
+      ) {
+        return;
+      }
+
       data.setInlineError(null);
       setBranchAction(null);
       onNotify(`${currentAction.source.name} を ${currentAction.target.name} に merge しました。`);
@@ -370,10 +405,30 @@ export function useControllerBranchOps({
 
     try {
       if (mode === "apply") {
-        await api.applyStash(repoPath, stash.id);
+        const result = await api.applyStash(repoPath, stash.id);
+        if (
+          await openConflictFromResult(
+            result,
+            "競合が発生しました",
+            "Conflict Viewer を開きました。stash の競合を解消してください。",
+          )
+        ) {
+          return;
+        }
+
         onNotify(`${stash.id} を apply しました。`);
       } else {
-        await api.popStash(repoPath, stash.id);
+        const result = await api.popStash(repoPath, stash.id);
+        if (
+          await openConflictFromResult(
+            result,
+            "競合が発生しました",
+            "Conflict Viewer を開きました。stash の競合を解消してください。",
+          )
+        ) {
+          return;
+        }
+
         onNotify(`${stash.id} を pop しました。`);
       }
 

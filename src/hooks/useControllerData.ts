@@ -23,6 +23,9 @@ import type {
   CommitDetail,
   CommitGraphMode,
   CommitListItem,
+  ConflictFileDetail,
+  ConflictResolutionSide,
+  ConflictSummary,
   PullStatus,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -95,6 +98,11 @@ export function useControllerData({
     null,
   );
   const [loadingWorkingTreeDiffDetail, setLoadingWorkingTreeDiffDetail] = useState(false);
+  const [conflictSummary, setConflictSummary] = useState<ConflictSummary | null>(null);
+  const [showConflictViewer, setShowConflictViewer] = useState(false);
+  const [focusedConflictFile, setFocusedConflictFile] = useState<string | null>(null);
+  const [conflictFileDetail, setConflictFileDetail] = useState<ConflictFileDetail | null>(null);
+  const [loadingConflictFileDetail, setLoadingConflictFileDetail] = useState(false);
   const [focusedStash, setFocusedStash] = useState<StashEntry | null>(null);
   const [stashDiffDetail, setStashDiffDetail] = useState<StashDiffDetail | null>(null);
   const [loadingStashDiffDetail, setLoadingStashDiffDetail] = useState(false);
@@ -119,6 +127,7 @@ export function useControllerData({
   const refreshLockRef = useRef(false);
   const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
+  const conflictFileRequestKeyRef = useRef<string | null>(null);
   const stashDiffRequestKeyRef = useRef<string | null>(null);
 
   const currentBranchName = branches?.current ?? null;
@@ -286,6 +295,19 @@ export function useControllerData({
     setLoadingWorkingTreeDiffDetail(false);
   }, []);
 
+  const clearConflictState = useCallback((): void => {
+    conflictFileRequestKeyRef.current = null;
+    setConflictSummary(null);
+    setShowConflictViewer(false);
+    setFocusedConflictFile(null);
+    setConflictFileDetail(null);
+    setLoadingConflictFileDetail(false);
+  }, []);
+
+  const closeConflictViewer = useCallback((): void => {
+    setShowConflictViewer(false);
+  }, []);
+
   const closeStashDiffOverlay = useCallback((): void => {
     stashDiffRequestKeyRef.current = null;
     setFocusedStash(null);
@@ -327,6 +349,144 @@ export function useControllerData({
       }
     },
     [repoPath, reportError],
+  );
+
+  const loadWorkingState = useCallback(async (): Promise<void> => {
+    try {
+      const [statusResponse, stashResponse] = await Promise.all([
+        api.getWorkingTreeStatus(repoPath),
+        api.getStashes(repoPath),
+      ]);
+
+      setWorkingStatus(statusResponse);
+      setStashes(stashResponse.stashes);
+    } catch (error) {
+      reportError(error, "ワークツリー状態の取得に失敗しました。");
+    }
+  }, [repoPath, reportError]);
+
+  const loadConflictFile = useCallback(
+    async (file: string, summary: ConflictSummary): Promise<void> => {
+      const normalizedFile = file.trim();
+      if (!normalizedFile) {
+        conflictFileRequestKeyRef.current = null;
+        setFocusedConflictFile(null);
+        setConflictFileDetail(null);
+        setLoadingConflictFileDetail(false);
+        return;
+      }
+
+      const requestKey = `${summary.sessionId ?? "repository"}:${normalizedFile}`;
+      conflictFileRequestKeyRef.current = requestKey;
+      setFocusedConflictFile(normalizedFile);
+      setConflictFileDetail(null);
+      setLoadingConflictFileDetail(true);
+
+      try {
+        const detail = await api.getConflictFileDetail(repoPath, normalizedFile, summary.sessionId);
+        if (conflictFileRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setConflictFileDetail(detail);
+      } catch (error) {
+        if (conflictFileRequestKeyRef.current !== requestKey) {
+          return;
+        }
+
+        setConflictFileDetail(null);
+        reportError(error, "conflict 詳細の取得に失敗しました。");
+      } finally {
+        if (conflictFileRequestKeyRef.current === requestKey) {
+          setLoadingConflictFileDetail(false);
+        }
+      }
+    },
+    [repoPath, reportError],
+  );
+
+  const openConflictViewer = useCallback(
+    async (
+      options: {
+        file?: string | null;
+        sessionId?: string | null;
+        summary?: ConflictSummary | null;
+      } = {},
+    ): Promise<void> => {
+      const nextSummary =
+        options.summary ?? (await api.getConflictSummary(repoPath, options.sessionId ?? null));
+      const preferredFile =
+        options.file?.trim() ||
+        (focusedConflictFile &&
+        nextSummary.files.some((entry) => entry.file === focusedConflictFile)
+          ? focusedConflictFile
+          : nextSummary.files[0]?.file) ||
+        null;
+
+      setShowBranchDiff(false);
+      setFocusedCommitDiffFile(null);
+      closeWorkingTreeDiffOverlay();
+      closeStashDiffOverlay();
+      setConflictSummary(nextSummary);
+      setShowConflictViewer(true);
+
+      if (preferredFile) {
+        await loadConflictFile(preferredFile, nextSummary);
+        return;
+      }
+
+      conflictFileRequestKeyRef.current = null;
+      setFocusedConflictFile(null);
+      setConflictFileDetail(null);
+      setLoadingConflictFileDetail(false);
+    },
+    [
+      closeStashDiffOverlay,
+      closeWorkingTreeDiffOverlay,
+      focusedConflictFile,
+      loadConflictFile,
+      repoPath,
+    ],
+  );
+
+  const resolveActiveConflict = useCallback(
+    async (side: ConflictResolutionSide): Promise<void> => {
+      const summary = conflictSummary;
+      const file = focusedConflictFile?.trim() ?? "";
+      if (!summary || !file) {
+        return;
+      }
+
+      setOperationBusy(true);
+
+      try {
+        await api.resolveConflictVersion(repoPath, file, side, summary.sessionId ?? null);
+        await loadWorkingState();
+
+        const nextSummary = await api.getConflictSummary(repoPath, summary.sessionId ?? null);
+        setConflictSummary(nextSummary);
+        setInlineError(null);
+
+        const nextFile =
+          nextSummary.files.find((entry) => entry.file === file)?.file ??
+          nextSummary.files[0]?.file ??
+          null;
+
+        if (nextFile) {
+          await loadConflictFile(nextFile, nextSummary);
+        } else {
+          conflictFileRequestKeyRef.current = null;
+          setFocusedConflictFile(null);
+          setConflictFileDetail(null);
+          setLoadingConflictFileDetail(false);
+        }
+      } catch (error) {
+        reportError(error, "conflict の解消に失敗しました。");
+      } finally {
+        setOperationBusy(false);
+      }
+    },
+    [conflictSummary, focusedConflictFile, loadConflictFile, loadWorkingState, repoPath, reportError],
   );
 
   const loadStashDiffDetail = useCallback(
@@ -436,20 +596,6 @@ export function useControllerData({
     [loadCommitDetail, repoPath, reportError],
   );
 
-  const loadWorkingState = useCallback(async (): Promise<void> => {
-    try {
-      const [statusResponse, stashResponse] = await Promise.all([
-        api.getWorkingTreeStatus(repoPath),
-        api.getStashes(repoPath),
-      ]);
-
-      setWorkingStatus(statusResponse);
-      setStashes(stashResponse.stashes);
-    } catch (error) {
-      reportError(error, "ワークツリー状態の取得に失敗しました。");
-    }
-  }, [repoPath, reportError]);
-
   const loadBranches = useCallback(async (): Promise<BranchResponse | null> => {
     try {
       const response = await api.getBranches(repoPath);
@@ -530,6 +676,66 @@ export function useControllerData({
     [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
   );
 
+  const completeActiveMergeSession = useCallback(async (): Promise<void> => {
+    const summary = conflictSummary;
+    const sessionId = summary?.sessionId?.trim() ?? "";
+    if (!summary || !sessionId) {
+      return;
+    }
+
+    setOperationBusy(true);
+
+    try {
+      await api.completeMergeSession(repoPath, sessionId);
+      clearConflictState();
+      setInlineError(null);
+      onNotify(
+        `${summary.sourceBranch ?? "source"} を ${summary.targetBranch ?? "target"} に merge しました。`,
+      );
+      await reloadAfterBranchMutation(summary.targetBranch);
+    } catch (error) {
+      reportError(error, "merge session の完了に失敗しました。");
+    } finally {
+      setOperationBusy(false);
+    }
+  }, [
+    clearConflictState,
+    conflictSummary,
+    onNotify,
+    reloadAfterBranchMutation,
+    repoPath,
+    reportError,
+  ]);
+
+  const abortActiveMergeSession = useCallback(async (): Promise<void> => {
+    const summary = conflictSummary;
+    const sessionId = summary?.sessionId?.trim() ?? "";
+    if (!summary || !sessionId) {
+      return;
+    }
+
+    setOperationBusy(true);
+
+    try {
+      await api.abortMergeSession(repoPath, sessionId);
+      clearConflictState();
+      setInlineError(null);
+      onNotify("merge session を破棄しました。");
+      await reloadAfterBranchMutation();
+    } catch (error) {
+      reportError(error, "merge session の破棄に失敗しました。");
+    } finally {
+      setOperationBusy(false);
+    }
+  }, [
+    clearConflictState,
+    conflictSummary,
+    onNotify,
+    reloadAfterBranchMutation,
+    repoPath,
+    reportError,
+  ]);
+
   const mutateAndReload = useCallback(
     async (
       task: () => Promise<void>,
@@ -587,12 +793,14 @@ export function useControllerData({
     setBranchDiffDetail(null);
     setShowBranchDiff(false);
     setFocusedCommitDiffFile(null);
+    clearConflictState();
     closeWorkingTreeDiffOverlay();
     closeStashDiffOverlay();
     setPullStatus(null);
     setInlineError(null);
     void refreshAll(defaultRef);
   }, [
+    clearConflictState,
     closeStashDiffOverlay,
     closeWorkingTreeDiffOverlay,
     applyCommitMessageDraft,
@@ -638,7 +846,9 @@ export function useControllerData({
     }
 
     const changedFileCount =
-      (workingStatus?.staged.length ?? 0) + (workingStatus?.unstaged.length ?? 0);
+      (workingStatus?.staged.length ?? 0) +
+      (workingStatus?.unstaged.length ?? 0) +
+      (workingStatus?.conflicted.length ?? 0);
     if (changedFileCount === 0) {
       setIsWipSelected(false);
     }
@@ -659,6 +869,16 @@ export function useControllerData({
       closeWorkingTreeDiffOverlay();
     }
   }, [closeWorkingTreeDiffOverlay, focusedWorkingTreeDiff, workingStatus]);
+
+  useEffect(() => {
+    if (!conflictSummary || conflictSummary.contextType === "mergeSession" || showConflictViewer) {
+      return;
+    }
+
+    if ((workingStatus?.conflicted.length ?? 0) === 0) {
+      clearConflictState();
+    }
+  }, [clearConflictState, conflictSummary, showConflictViewer, workingStatus]);
 
   useEffect(() => {
     if (!focusedStash) {
@@ -776,6 +996,13 @@ export function useControllerData({
     focusedWorkingTreeDiff,
     workingTreeDiffDetail,
     loadingWorkingTreeDiffDetail,
+    conflictSummary,
+    setConflictSummary,
+    showConflictViewer,
+    setShowConflictViewer,
+    focusedConflictFile,
+    conflictFileDetail,
+    loadingConflictFileDetail,
     focusedStash,
     stashDiffDetail,
     loadingStashDiffDetail,
@@ -806,6 +1033,11 @@ export function useControllerData({
     loadBranchDiffDetail,
     loadWorkingTreeDiffDetail,
     closeWorkingTreeDiffOverlay,
+    openConflictViewer,
+    closeConflictViewer,
+    resolveActiveConflict,
+    completeActiveMergeSession,
+    abortActiveMergeSession,
     loadStashDiffDetail,
     closeStashDiffOverlay,
     loadCommits,

@@ -106,6 +106,50 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/status?${params.toString()}`);
     },
 
+    getConflictSummary(repoPath, sessionId) {
+      const params = new URLSearchParams({ repoPath });
+      if (sessionId?.trim()) {
+        params.set("sessionId", sessionId.trim());
+      }
+
+      return request(baseUrl, `/conflicts?${params.toString()}`);
+    },
+
+    getConflictFileDetail(repoPath, file, sessionId) {
+      const params = new URLSearchParams({ repoPath, file });
+      if (sessionId?.trim()) {
+        params.set("sessionId", sessionId.trim());
+      }
+
+      return request(baseUrl, `/conflicts/file?${params.toString()}`);
+    },
+
+    resolveConflictVersion(repoPath, file, side, sessionId) {
+      return request(baseUrl, "/conflicts/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          repoPath,
+          file,
+          side,
+          sessionId: sessionId?.trim() ? sessionId.trim() : undefined,
+        }),
+      });
+    },
+
+    completeMergeSession(repoPath, sessionId) {
+      return request(baseUrl, "/conflicts/complete-merge-session", {
+        method: "POST",
+        body: JSON.stringify({ repoPath, sessionId }),
+      });
+    },
+
+    abortMergeSession(repoPath, sessionId) {
+      return request(baseUrl, "/conflicts/abort-merge-session", {
+        method: "POST",
+        body: JSON.stringify({ repoPath, sessionId }),
+      });
+    },
+
     getWorkingTreeDiffDetail(repoPath, file, area) {
       const params = new URLSearchParams({ repoPath, file, area });
       return request(baseUrl, `/working-tree/diff?${params.toString()}`);

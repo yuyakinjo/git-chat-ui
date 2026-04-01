@@ -296,3 +296,164 @@ describe("api.pull", () => {
     expect(requests[0]?.body).toEqual({ repoPath: "/tmp/repo" });
   });
 });
+
+describe("conflict API transport", () => {
+  test("requests conflict summary and file detail with session-aware query params", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify(
+          requests.length === 1
+            ? {
+                contextType: "mergeSession",
+                operation: "merge",
+                sessionId: "session-1",
+                sourceBranch: "feature/conflict",
+                targetBranch: "main",
+                files: [{ file: "conflict.txt", x: "U", y: "U", statusLabel: "Both Modified" }],
+              }
+            : {
+                file: "conflict.txt",
+                x: "U",
+                y: "U",
+                statusLabel: "Both Modified",
+                merged: { isBinary: false, content: "<<<<<<< ours\n" },
+                base: { isBinary: false, content: "base\n" },
+                ours: { isBinary: false, content: "ours\n" },
+                theirs: { isBinary: false, content: "theirs\n" },
+              },
+        ),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(api.getConflictSummary("/tmp/repo", "session-1")).resolves.toMatchObject({
+      contextType: "mergeSession",
+      sessionId: "session-1",
+    });
+    await expect(api.getConflictFileDetail("/tmp/repo", "conflict.txt", "session-1")).resolves.toMatchObject(
+      {
+        file: "conflict.txt",
+        statusLabel: "Both Modified",
+      },
+    );
+
+    expect(requests).toEqual([
+      {
+        url: "http://localhost:4141/api/conflicts?repoPath=%2Ftmp%2Frepo&sessionId=session-1",
+        body: null,
+      },
+      {
+        url: "http://localhost:4141/api/conflicts/file?repoPath=%2Ftmp%2Frepo&file=conflict.txt&sessionId=session-1",
+        body: null,
+      },
+    ]);
+  });
+
+  test("posts conflict resolution and merge-session actions", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.resolveConflictVersion("/tmp/repo", "conflict.txt", "ours", "session-1");
+    await api.completeMergeSession("/tmp/repo", "session-1");
+    await api.abortMergeSession("/tmp/repo", "session-1");
+
+    expect(requests).toEqual([
+      {
+        url: "http://localhost:4141/api/conflicts/resolve",
+        body: {
+          repoPath: "/tmp/repo",
+          file: "conflict.txt",
+          side: "ours",
+          sessionId: "session-1",
+        },
+      },
+      {
+        url: "http://localhost:4141/api/conflicts/complete-merge-session",
+        body: { repoPath: "/tmp/repo", sessionId: "session-1" },
+      },
+      {
+        url: "http://localhost:4141/api/conflicts/abort-merge-session",
+        body: { repoPath: "/tmp/repo", sessionId: "session-1" },
+      },
+    ]);
+  });
+
+  test("returns conflict-aware results for merge and stash mutations", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          conflict: {
+            contextType: "repository",
+            operation: requests.length === 1 ? "merge" : requests.length === 2 ? "stashApply" : "stashPop",
+            files: [{ file: "conflict.txt", x: "U", y: "U", statusLabel: "Both Modified" }],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(api.mergeBranches("/tmp/repo", "feature/conflict", "main")).resolves.toMatchObject({
+      ok: false,
+      conflict: { operation: "merge" },
+    });
+    await expect(api.applyStash("/tmp/repo", "stash@{0}")).resolves.toMatchObject({
+      ok: false,
+      conflict: { operation: "stashApply" },
+    });
+    await expect(api.popStash("/tmp/repo", "stash@{0}")).resolves.toMatchObject({
+      ok: false,
+      conflict: { operation: "stashPop" },
+    });
+
+    expect(requests).toEqual([
+      {
+        url: "http://localhost:4141/api/branches/merge",
+        body: {
+          repoPath: "/tmp/repo",
+          sourceBranch: "feature/conflict",
+          targetBranch: "main",
+        },
+      },
+      {
+        url: "http://localhost:4141/api/stashes/apply",
+        body: { repoPath: "/tmp/repo", stashId: "stash@{0}" },
+      },
+      {
+        url: "http://localhost:4141/api/stashes/pop",
+        body: { repoPath: "/tmp/repo", stashId: "stash@{0}" },
+      },
+    ]);
+  });
+});

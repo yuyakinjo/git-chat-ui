@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { WorkingFile, WorkingTreeStatus } from "../types.js";
 
-import { ensureRepoPath, runGit, statusLabel } from "./command.js";
+import { ensureRepoPath, isUnmergedStatus, runGit, statusLabel } from "./command.js";
 
 interface WorkingTreeFileStatusEntry {
   file: string;
@@ -16,6 +16,7 @@ export async function getWorkingTreeStatus(repoPath: string): Promise<WorkingTre
   await ensureRepoPath(repoPath);
 
   const statusOutput = await runGit(["status", "--porcelain=v1", "-uall"], repoPath);
+  const conflicted: WorkingFile[] = [];
   const staged: WorkingFile[] = [];
   const unstaged: WorkingFile[] = [];
 
@@ -29,7 +30,17 @@ export async function getWorkingTreeStatus(repoPath: string): Promise<WorkingTre
     const rawPath = line.slice(3).trim();
     const file = rawPath.includes(" -> ") ? (rawPath.split(" -> ").at(-1) ?? rawPath) : rawPath;
 
-    const normalizedStatus = statusLabel(x !== " " && x !== "?" ? x : y);
+    const normalizedStatus = statusLabel(x, y);
+
+    if (isUnmergedStatus(x, y)) {
+      conflicted.push({
+        file,
+        x,
+        y,
+        statusLabel: normalizedStatus,
+      });
+      continue;
+    }
 
     if (x !== " " && x !== "?") {
       staged.push({
@@ -51,6 +62,7 @@ export async function getWorkingTreeStatus(repoPath: string): Promise<WorkingTre
   }
 
   return {
+    conflicted,
     staged,
     unstaged,
   };

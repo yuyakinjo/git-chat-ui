@@ -12,6 +12,13 @@ export {
   pullCurrentBranch,
 } from "./git/branch.js";
 export {
+  abortMergeSession,
+  completeMergeSession,
+  getConflictFileDetail,
+  getConflictSummary,
+  resolveConflictVersion,
+} from "./git/conflict.js";
+export {
   getCommits,
   getCommitDetail,
   getCommitFileDiffDetail,

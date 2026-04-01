@@ -42,8 +42,10 @@ interface GitOperationPanelProps {
   commitTitle: string;
   commitDescription: string;
   busy: boolean;
+  commitMessageEditorLocked?: boolean;
   generatingCommitMessage: boolean;
   activeWorkingTreeDiff: { file: string; area: WorkingTreeDiffArea } | null;
+  activeConflictFile?: string | null;
   onCommitTitleChange: (value: string) => void;
   onCommitDescriptionChange: (value: string) => void;
   onStageFile: (file: string) => void;
@@ -53,6 +55,7 @@ interface GitOperationPanelProps {
   onStashFile: (file: string) => void;
   onDiscardFileRequest?: (item: WorkingFile, source: WorkingTreeDragSource) => void;
   onOpenWorkingTreeDiff: (file: string, area: WorkingTreeDiffArea) => void;
+  onOpenConflict?: (file: string) => void;
   onGenerateCommitMessage: () => void;
   onCommit: () => void;
   onPush: () => void;
@@ -75,7 +78,9 @@ export function GitOperationPanel({
   commitTitle,
   commitDescription,
   busy,
+  commitMessageEditorLocked = false,
   generatingCommitMessage,
+  activeConflictFile = null,
   onCommitTitleChange,
   onCommitDescriptionChange,
   onStageFile,
@@ -86,6 +91,7 @@ export function GitOperationPanel({
   onDiscardFileRequest,
   activeWorkingTreeDiff,
   onOpenWorkingTreeDiff,
+  onOpenConflict,
   onGenerateCommitMessage,
   onCommit,
   onPush,
@@ -95,6 +101,7 @@ export function GitOperationPanel({
   const rootRef = useRef<HTMLElement | null>(null);
   const [draggedFile, setDraggedFile] = useState<WorkingTreeDragPayload | null>(null);
   const [dropZone, setDropZone] = useState<WorkingTreeDropZone | null>(null);
+  const [localCommitMessagePending, setLocalCommitMessagePending] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(
     null,
@@ -116,19 +123,23 @@ export function GitOperationPanel({
     startY: number;
   } | null>(null);
 
+  const conflicted = status?.conflicted ?? [];
   const unstaged = status?.unstaged ?? [];
   const staged = status?.staged ?? [];
   const canGenerateCommitMessage = getCommitMessageFiles(status).length > 0;
-  const showGenerateCommitMessageButton = generatingCommitMessage || canGenerateCommitMessage;
+  const isCommitMessageGenerating = generatingCommitMessage || localCommitMessagePending;
+  const isCommitMessageEditorActuallyLocked =
+    commitMessageEditorLocked || localCommitMessagePending;
+  const showGenerateCommitMessageButton = isCommitMessageGenerating || canGenerateCommitMessage;
   const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, " ");
   const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
   const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
-  const generateCommitMessageTitle = generatingCommitMessage
+  const generateCommitMessageTitle = isCommitMessageGenerating
     ? "AIでコミット文を生成中"
     : "AIでタイトル生成";
   const generateCommitMessageButtonClassName = [
     "git-operation-panel__title-action",
-    generatingCommitMessage ? "git-operation-panel__title-action--generating" : null,
+    isCommitMessageGenerating ? "git-operation-panel__title-action--generating" : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -159,6 +170,12 @@ export function GitOperationPanel({
       setContextMenu(null);
     }
   }, [busy]);
+
+  useEffect(() => {
+    if (generatingCommitMessage || !busy) {
+      setLocalCommitMessagePending(false);
+    }
+  }, [busy, generatingCommitMessage]);
 
   useEffect(() => {
     const rootNode = rootRef.current;
@@ -581,7 +598,13 @@ export function GitOperationPanel({
   const stackedBucketClass = useSplitStagedStashLayout
     ? "git-operation-panel__stacked-buckets--split"
     : "";
-  const commitColumnClass = columnCount === 4 ? "git-operation-panel__commit-column--span-2" : "";
+  const showConflictBucket = conflicted.length > 0;
+  const commitColumnClass =
+    showConflictBucket && columnCount > 1
+      ? "git-operation-panel__commit-column--full"
+      : columnCount === 4
+        ? "git-operation-panel__commit-column--span-2"
+        : "";
   const unstagedDropZoneMinHeightClass = isMediumLayout ? "min-h-0" : "min-h-[148px]";
   const stagedDropZoneMinHeightClass = useSplitStagedStashLayout ? "min-h-0" : "min-h-[148px]";
   const stashDropZoneMinHeightClass = useSplitStagedStashLayout ? "min-h-0" : "min-h-[148px]";
@@ -623,6 +646,59 @@ export function GitOperationPanel({
           </div>
         ) : (
           unstaged.map((item) => renderWorkingFileRow(item, "unstaged", "Stage", onStageFile))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderConflictRow = (item: WorkingFile): JSX.Element => {
+    const isActive = activeConflictFile === item.file;
+    const statusPresentation = getWorkingFileStatusPresentation(item);
+
+    return (
+      <button
+        key={`conflict:${item.file}`}
+        type="button"
+        className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+          isActive ? "is-active text-white" : ""
+        }`}
+        onClick={() => onOpenConflict?.(item.file)}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={`git-file-card__status-icon git-file-card__status-icon--${statusPresentation.tone}`}
+            aria-hidden="true"
+            title={statusPresentation.label}
+          >
+            {statusPresentation.icon}
+          </span>
+          <div className={`min-w-0 flex-1 text-xs font-medium ${isActive ? "text-white" : ""}`}>
+            <GitFilePathLabel path={item.file} />
+          </div>
+        </div>
+        <div
+          className={`flex flex-none items-center gap-2 text-[11px] font-semibold ${
+            isActive ? "text-white" : "text-ink-subtle"
+          }`}
+        >
+          <span>{item.statusLabel}</span>
+        </div>
+      </button>
+    );
+  };
+
+  const renderConflictBucket = (): JSX.Element => (
+    <div className="flex min-h-0 min-w-0 flex-col">
+      <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
+        <span>Conflicts ({conflicted.length})</span>
+      </div>
+      <div className="drop-zone min-h-[148px] flex flex-1 flex-col overflow-auto">
+        {conflicted.length === 0 ? (
+          <div className="git-operation-panel__drop-zone-empty flex flex-1 items-center justify-center text-center text-sm font-semibold text-ink-soft">
+            競合中のファイルはありません。
+          </div>
+        ) : (
+          conflicted.map((item) => renderConflictRow(item))
         )}
       </div>
     </div>
@@ -707,6 +783,7 @@ export function GitOperationPanel({
               rows={1}
               wrap="off"
               spellCheck={false}
+              disabled={isCommitMessageEditorActuallyLocked}
               aria-invalid={commitTitleOverflowCount > 0}
               onChange={(event) => onCommitTitleChange(event.target.value.replace(/\r?\n/g, " "))}
             />
@@ -714,12 +791,17 @@ export function GitOperationPanel({
               <button
                 type="button"
                 className={generateCommitMessageButtonClassName}
-                onClick={onGenerateCommitMessage}
-                disabled={busy || generatingCommitMessage}
+                onClick={() => {
+                  setLocalCommitMessagePending(true);
+                  onGenerateCommitMessage();
+                }}
+                disabled={busy || isCommitMessageGenerating}
                 title={generateCommitMessageTitle}
-                aria-label={generatingCommitMessage ? "AIでコミット文を生成中" : "AIでタイトル生成"}
+                aria-label={
+                  isCommitMessageGenerating ? "AIでコミット文を生成中" : "AIでタイトル生成"
+                }
               >
-                {generatingCommitMessage ? (
+                {isCommitMessageGenerating ? (
                   <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
                 ) : (
                   <Sparkles size={16} aria-hidden="true" />
@@ -741,6 +823,7 @@ export function GitOperationPanel({
             className={`input min-h-20 flex-1 resize-y ${commitDescriptionClass}`.trim()}
             placeholder="Description"
             value={commitDescription}
+            disabled={isCommitMessageEditorActuallyLocked}
             onChange={(event) => onCommitDescriptionChange(event.target.value)}
           />
         </div>
@@ -790,6 +873,7 @@ export function GitOperationPanel({
           <div
             className={`git-operation-panel__grid grid min-h-0 gap-3 ${bucketGridClass} ${bucketGridHeightClass}`.trim()}
           >
+            {showConflictBucket ? renderConflictBucket() : null}
             {renderUnstagedBucket()}
             {renderStackedBuckets()}
             {renderCommitColumn()}

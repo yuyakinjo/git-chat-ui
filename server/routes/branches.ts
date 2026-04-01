@@ -52,8 +52,8 @@ router.post("/api/branches/merge", async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
     const sourceBranch = getRequiredString(request.body.sourceBranch, "sourceBranch");
     const targetBranch = getRequiredString(request.body.targetBranch, "targetBranch");
-    await mergeBranches(repoPath, sourceBranch, targetBranch);
-    response.json({ ok: true });
+    const result = await mergeBranches(repoPath, sourceBranch, targetBranch);
+    response.json(result);
   } catch (error) {
     next(error);
   }

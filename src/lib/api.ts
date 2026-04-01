@@ -8,6 +8,10 @@ import type {
   CommitDetail,
   CommitFileDiffDetail,
   CommitResponse,
+  ConflictFileDetail,
+  ConflictOperationResult,
+  ConflictResolutionSide,
+  ConflictSummary,
   GeneratedCommitMessage,
   OpenAiModelsResponse,
   PullStatus,
@@ -118,6 +122,35 @@ export const api = {
     return getBusinessTransport().getWorkingTreeStatus(repoPath);
   },
 
+  getConflictSummary(repoPath: string, sessionId?: string | null): Promise<ConflictSummary> {
+    return getBusinessTransport().getConflictSummary(repoPath, sessionId);
+  },
+
+  getConflictFileDetail(
+    repoPath: string,
+    file: string,
+    sessionId?: string | null,
+  ): Promise<ConflictFileDetail> {
+    return getBusinessTransport().getConflictFileDetail(repoPath, file, sessionId);
+  },
+
+  resolveConflictVersion(
+    repoPath: string,
+    file: string,
+    side: ConflictResolutionSide,
+    sessionId?: string | null,
+  ): Promise<{ ok: boolean }> {
+    return getBusinessTransport().resolveConflictVersion(repoPath, file, side, sessionId);
+  },
+
+  completeMergeSession(repoPath: string, sessionId: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().completeMergeSession(repoPath, sessionId);
+  },
+
+  abortMergeSession(repoPath: string, sessionId: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().abortMergeSession(repoPath, sessionId);
+  },
+
   getWorkingTreeDiffDetail(
     repoPath: string,
     file: string,
@@ -166,11 +199,11 @@ export const api = {
     return getBusinessTransport().renameStash(repoPath, stashId, message);
   },
 
-  applyStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
+  applyStash(repoPath: string, stashId: string): Promise<ConflictOperationResult> {
     return getBusinessTransport().applyStash(repoPath, stashId);
   },
 
-  popStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
+  popStash(repoPath: string, stashId: string): Promise<ConflictOperationResult> {
     return getBusinessTransport().popStash(repoPath, stashId);
   },
 
@@ -182,7 +215,7 @@ export const api = {
     repoPath: string,
     sourceBranch: string,
     targetBranch: string,
-  ): Promise<{ ok: boolean }> {
+  ): Promise<ConflictOperationResult> {
     return getBusinessTransport().mergeBranches(repoPath, sourceBranch, targetBranch);
   },
 

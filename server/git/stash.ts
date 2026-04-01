@@ -2,9 +2,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from "../types.js";
+import type {
+  ConflictOperationResult,
+  StashDiffDetail,
+  StashDiffFileDetail,
+  StashEntry,
+} from "../types.js";
 
 import { ensureRepoPath, parseCommitFileStats, runGit } from "./command.js";
+import { getConflictSummaryForContext } from "./conflict.js";
 
 interface StashReflogEntry {
   newOid: string;
@@ -406,18 +412,58 @@ export async function appendFileToStash(
   }
 }
 
-export async function applyStash(repoPath: string, stashId: string): Promise<void> {
+export async function applyStash(
+  repoPath: string,
+  stashId: string,
+): Promise<ConflictOperationResult> {
   await ensureRepoPath(repoPath);
 
   const normalizedStashId = stashId.trim();
   parseStashIndex(normalizedStashId);
-  await runGit(["stash", "apply", normalizedStashId], repoPath);
+
+  try {
+    await runGit(["stash", "apply", normalizedStashId], repoPath);
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/merge conflict|conflict/i.test(message)) {
+      return {
+        ok: false,
+        conflict: await getConflictSummaryForContext({
+          repoPath,
+          operation: "stashApply",
+        }),
+      };
+    }
+
+    throw error;
+  }
 }
 
-export async function popStash(repoPath: string, stashId: string): Promise<void> {
+export async function popStash(
+  repoPath: string,
+  stashId: string,
+): Promise<ConflictOperationResult> {
   await ensureRepoPath(repoPath);
 
   const normalizedStashId = stashId.trim();
   parseStashIndex(normalizedStashId);
-  await runGit(["stash", "pop", normalizedStashId], repoPath);
+
+  try {
+    await runGit(["stash", "pop", normalizedStashId], repoPath);
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/merge conflict|conflict/i.test(message)) {
+      return {
+        ok: false,
+        conflict: await getConflictSummaryForContext({
+          repoPath,
+          operation: "stashPop",
+        }),
+      };
+    }
+
+    throw error;
+  }
 }

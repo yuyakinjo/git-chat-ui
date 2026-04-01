@@ -8,10 +8,10 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -44,6 +44,9 @@ const KEYCHAIN_SERVICE_OPENAI: &str = "git-chat-ui.openai-token";
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE_CLAUDE: &str = "git-chat-ui.claudecode-token";
 static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_MERGE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
+static MERGE_SESSIONS: LazyLock<Mutex<HashMap<String, MergeSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -224,11 +227,78 @@ pub struct WorkingFile {
     pub status_label: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictContextType {
+    Repository,
+    MergeSession,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictOperation {
+    Merge,
+    Pull,
+    StashApply,
+    StashPop,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictResolutionSide {
+    Ours,
+    Theirs,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkingTreeStatus {
+    pub conflicted: Vec<WorkingFile>,
     pub staged: Vec<WorkingFile>,
     pub unstaged: Vec<WorkingFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictSummary {
+    pub context_type: ConflictContextType,
+    pub operation: ConflictOperation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_branch: Option<String>,
+    pub files: Vec<WorkingFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFileVersion {
+    pub is_binary: bool,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFileDetail {
+    pub file: String,
+    pub x: String,
+    pub y: String,
+    pub status_label: String,
+    pub merged: ConflictFileVersion,
+    pub base: ConflictFileVersion,
+    pub ours: ConflictFileVersion,
+    pub theirs: ConflictFileVersion,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictOperationResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<ConflictSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -276,6 +346,17 @@ struct StashReflogEntryRecord {
     timestamp: String,
     timezone: String,
     message: String,
+}
+
+#[derive(Debug, Clone)]
+struct MergeSession {
+    id: String,
+    repo_path: String,
+    temp_root_path: PathBuf,
+    worktree_path: PathBuf,
+    source_branch: String,
+    target_branch: String,
+    previous_target_sha: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -983,6 +1064,31 @@ fn run_command(command: &str, args: &[&str], repo_path: &str) -> Result<String, 
         .to_string())
 }
 
+fn run_command_buffer(command: &str, args: &[&str], repo_path: &str) -> Result<Vec<u8>, String> {
+    let output = Command::new(command)
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| format!("Failed to execute {command}: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        if !stderr.is_empty() {
+            return Err(stderr);
+        }
+
+        if !stdout.is_empty() {
+            return Err(stdout);
+        }
+
+        return Err(format!("Failed to execute {command} command"));
+    }
+
+    Ok(output.stdout)
+}
+
 fn run_command_owned(command: &str, args: &[String], repo_path: &str) -> Result<String, String> {
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     run_command(command, &refs, repo_path)
@@ -1027,6 +1133,10 @@ fn run_command_owned_with_env(
 
 fn run_git(args: &[&str], repo_path: &str) -> Result<String, String> {
     run_command("git", args, repo_path)
+}
+
+fn run_git_buffer(args: &[&str], repo_path: &str) -> Result<Vec<u8>, String> {
+    run_command_buffer("git", args, repo_path)
 }
 
 fn run_git_owned(args: &[String], repo_path: &str) -> Result<String, String> {
@@ -1472,7 +1582,7 @@ fn merge_branch_without_checkout(
     repo_path: &str,
     source_branch: &str,
     target_branch: &str,
-) -> Result<(), String> {
+) -> Result<ConflictOperationResult, String> {
     let temp_root_path = create_temporary_directory("merge")?;
     let worktree_path = temp_root_path.join("worktree");
     let worktree_path_str = worktree_path.to_string_lossy().to_string();
@@ -1482,37 +1592,68 @@ fn merge_branch_without_checkout(
         repo_path,
     )?;
 
-    let merge_result = (|| {
-        run_git(
-            &[
-                "worktree",
-                "add",
-                "--detach",
-                worktree_path_str.as_str(),
-                target_branch,
-            ],
-            repo_path,
-        )?;
-        run_git(&["merge", source_branch], worktree_path_str.as_str())?;
+    if let Err(error) = run_git(
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            worktree_path_str.as_str(),
+            target_branch,
+        ],
+        repo_path,
+    ) {
+        let _ = remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path);
+        return Err(error);
+    }
 
-        let merged_target_oid = run_git(&["rev-parse", "HEAD"], worktree_path_str.as_str())?;
-        if merged_target_oid != previous_target_oid {
-            let args = vec![
-                "update-ref".to_string(),
-                "-m".to_string(),
-                format!("branch action merge {source_branch} into {target_branch}"),
-                target_reference.clone(),
-                merged_target_oid,
-                previous_target_oid.clone(),
-            ];
-            run_git_owned(&args, repo_path)?;
+    match run_git(&["merge", source_branch], worktree_path_str.as_str()) {
+        Ok(_) => {
+            let merged_target_oid = run_git(&["rev-parse", "HEAD"], worktree_path_str.as_str())?;
+            if merged_target_oid != previous_target_oid {
+                let args = vec![
+                    "update-ref".to_string(),
+                    "-m".to_string(),
+                    format!("branch action merge {source_branch} into {target_branch}"),
+                    target_reference.clone(),
+                    merged_target_oid,
+                    previous_target_oid.clone(),
+                ];
+                run_git_owned(&args, repo_path)?;
+            }
+
+            remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path)?;
+            Ok(ConflictOperationResult {
+                ok: true,
+                conflict: None,
+            })
         }
+        Err(error) if is_conflict_message(&error) => {
+            let session = register_merge_session(MergeSession {
+                id: String::new(),
+                repo_path: repo_path.to_string(),
+                temp_root_path: temp_root_path.clone(),
+                worktree_path: worktree_path.clone(),
+                source_branch: source_branch.to_string(),
+                target_branch: target_branch.to_string(),
+                previous_target_sha: previous_target_oid.clone(),
+            })?;
 
-        Ok(())
-    })();
-
-    let cleanup_result = remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path);
-    merge_result.and(cleanup_result)
+            Ok(ConflictOperationResult {
+                ok: false,
+                conflict: Some(get_conflict_summary_for_context(
+                    repo_path,
+                    Some(session.id.as_str()),
+                    Some(ConflictOperation::Merge),
+                    Some(source_branch),
+                    Some(target_branch),
+                )?),
+            })
+        }
+        Err(error) => {
+            let _ = remove_temporary_worktree(repo_path, &temp_root_path, &worktree_path);
+            Err(error)
+        }
+    }
 }
 
 fn parse_remote_branch_name(branch_name: &str) -> Result<(String, String), String> {
@@ -1776,7 +1917,7 @@ fn extract_url_from_text(text: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn status_label(code: &str) -> String {
+fn status_code_label(code: &str) -> String {
     match code {
         "M" => "Modified",
         "A" => "Added",
@@ -1788,6 +1929,42 @@ fn status_label(code: &str) -> String {
         _ => "Changed",
     }
     .to_string()
+}
+
+fn is_unmerged_status(x: char, y: char) -> bool {
+    matches!(
+        (x, y),
+        ('U', 'U')
+            | ('A', 'A')
+            | ('D', 'D')
+            | ('A', 'U')
+            | ('U', 'A')
+            | ('D', 'U')
+            | ('U', 'D')
+    )
+}
+
+fn status_label(x: char, y: char) -> String {
+    match (x, y) {
+        ('U', 'U') => "Both Modified".to_string(),
+        ('A', 'A') => "Both Added".to_string(),
+        ('D', 'D') => "Both Deleted".to_string(),
+        ('A', 'U') => "Added by Ours".to_string(),
+        ('U', 'A') => "Added by Theirs".to_string(),
+        ('D', 'U') => "Deleted by Ours".to_string(),
+        ('U', 'D') => "Deleted by Theirs".to_string(),
+        _ => {
+            let code = if x != ' ' && x != '?' { x } else { y };
+            status_code_label(&code.to_string())
+        }
+    }
+}
+
+fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
+    match raw_path.split_once(" -> ") {
+        Some((left, right)) => (Some(left.to_string()), right.to_string()),
+        None => (None, raw_path.to_string()),
+    }
 }
 
 fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
@@ -1839,6 +2016,22 @@ fn resolve_working_tree_file_path(repo_path: &str, file: &str) -> Result<PathBuf
     }
 
     Ok(resolved)
+}
+
+fn resolve_working_tree_candidate_path(repo_path: &str, file: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(file);
+    if candidate.is_absolute()
+        || candidate.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err("file must stay within repository.".to_string());
+    }
+
+    Ok(Path::new(repo_path).join(candidate))
 }
 
 fn resolve_new_file_mode(mode: u32) -> &'static str {
@@ -3256,50 +3449,128 @@ pub fn get_working_tree_diff_detail(
 
 #[tauri::command]
 pub fn get_working_tree_status(repo_path: String) -> Result<WorkingTreeStatus, String> {
-    let repository = open_repository(&repo_path)?;
-    let mut options = build_status_options(true);
-    let statuses = repository
-        .statuses(Some(&mut options))
-        .map_err(map_git2_error)?;
-
+    ensure_repo_path(&repo_path)?;
+    let output = run_git(&["status", "--porcelain=v1", "-uall"], &repo_path)?;
+    let mut conflicted = Vec::new();
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
 
-    for entry in statuses.iter() {
-        let status = entry.status();
-        let x = git_status_index_code(status);
-        let y = git_status_worktree_code(status);
+    for line in output.lines() {
+        let Some(entry) = parse_working_tree_status_entry(line) else {
+            continue;
+        };
 
-        if x == ' ' && y == ' ' {
+        let item = WorkingFile {
+            file: entry.file.clone(),
+            x: entry.x.to_string(),
+            y: entry.y.to_string(),
+            status_label: status_label(entry.x, entry.y),
+        };
+
+        if is_unmerged_status(entry.x, entry.y) {
+            conflicted.push(item);
             continue;
         }
 
-        let Some(file) = status_entry_path(&entry) else {
-            continue;
-        };
-        let code = if x != ' ' && x != '?' { x } else { y };
-        let label = status_label(&code.to_string());
-
-        if x != ' ' && x != '?' {
+        if entry.x != ' ' && entry.x != '?' {
             staged.push(WorkingFile {
-                file: file.clone(),
-                x: x.to_string(),
-                y: y.to_string(),
-                status_label: label.clone(),
+                file: entry.file.clone(),
+                x: entry.x.to_string(),
+                y: entry.y.to_string(),
+                status_label: item.status_label.clone(),
             });
         }
 
-        if y != ' ' || x == '?' {
+        if entry.y != ' ' || entry.x == '?' {
             unstaged.push(WorkingFile {
-                file,
-                x: x.to_string(),
-                y: y.to_string(),
-                status_label: label,
+                file: entry.file,
+                x: entry.x.to_string(),
+                y: entry.y.to_string(),
+                status_label: item.status_label,
             });
         }
     }
 
-    Ok(WorkingTreeStatus { staged, unstaged })
+    conflicted.sort_by(|left, right| left.file.cmp(&right.file));
+    staged.sort_by(|left, right| left.file.cmp(&right.file));
+    unstaged.sort_by(|left, right| left.file.cmp(&right.file));
+
+    Ok(WorkingTreeStatus {
+        conflicted,
+        staged,
+        unstaged,
+    })
+}
+
+#[tauri::command]
+pub fn get_conflict_summary(
+    repo_path: String,
+    session_id: Option<String>,
+) -> Result<ConflictSummary, String> {
+    get_conflict_summary_for_context(&repo_path, session_id.as_deref(), None, None, None)
+}
+
+#[tauri::command]
+pub fn get_conflict_file_detail(
+    repo_path: String,
+    file: String,
+    session_id: Option<String>,
+) -> Result<ConflictFileDetail, String> {
+    let normalized_file = file.trim().to_string();
+    if normalized_file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let context = resolve_conflict_context(&repo_path, session_id.as_deref())?;
+    let status = get_conflict_file_status(&context.worktree_path, &normalized_file)?
+        .ok_or_else(|| format!("'{}' is not a conflicted file.", normalized_file))?;
+
+    Ok(ConflictFileDetail {
+        file: normalized_file.clone(),
+        x: status.x,
+        y: status.y,
+        status_label: status.status_label,
+        merged: map_conflict_buffer_to_version(read_merged_buffer(
+            &context.worktree_path,
+            &normalized_file,
+        )?),
+        base: map_conflict_buffer_to_version(read_stage_buffer(
+            &context.worktree_path,
+            1,
+            &normalized_file,
+        )?),
+        ours: map_conflict_buffer_to_version(read_stage_buffer(
+            &context.worktree_path,
+            2,
+            &normalized_file,
+        )?),
+        theirs: map_conflict_buffer_to_version(read_stage_buffer(
+            &context.worktree_path,
+            3,
+            &normalized_file,
+        )?),
+    })
+}
+
+#[tauri::command]
+pub fn resolve_conflict_version(
+    repo_path: String,
+    file: String,
+    side: ConflictResolutionSide,
+    session_id: Option<String>,
+) -> Result<OkResponse, String> {
+    let normalized_file = file.trim().to_string();
+    if normalized_file.is_empty() {
+        return Err("file is required.".to_string());
+    }
+
+    let context = resolve_conflict_context(&repo_path, session_id.as_deref())?;
+    if get_conflict_file_status(&context.worktree_path, &normalized_file)?.is_none() {
+        return Err(format!("'{}' is not a conflicted file.", normalized_file));
+    }
+
+    stage_conflict_resolution(&context.worktree_path, &normalized_file, side)?;
+    Ok(OkResponse { ok: true })
 }
 
 #[tauri::command]
@@ -3367,6 +3638,75 @@ struct WorkingTreeFileStatusEntryRecord {
     y: char,
 }
 
+#[derive(Debug, Clone)]
+struct ConflictContext {
+    worktree_path: String,
+    context_type: ConflictContextType,
+    operation: ConflictOperation,
+    session_id: Option<String>,
+    source_branch: Option<String>,
+    target_branch: Option<String>,
+}
+
+fn parse_working_tree_status_entry(line: &str) -> Option<WorkingTreeFileStatusEntryRecord> {
+    if line.trim().is_empty() {
+        return None;
+    }
+
+    let x = line.chars().nth(0).unwrap_or(' ');
+    let y = line.chars().nth(1).unwrap_or(' ');
+    let raw_path = line.get(3..).unwrap_or("").trim();
+    if raw_path.is_empty() {
+        return None;
+    }
+
+    let (previous_file, file) = parse_status_path(raw_path);
+    if file.is_empty() {
+        return None;
+    }
+
+    Some(WorkingTreeFileStatusEntryRecord {
+        file,
+        previous_file,
+        x,
+        y,
+    })
+}
+
+fn create_merge_session_id() -> String {
+    format!(
+        "merge-session-{}-{}",
+        current_timestamp(),
+        NEXT_MERGE_SESSION_ID.fetch_add(1, Ordering::Relaxed) + 1
+    )
+}
+
+fn register_merge_session(mut session: MergeSession) -> Result<MergeSession, String> {
+    session.id = create_merge_session_id();
+    let mut sessions = MERGE_SESSIONS
+        .lock()
+        .map_err(|_| "Failed to lock merge session registry.".to_string())?;
+    sessions.insert(session.id.clone(), session.clone());
+    Ok(session)
+}
+
+fn get_merge_session(session_id: &str) -> Result<MergeSession, String> {
+    let sessions = MERGE_SESSIONS
+        .lock()
+        .map_err(|_| "Failed to lock merge session registry.".to_string())?;
+    sessions
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| format!("Merge session '{session_id}' was not found."))
+}
+
+fn remove_merge_session(session_id: &str) -> Result<Option<MergeSession>, String> {
+    let mut sessions = MERGE_SESSIONS
+        .lock()
+        .map_err(|_| "Failed to lock merge session registry.".to_string())?;
+    Ok(sessions.remove(session_id))
+}
+
 fn get_working_tree_file_status_entry(
     repo_path: &str,
     file: &str,
@@ -3381,29 +3721,193 @@ fn get_working_tree_file_status_entry(
     let output = run_git_owned(&args, repo_path)?;
 
     for line in output.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let x = line.chars().nth(0).unwrap_or(' ');
-        let y = line.chars().nth(1).unwrap_or(' ');
-        let raw_path = line.get(3..).unwrap_or("").trim();
-        let (previous_file, normalized_file) = match raw_path.split_once(" -> ") {
-            Some((left, right)) => (Some(left.to_string()), right.to_string()),
-            None => (None, raw_path.to_string()),
-        };
-
-        if normalized_file == file {
-            return Ok(Some(WorkingTreeFileStatusEntryRecord {
-                file: normalized_file,
-                previous_file,
-                x,
-                y,
-            }));
+        if let Some(entry) = parse_working_tree_status_entry(line) {
+            if entry.file == file {
+                return Ok(Some(entry));
+            }
         }
     }
 
     Ok(None)
+}
+
+fn list_conflict_files(worktree_path: &str) -> Result<Vec<WorkingFile>, String> {
+    let output = run_git(&["status", "--porcelain=v1", "-uall"], worktree_path)?;
+    let mut files: Vec<WorkingFile> = output
+        .lines()
+        .filter_map(parse_working_tree_status_entry)
+        .filter(|entry| is_unmerged_status(entry.x, entry.y))
+        .map(|entry| WorkingFile {
+            file: entry.file,
+            x: entry.x.to_string(),
+            y: entry.y.to_string(),
+            status_label: status_label(entry.x, entry.y),
+        })
+        .collect();
+    files.sort_by(|left, right| left.file.cmp(&right.file));
+    Ok(files)
+}
+
+fn is_missing_stage_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("does not exist (neither on disk nor in the index)")
+        || normalized.contains("exists on disk, but not in")
+        || normalized.contains("not at stage ")
+        || normalized.contains("does not have our version")
+        || normalized.contains("does not have their version")
+}
+
+fn map_conflict_buffer_to_version(buffer: Option<Vec<u8>>) -> ConflictFileVersion {
+    match buffer {
+        None => ConflictFileVersion {
+            is_binary: false,
+            content: None,
+        },
+        Some(buffer) if buffer.contains(&0) => ConflictFileVersion {
+            is_binary: true,
+            content: None,
+        },
+        Some(buffer) => ConflictFileVersion {
+            is_binary: false,
+            content: Some(
+                String::from_utf8_lossy(&buffer)
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n"),
+            ),
+        },
+    }
+}
+
+fn read_stage_buffer(worktree_path: &str, stage: u8, file: &str) -> Result<Option<Vec<u8>>, String> {
+    let stage_spec = format!(":{stage}:{file}");
+    match run_git_buffer(&["show", stage_spec.as_str()], worktree_path) {
+        Ok(buffer) => Ok(Some(buffer)),
+        Err(error) if is_missing_stage_error(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn read_merged_buffer(worktree_path: &str, file: &str) -> Result<Option<Vec<u8>>, String> {
+    let absolute_path = resolve_working_tree_candidate_path(worktree_path, file)?;
+    match fs::read(absolute_path) {
+        Ok(buffer) => Ok(Some(buffer)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn detect_repository_conflict_operation(worktree_path: &str) -> ConflictOperation {
+    match resolve_git_path(worktree_path, "MERGE_HEAD") {
+        Ok(path) if path.exists() => ConflictOperation::Merge,
+        _ => ConflictOperation::Unknown,
+    }
+}
+
+fn resolve_conflict_context(
+    repo_path: &str,
+    session_id: Option<&str>,
+) -> Result<ConflictContext, String> {
+    ensure_repo_path(repo_path)?;
+
+    let normalized_session_id = session_id.unwrap_or("").trim();
+    if normalized_session_id.is_empty() {
+        return Ok(ConflictContext {
+            worktree_path: repo_path.to_string(),
+            context_type: ConflictContextType::Repository,
+            operation: detect_repository_conflict_operation(repo_path),
+            session_id: None,
+            source_branch: None,
+            target_branch: None,
+        });
+    }
+
+    let session = get_merge_session(normalized_session_id)?;
+    if session.repo_path != repo_path {
+        return Err(format!(
+            "Merge session '{}' does not belong to this repository.",
+            normalized_session_id
+        ));
+    }
+
+    Ok(ConflictContext {
+        worktree_path: session.worktree_path.to_string_lossy().to_string(),
+        context_type: ConflictContextType::MergeSession,
+        operation: ConflictOperation::Merge,
+        session_id: Some(session.id),
+        source_branch: Some(session.source_branch),
+        target_branch: Some(session.target_branch),
+    })
+}
+
+fn get_conflict_summary_for_context(
+    repo_path: &str,
+    session_id: Option<&str>,
+    operation: Option<ConflictOperation>,
+    source_branch: Option<&str>,
+    target_branch: Option<&str>,
+) -> Result<ConflictSummary, String> {
+    let context = resolve_conflict_context(repo_path, session_id)?;
+
+    Ok(ConflictSummary {
+        context_type: context.context_type,
+        operation: operation.unwrap_or(context.operation),
+        session_id: context.session_id,
+        source_branch: source_branch
+            .map(ToString::to_string)
+            .or(context.source_branch),
+        target_branch: target_branch
+            .map(ToString::to_string)
+            .or(context.target_branch),
+        files: list_conflict_files(&context.worktree_path)?,
+    })
+}
+
+fn get_conflict_file_status(worktree_path: &str, file: &str) -> Result<Option<WorkingFile>, String> {
+    let output = run_git(
+        &["status", "--porcelain=v1", "-uall", "--", file],
+        worktree_path,
+    )?;
+
+    for line in output.lines() {
+        if let Some(entry) = parse_working_tree_status_entry(line) {
+            if entry.file == file && is_unmerged_status(entry.x, entry.y) {
+                return Ok(Some(WorkingFile {
+                    file: entry.file,
+                    x: entry.x.to_string(),
+                    y: entry.y.to_string(),
+                    status_label: status_label(entry.x, entry.y),
+                }));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn stage_conflict_resolution(
+    worktree_path: &str,
+    file: &str,
+    side: ConflictResolutionSide,
+) -> Result<(), String> {
+    let (flag, stage) = match side {
+        ConflictResolutionSide::Ours => ("--ours", 2),
+        ConflictResolutionSide::Theirs => ("--theirs", 3),
+    };
+
+    if read_stage_buffer(worktree_path, stage, file)?.is_some() {
+        run_git(&["checkout", flag, "--", file], worktree_path)?;
+        run_git(&["add", "--", file], worktree_path)?;
+        return Ok(());
+    }
+
+    remove_working_tree_path(worktree_path, file)?;
+    run_git(&["add", "--", file], worktree_path)?;
+    Ok(())
+}
+
+fn is_conflict_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("merge conflict") || normalized.contains("conflict")
 }
 
 fn path_exists_in_head(repo_path: &str, file: &str) -> bool {
@@ -3741,25 +4245,53 @@ pub fn rename_stash(
 }
 
 #[tauri::command]
-pub fn apply_stash(repo_path: String, stash_id: String) -> Result<OkResponse, String> {
+pub fn apply_stash(repo_path: String, stash_id: String) -> Result<ConflictOperationResult, String> {
     ensure_repo_path(&repo_path)?;
 
     let stash_id = stash_id.trim().to_string();
     parse_stash_index(&stash_id)?;
-    run_git(&["stash", "apply", stash_id.as_str()], &repo_path)?;
-
-    Ok(OkResponse { ok: true })
+    match run_git(&["stash", "apply", stash_id.as_str()], &repo_path) {
+        Ok(_) => Ok(ConflictOperationResult {
+            ok: true,
+            conflict: None,
+        }),
+        Err(error) if is_conflict_message(&error) => Ok(ConflictOperationResult {
+            ok: false,
+            conflict: Some(get_conflict_summary_for_context(
+                &repo_path,
+                None,
+                Some(ConflictOperation::StashApply),
+                None,
+                None,
+            )?),
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
-pub fn pop_stash(repo_path: String, stash_id: String) -> Result<OkResponse, String> {
+pub fn pop_stash(repo_path: String, stash_id: String) -> Result<ConflictOperationResult, String> {
     ensure_repo_path(&repo_path)?;
 
     let stash_id = stash_id.trim().to_string();
     parse_stash_index(&stash_id)?;
-    run_git(&["stash", "pop", stash_id.as_str()], &repo_path)?;
-
-    Ok(OkResponse { ok: true })
+    match run_git(&["stash", "pop", stash_id.as_str()], &repo_path) {
+        Ok(_) => Ok(ConflictOperationResult {
+            ok: true,
+            conflict: None,
+        }),
+        Err(error) if is_conflict_message(&error) => Ok(ConflictOperationResult {
+            ok: false,
+            conflict: Some(get_conflict_summary_for_context(
+                &repo_path,
+                None,
+                Some(ConflictOperation::StashPop),
+                None,
+                None,
+            )?),
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -3879,16 +4411,135 @@ pub fn merge_branches(
     repo_path: String,
     source_branch: String,
     target_branch: String,
-) -> Result<OkResponse, String> {
+) -> Result<ConflictOperationResult, String> {
     ensure_repo_path(&repo_path)?;
     ensure_branch_pair(&repo_path, &source_branch, &target_branch)?;
 
     let current_branch = get_current_branch(&repo_path)?;
     if current_branch == target_branch {
-        run_git(&["merge", source_branch.as_str()], &repo_path)?;
+        match run_git(&["merge", source_branch.as_str()], &repo_path) {
+            Ok(_) => {}
+            Err(error) if is_conflict_message(&error) => {
+                return Ok(ConflictOperationResult {
+                    ok: false,
+                    conflict: Some(get_conflict_summary_for_context(
+                        &repo_path,
+                        None,
+                        Some(ConflictOperation::Merge),
+                        None,
+                        None,
+                    )?),
+                });
+            }
+            Err(error) => return Err(error),
+        }
     } else {
-        merge_branch_without_checkout(&repo_path, &source_branch, &target_branch)?;
+        return merge_branch_without_checkout(&repo_path, &source_branch, &target_branch);
     }
+
+    Ok(ConflictOperationResult {
+        ok: true,
+        conflict: None,
+    })
+}
+
+#[tauri::command]
+pub fn complete_merge_session(
+    repo_path: String,
+    session_id: String,
+) -> Result<OkResponse, String> {
+    let normalized_session_id = session_id.trim().to_string();
+    if normalized_session_id.is_empty() {
+        return Err("sessionId is required.".to_string());
+    }
+
+    let session = get_merge_session(&normalized_session_id)?;
+    if session.repo_path != repo_path {
+        return Err(format!(
+            "Merge session '{}' does not belong to this repository.",
+            normalized_session_id
+        ));
+    }
+
+    let remaining_conflicts = list_conflict_files(session.worktree_path.to_string_lossy().as_ref())?;
+    if !remaining_conflicts.is_empty() {
+        return Err("Resolve all conflicted files before completing the merge session.".to_string());
+    }
+
+    let mut operation_error = None;
+
+    if let Err(error) = run_git(
+        &["commit", "--no-edit"],
+        session.worktree_path.to_string_lossy().as_ref(),
+    ) {
+        operation_error = Some(error);
+    } else if let Ok(merged_target_sha) = run_git(
+        &["rev-parse", "HEAD"],
+        session.worktree_path.to_string_lossy().as_ref(),
+    ) {
+        if merged_target_sha != session.previous_target_sha {
+            let args = vec![
+                "update-ref".to_string(),
+                "-m".to_string(),
+                format!(
+                    "branch action merge {} into {}",
+                    session.source_branch, session.target_branch
+                ),
+                format!("refs/heads/{}", session.target_branch),
+                merged_target_sha,
+                session.previous_target_sha.clone(),
+            ];
+            if let Err(error) = run_git_owned(&args, &session.repo_path) {
+                operation_error = Some(error);
+            }
+        }
+    } else {
+        operation_error = Some("Failed to resolve merged target SHA.".to_string());
+    }
+
+    if let Err(error) = remove_temporary_worktree(
+        &session.repo_path,
+        &session.temp_root_path,
+        &session.worktree_path,
+    ) {
+        if operation_error.is_none() {
+            operation_error = Some(error);
+        }
+    }
+
+    let _ = remove_merge_session(&normalized_session_id);
+
+    match operation_error {
+        Some(error) => Err(error),
+        None => Ok(OkResponse { ok: true }),
+    }
+}
+
+#[tauri::command]
+pub fn abort_merge_session(repo_path: String, session_id: String) -> Result<OkResponse, String> {
+    let normalized_session_id = session_id.trim().to_string();
+    if normalized_session_id.is_empty() {
+        return Err("sessionId is required.".to_string());
+    }
+
+    let session = get_merge_session(&normalized_session_id)?;
+    if session.repo_path != repo_path {
+        return Err(format!(
+            "Merge session '{}' does not belong to this repository.",
+            normalized_session_id
+        ));
+    }
+
+    let _ = run_git(
+        &["merge", "--abort"],
+        session.worktree_path.to_string_lossy().as_ref(),
+    );
+    remove_temporary_worktree(
+        &session.repo_path,
+        &session.temp_root_path,
+        &session.worktree_path,
+    )?;
+    let _ = remove_merge_session(&normalized_session_id);
 
     Ok(OkResponse { ok: true })
 }
@@ -4187,6 +4838,8 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::io::ErrorKind;
+    use std::io::Write;
+    use std::process::Stdio;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP_REPO_ID: AtomicU64 = AtomicU64::new(0);
@@ -4253,6 +4906,176 @@ mod tests {
             "line 1\nline changed\nline 3\n",
         )
         .expect("working tree change should be written");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
+
+    fn run_command_with_input(
+        command: &str,
+        args: &[&str],
+        repo_path: &str,
+        input: &str,
+    ) -> Result<String, String> {
+        let mut child = Command::new(command)
+            .args(args)
+            .current_dir(repo_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("Failed to execute {command}: {error}"))?;
+
+        child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| format!("Failed to write stdin for {command}."))?
+            .write_all(input.as_bytes())
+            .map_err(|error| format!("Failed to write stdin for {command}: {error}"))?;
+
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("Failed to execute {command}: {error}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stderr.is_empty() {
+                return Err(stderr);
+            }
+            if !stdout.is_empty() {
+                return Err(stdout);
+            }
+            return Err(format!("Failed to execute {command} command"));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches(['\r', '\n'])
+            .to_string())
+    }
+
+    fn hash_blob(repo_path: &str, content: &[u8]) -> String {
+        let temp_path = Path::new(repo_path).join(format!(
+            ".git-chat-ui-blob-{}-{}",
+            current_timestamp(),
+            NEXT_TEMP_REPO_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&temp_path, content).expect("temporary blob file should be written");
+        let oid = run_command(
+            "git",
+            &["hash-object", "-w", temp_path.to_string_lossy().as_ref()],
+            repo_path,
+        )
+        .expect("blob should be hashed");
+        fs::remove_file(temp_path).expect("temporary blob file should be removed");
+        oid
+    }
+
+    fn stage_conflict_entries(
+        repo_path: &str,
+        file: &str,
+        entries: &[(u8, &[u8])],
+        merged_content: Option<&[u8]>,
+        reset_index: bool,
+    ) {
+        if reset_index {
+            run_command("git", &["read-tree", "--empty"], repo_path)
+                .expect("index should be cleared");
+        }
+        let worktree_path = Path::new(repo_path).join(file);
+        let _ = fs::remove_file(&worktree_path);
+
+        for (stage, content) in entries {
+            let oid = hash_blob(repo_path, content);
+            run_command_with_input(
+                "git",
+                &["update-index", "--index-info"],
+                repo_path,
+                &format!("100644 {} {}\t{}\n", oid, stage, file),
+            )
+            .expect("conflict stage should be added");
+        }
+
+        match merged_content {
+            Some(content) => {
+                if let Some(parent) = worktree_path.parent() {
+                    fs::create_dir_all(parent).expect("conflict parent dir should be created");
+                }
+                fs::write(worktree_path, content).expect("merged conflict file should be written");
+            }
+            None => {
+                let _ = fs::remove_file(worktree_path);
+            }
+        }
+    }
+
+    fn create_conflict_fixture() -> TestRepoFixture {
+        let root_dir = create_temporary_directory("tauri-conflict-fixture")
+            .expect("temporary root dir should be created");
+        let repo_path = root_dir.join("repo");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+        run_command("git", &["commit", "--allow-empty", "-m", "init"], &repo_path_str)
+            .expect("initial empty commit should succeed");
+
+        TestRepoFixture {
+            root_dir,
+            repo_path: repo_path_str,
+        }
+    }
+
+    fn create_merge_conflict_session_fixture() -> TestRepoFixture {
+        let root_dir = create_temporary_directory("tauri-merge-session-fixture")
+            .expect("temporary root dir should be created");
+        let repo_path = root_dir.join("repo");
+        fs::create_dir(&repo_path).expect("temporary repo dir should be created");
+
+        let repo_path_str = repo_path.to_string_lossy().to_string();
+        run_command("git", &["init", "-b", "main"], &repo_path_str)
+            .expect("git init should succeed");
+        run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
+            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["config", "user.email", "test@example.com"],
+            &repo_path_str,
+        )
+        .expect("git user.email config should succeed");
+
+        fs::write(repo_path.join("conflict.txt"), "base\n").expect("base file should be written");
+        run_command("git", &["add", "conflict.txt"], &repo_path_str)
+            .expect("git add should succeed");
+        run_command("git", &["commit", "-m", "init"], &repo_path_str)
+            .expect("git commit should succeed");
+
+        run_command("git", &["checkout", "-b", "feature/conflict"], &repo_path_str)
+            .expect("feature branch should be created");
+        fs::write(repo_path.join("conflict.txt"), "feature\n")
+            .expect("feature file should be written");
+        run_command("git", &["commit", "-am", "feature"], &repo_path_str)
+            .expect("feature commit should succeed");
+
+        run_command("git", &["checkout", "main"], &repo_path_str)
+            .expect("checkout main should succeed");
+        fs::write(repo_path.join("conflict.txt"), "main\n").expect("main file should be written");
+        run_command("git", &["commit", "-am", "main"], &repo_path_str)
+            .expect("main commit should succeed");
+
+        run_command("git", &["checkout", "feature/conflict"], &repo_path_str)
+            .expect("checkout feature branch should succeed");
 
         TestRepoFixture {
             root_dir,
@@ -5036,6 +5859,269 @@ mod tests {
         assert_eq!(current_branch, "feature/dnd-merge");
         assert_eq!(main_sha, feature_sha);
         assert_eq!(feature_file, "feature\n");
+    }
+
+    #[test]
+    fn get_working_tree_status_classifies_unmerged_entries_with_pair_aware_labels() {
+        let fixture = create_conflict_fixture();
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "aa.txt",
+            &[(2, b"ours aa\n"), (3, b"theirs aa\n")],
+            None,
+            true,
+        );
+        stage_conflict_entries(&fixture.repo_path, "au.txt", &[(2, b"ours au\n")], None, false);
+        stage_conflict_entries(&fixture.repo_path, "dd.txt", &[(1, b"base dd\n")], None, false);
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "du.txt",
+            &[(1, b"base du\n"), (3, b"theirs du\n")],
+            None,
+            false,
+        );
+        stage_conflict_entries(&fixture.repo_path, "ua.txt", &[(3, b"theirs ua\n")], None, false);
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "ud.txt",
+            &[(1, b"base ud\n"), (2, b"ours ud\n")],
+            None,
+            false,
+        );
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "uu.txt",
+            &[(1, b"base uu\n"), (2, b"ours uu\n"), (3, b"theirs uu\n")],
+            None,
+            false,
+        );
+
+        let status =
+            get_working_tree_status(fixture.repo_path.clone()).expect("working tree status should resolve");
+        let labels: HashMap<String, String> = status
+            .conflicted
+            .into_iter()
+            .map(|item| (item.file, format!("{}{}:{}", item.x, item.y, item.status_label)))
+            .collect();
+
+        assert!(status.staged.is_empty());
+        assert!(status.unstaged.is_empty());
+        assert_eq!(
+            labels,
+            HashMap::from([
+                ("aa.txt".to_string(), "AA:Both Added".to_string()),
+                ("au.txt".to_string(), "AU:Added by Ours".to_string()),
+                ("dd.txt".to_string(), "DD:Both Deleted".to_string()),
+                ("du.txt".to_string(), "DU:Deleted by Ours".to_string()),
+                ("ua.txt".to_string(), "UA:Added by Theirs".to_string()),
+                ("ud.txt".to_string(), "UD:Deleted by Theirs".to_string()),
+                ("uu.txt".to_string(), "UU:Both Modified".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn conflict_detail_returns_text_delete_side_and_binary_versions() {
+        let fixture = create_conflict_fixture();
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "notes.txt",
+            &[(1, b"base\n"), (2, b"ours\n"), (3, b"theirs\n")],
+            Some(b"<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n"),
+            true,
+        );
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "delete-side.txt",
+            &[(1, b"base\n"), (2, b"ours\n")],
+            None,
+            false,
+        );
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "binary.dat",
+            &[(2, &[0_u8, 1, 2, 3][..]), (3, &[0_u8, 4, 5, 6][..])],
+            Some(&[0_u8, 1, 2, 3][..]),
+            false,
+        );
+
+        let text_detail = get_conflict_file_detail(
+            fixture.repo_path.clone(),
+            "notes.txt".to_string(),
+            None,
+        )
+        .expect("text conflict detail should resolve");
+        assert_eq!(text_detail.status_label, "Both Modified");
+        assert_eq!(
+            text_detail.merged.content.as_deref(),
+            Some("<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n")
+        );
+        assert_eq!(text_detail.base.content.as_deref(), Some("base\n"));
+        assert_eq!(text_detail.ours.content.as_deref(), Some("ours\n"));
+        assert_eq!(text_detail.theirs.content.as_deref(), Some("theirs\n"));
+
+        let delete_detail = get_conflict_file_detail(
+            fixture.repo_path.clone(),
+            "delete-side.txt".to_string(),
+            None,
+        )
+        .expect("delete-side conflict detail should resolve");
+        assert_eq!(delete_detail.status_label, "Deleted by Theirs");
+        assert_eq!(delete_detail.merged.content, None);
+        assert_eq!(delete_detail.base.content.as_deref(), Some("base\n"));
+        assert_eq!(delete_detail.ours.content.as_deref(), Some("ours\n"));
+        assert_eq!(delete_detail.theirs.content, None);
+
+        let binary_detail = get_conflict_file_detail(
+            fixture.repo_path.clone(),
+            "binary.dat".to_string(),
+            None,
+        )
+        .expect("binary conflict detail should resolve");
+        assert!(binary_detail.merged.is_binary);
+        assert!(binary_detail.ours.is_binary);
+        assert!(binary_detail.theirs.is_binary);
+        assert_eq!(binary_detail.base.content, None);
+    }
+
+    #[test]
+    fn resolve_conflict_version_handles_text_and_delete_side_resolutions() {
+        let fixture = create_conflict_fixture();
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "resolve.txt",
+            &[(1, b"base\n"), (2, b"ours\n"), (3, b"theirs\n")],
+            Some(b"<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n"),
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "resolve.txt".to_string(),
+            ConflictResolutionSide::Ours,
+            None,
+        )
+        .expect("ours resolution should succeed");
+        assert_eq!(
+            fs::read_to_string(Path::new(&fixture.repo_path).join("resolve.txt"))
+                .expect("resolved file should be readable"),
+            "ours\n"
+        );
+        assert!(
+            get_conflict_summary(fixture.repo_path.clone(), None)
+                .expect("conflict summary should resolve")
+                .files
+                .is_empty()
+        );
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "removed.txt",
+            &[(1, b"base\n"), (2, b"ours\n")],
+            None,
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "removed.txt".to_string(),
+            ConflictResolutionSide::Theirs,
+            None,
+        )
+        .expect("delete-side resolution should succeed");
+        assert!(!Path::new(&fixture.repo_path).join("removed.txt").exists());
+        assert!(
+            get_conflict_summary(fixture.repo_path.clone(), None)
+                .expect("conflict summary should resolve")
+                .files
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn merge_sessions_require_explicit_completion_or_abort() {
+        let fixture = create_merge_conflict_session_fixture();
+        let main_before =
+            run_command("git", &["rev-parse", "main"], &fixture.repo_path).expect("main sha should resolve");
+
+        let result = merge_branches(
+            fixture.repo_path.clone(),
+            "feature/conflict".to_string(),
+            "main".to_string(),
+        )
+        .expect("conflicted merge should return a session result");
+        assert!(!result.ok);
+        let conflict = result.conflict.expect("conflict summary should be present");
+        assert_eq!(conflict.context_type, ConflictContextType::MergeSession);
+        assert_eq!(conflict.operation, ConflictOperation::Merge);
+        assert_eq!(conflict.source_branch.as_deref(), Some("feature/conflict"));
+        assert_eq!(conflict.target_branch.as_deref(), Some("main"));
+        assert_eq!(
+            run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+                .expect("current branch should resolve"),
+            "feature/conflict"
+        );
+
+        let session_id = conflict.session_id.expect("session id should be present");
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "conflict.txt".to_string(),
+            ConflictResolutionSide::Theirs,
+            Some(session_id.clone()),
+        )
+        .expect("session conflict resolution should succeed");
+        complete_merge_session(fixture.repo_path.clone(), session_id.clone())
+            .expect("merge session completion should succeed");
+
+        assert_eq!(
+            run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+                .expect("current branch should resolve"),
+            "feature/conflict"
+        );
+        assert_ne!(
+            run_command("git", &["rev-parse", "main"], &fixture.repo_path)
+                .expect("updated main sha should resolve"),
+            main_before
+        );
+        assert_eq!(
+            run_command("git", &["show", "main:conflict.txt"], &fixture.repo_path)
+                .expect("merged file should resolve"),
+            "feature"
+        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), Some(session_id)).is_err());
+    }
+
+    #[test]
+    fn abort_merge_session_leaves_the_target_branch_unchanged() {
+        let fixture = create_merge_conflict_session_fixture();
+        let main_before =
+            run_command("git", &["rev-parse", "main"], &fixture.repo_path).expect("main sha should resolve");
+
+        let result = merge_branches(
+            fixture.repo_path.clone(),
+            "feature/conflict".to_string(),
+            "main".to_string(),
+        )
+        .expect("conflicted merge should return a session result");
+        let session_id = result
+            .conflict
+            .expect("conflict summary should be present")
+            .session_id
+            .expect("session id should be present");
+
+        abort_merge_session(fixture.repo_path.clone(), session_id.clone())
+            .expect("merge session abort should succeed");
+
+        assert_eq!(
+            run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+                .expect("current branch should resolve"),
+            "feature/conflict"
+        );
+        assert_eq!(
+            run_command("git", &["rev-parse", "main"], &fixture.repo_path)
+                .expect("main sha should resolve"),
+            main_before
+        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), Some(session_id)).is_err());
     }
 
     #[test]

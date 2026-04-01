@@ -94,6 +94,10 @@ export interface PullStatus {
   state: PullStatusState;
 }
 
+export type ConflictContextType = "repository" | "mergeSession";
+export type ConflictOperation = "merge" | "pull" | "stashApply" | "stashPop" | "unknown";
+export type ConflictResolutionSide = "ours" | "theirs";
+
 export interface WorkingFile {
   file: string;
   x: string;
@@ -102,9 +106,42 @@ export interface WorkingFile {
 }
 
 export interface WorkingTreeStatus {
+  conflicted: WorkingFile[];
   staged: WorkingFile[];
   unstaged: WorkingFile[];
 }
+
+export interface ConflictSummary {
+  contextType: ConflictContextType;
+  operation: ConflictOperation;
+  sessionId?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  files: WorkingFile[];
+}
+
+export interface ConflictFileVersion {
+  isBinary: boolean;
+  content: string | null;
+}
+
+export interface ConflictFileDetail {
+  file: string;
+  x: string;
+  y: string;
+  statusLabel: string;
+  merged: ConflictFileVersion;
+  base: ConflictFileVersion;
+  ours: ConflictFileVersion;
+  theirs: ConflictFileVersion;
+}
+
+export type ConflictOperationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      conflict: ConflictSummary;
+    };
 
 export type WorkingTreeDiffArea = "staged" | "unstaged";
 

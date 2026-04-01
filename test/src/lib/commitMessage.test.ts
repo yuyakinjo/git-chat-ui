@@ -7,6 +7,7 @@ import { getCommitMessageFiles } from "../../../src/lib/commitMessage";
 describe("getCommitMessageFiles", () => {
   test("uses only staged files for commit message generation", () => {
     const status: WorkingTreeStatus = {
+      conflicted: [],
       staged: [
         { file: "src/App.tsx", x: "M", y: " ", statusLabel: "Modified" },
         { file: "src/lib/api.ts", x: "A", y: " ", statusLabel: "Added" },

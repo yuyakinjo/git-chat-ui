@@ -6,6 +6,9 @@ import type {
   CommitDetail,
   CommitGraphMode,
   CommitListItem,
+  ConflictFileDetail,
+  ConflictResolutionSide,
+  ConflictSummary,
   PullStatus,
   StashDiffDetail,
   StashEntry,
@@ -64,6 +67,13 @@ export interface UseControllerDataResult {
   focusedWorkingTreeDiff: { file: string; area: WorkingTreeDiffArea } | null;
   workingTreeDiffDetail: WorkingTreeDiffDetail | null;
   loadingWorkingTreeDiffDetail: boolean;
+  conflictSummary: ConflictSummary | null;
+  setConflictSummary: (summary: ConflictSummary | null) => void;
+  showConflictViewer: boolean;
+  setShowConflictViewer: (show: boolean) => void;
+  focusedConflictFile: string | null;
+  conflictFileDetail: ConflictFileDetail | null;
+  loadingConflictFileDetail: boolean;
   focusedStash: StashEntry | null;
   stashDiffDetail: StashDiffDetail | null;
   loadingStashDiffDetail: boolean;
@@ -94,6 +104,15 @@ export interface UseControllerDataResult {
   loadBranchDiffDetail: () => Promise<void>;
   loadWorkingTreeDiffDetail: (file: string, area: WorkingTreeDiffArea) => Promise<void>;
   closeWorkingTreeDiffOverlay: () => void;
+  openConflictViewer: (options?: {
+    file?: string | null;
+    sessionId?: string | null;
+    summary?: ConflictSummary | null;
+  }) => Promise<void>;
+  closeConflictViewer: () => void;
+  resolveActiveConflict: (side: ConflictResolutionSide) => Promise<void>;
+  completeActiveMergeSession: () => Promise<void>;
+  abortActiveMergeSession: () => Promise<void>;
   loadStashDiffDetail: (stash: StashEntry) => Promise<void>;
   closeStashDiffOverlay: () => void;
   loadCommits: (options: {

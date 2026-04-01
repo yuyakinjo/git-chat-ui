@@ -1,0 +1,276 @@
+import { Check, FileWarning, GitMerge, ShieldOff, X } from "lucide-react";
+import { useEffect, useState, type JSX } from "react";
+
+import type { ConflictFileDetail, ConflictSummary, ConflictResolutionSide } from "../types";
+
+import { GitFilePathLabel } from "./GitFilePresentation";
+
+type ConflictViewerTab = "merged" | "base" | "ours" | "theirs";
+
+interface ConflictOverlayProps {
+  summary: ConflictSummary;
+  activeFilePath: string | null;
+  detail: ConflictFileDetail | null;
+  loading: boolean;
+  busy: boolean;
+  onSelectFile: (file: string) => void;
+  onResolve: (side: ConflictResolutionSide) => void;
+  onCompleteMergeSession: () => void;
+  onAbortMergeSession: () => void;
+  onClose: () => void;
+}
+
+const tabLabels: Record<ConflictViewerTab, string> = {
+  merged: "Merged",
+  base: "Base",
+  ours: "Ours",
+  theirs: "Theirs",
+};
+
+function renderVersionContent(
+  version: ConflictFileDetail[ConflictViewerTab],
+  label: string,
+): JSX.Element {
+  if (version.isBinary) {
+    return (
+      <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-sm text-ink-subtle">
+        {label} は binary file です。
+      </div>
+    );
+  }
+
+  if (version.content === null) {
+    return (
+      <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-sm text-ink-subtle">
+        {label} は存在しません。
+      </div>
+    );
+  }
+
+  const lines = version.content.split("\n");
+
+  return (
+    <div className="overflow-auto rounded-2xl border border-black/10 bg-black/3">
+      <div className="min-w-full font-[ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] text-[12px] leading-6">
+        {lines.map((line, index) => (
+          <div
+            key={`${label}-${index}`}
+            className="grid grid-cols-[56px_minmax(0,1fr)] border-b border-black/5 last:border-b-0"
+          >
+            <div className="select-none border-r border-black/5 px-3 py-1 text-right text-ink-subtle">
+              {index + 1}
+            </div>
+            <pre className="m-0 overflow-x-auto px-3 py-1 whitespace-pre-wrap break-words text-ink">
+              {line || " "}
+            </pre>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ConflictOverlay({
+  summary,
+  activeFilePath,
+  detail,
+  loading,
+  busy,
+  onSelectFile,
+  onResolve,
+  onCompleteMergeSession,
+  onAbortMergeSession,
+  onClose,
+}: ConflictOverlayProps): JSX.Element {
+  const [activeTab, setActiveTab] = useState<ConflictViewerTab>("merged");
+  const activeFileCount = summary.files.length;
+  const isMergeSession = summary.contextType === "mergeSession";
+  const activeVersion = detail ? detail[activeTab] : null;
+  const canCompleteMergeSession = isMergeSession && activeFileCount === 0;
+
+  useEffect(() => {
+    setActiveTab("merged");
+  }, [activeFilePath]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !busy) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [busy, onClose]);
+
+  return (
+    <div
+      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-label="conflict viewer"
+    >
+      <section className="panel flex h-full min-h-0 flex-col overflow-hidden p-4 shadow-2xl">
+        <div className="mb-3 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="section-title">Conflict Viewer</div>
+            <div className="truncate text-base font-semibold text-ink">
+              {activeFilePath ?? "Conflicted files"}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+              <span className="badge bg-[#ffe2e0]! text-[#b42318]!">Conflict</span>
+              <span className="badge bg-black/5! text-ink-soft!">
+                {summary.operation === "unknown" ? "Unmerged state" : summary.operation}
+              </span>
+              {summary.sourceBranch && summary.targetBranch ? (
+                <span>
+                  {summary.sourceBranch} -&gt; {summary.targetBranch}
+                </span>
+              ) : null}
+              <span>{activeFileCount} files</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="button button-secondary inline-flex h-9 w-9 shrink-0 items-center justify-center p-0!"
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            disabled={busy}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_minmax(0,1fr)] gap-4 max-[980px]:grid-cols-1">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/10 bg-white/60">
+            <div className="border-b border-black/8 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+              Files
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {summary.files.length === 0 ? (
+                <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-ink-subtle">
+                  <Check size={18} />
+                  <div>未解消の conflict はありません。</div>
+                  {isMergeSession ? (
+                    <div>Complete Merge で target branch を更新できます。</div>
+                  ) : (
+                    <div>必要なら通常の Git 操作を続けてください。</div>
+                  )}
+                </div>
+              ) : (
+                summary.files.map((file) => (
+                  <button
+                    key={file.file}
+                    type="button"
+                    className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                      activeFilePath === file.file ? "is-active text-white" : ""
+                    }`}
+                    onClick={() => onSelectFile(file.file)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium">
+                        <GitFilePathLabel path={file.file} />
+                      </div>
+                    </div>
+                    <div
+                      className={`text-[11px] font-semibold ${
+                        activeFilePath === file.file ? "text-white" : "text-ink-subtle"
+                      }`}
+                    >
+                      {file.statusLabel}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/10 bg-white/60 p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {(Object.keys(tabLabels) as ConflictViewerTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={`button ${activeTab === tab ? "button-primary" : "button-secondary"}`}
+                    onClick={() => setActiveTab(tab)}
+                    disabled={loading || !detail}
+                  >
+                    {tabLabels[tab]}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => onResolve("ours")}
+                  disabled={busy || loading || !activeFilePath}
+                >
+                  Take Ours
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => onResolve("theirs")}
+                  disabled={busy || loading || !activeFilePath}
+                >
+                  Take Theirs
+                </button>
+                {isMergeSession ? (
+                  <>
+                    <button
+                      type="button"
+                      className="button button-secondary inline-flex items-center gap-2"
+                      onClick={onAbortMergeSession}
+                      disabled={busy}
+                    >
+                      <ShieldOff size={14} />
+                      Abort Merge
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-primary inline-flex items-center gap-2"
+                      onClick={onCompleteMergeSession}
+                      disabled={busy || !canCompleteMergeSession}
+                    >
+                      <GitMerge size={14} />
+                      Complete Merge
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            {detail ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+                <span className="badge bg-[#ffe2e0]! text-[#b42318]!">{detail.statusLabel}</span>
+                <span>{tabLabels[activeTab]}</span>
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-ink-subtle">
+                読み込み中...
+              </div>
+            ) : detail && activeVersion ? (
+              renderVersionContent(activeVersion, tabLabels[activeTab])
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-ink-subtle">
+                <FileWarning size={18} />
+                <div>
+                  {activeFilePath
+                    ? "この conflict の内容を表示できませんでした。"
+                    : "左側から conflicted file を選択してください。"}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

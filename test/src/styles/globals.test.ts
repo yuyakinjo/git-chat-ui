@@ -153,6 +153,16 @@ describe("globals.css", () => {
     expect(wipSection).toContain("color: rgb(254 243 199 / 0.82);");
   });
 
+  test("wip node uses a hollow dashed ring instead of a filled core", () => {
+    const wipNodeSection = getSection(".wip-node {", "@keyframes wip-pulse {");
+
+    expect(wipNodeSection).toContain("color: #0071e3;");
+    expect(wipNodeSection).toContain(".wip-node-ring {");
+    expect(wipNodeSection).toContain("fill: none;");
+    expect(wipNodeSection).toContain("stroke: currentColor;");
+    expect(wipNodeSection).not.toContain(".wip-node-core {");
+  });
+
   test("diff viewer defaults to a light palette and scopes dark styling to explicit dark-theme overrides", () => {
     const diffSection = getSection(".diff-workbench {", ".diff-empty-state,");
 
@@ -189,5 +199,18 @@ describe("globals.css", () => {
     expect(branchActionSection).toContain("@media (prefers-reduced-motion: reduce) {");
     expect(branchActionSection).toContain(".branch-action-dialog__ref-arrow svg {");
     expect(branchActionSection).toContain("animation: none;");
+  });
+
+  test("AI title generation button advertises clickability and switches to a progress cursor while loading", () => {
+    const titleActionSection = getSection(
+      ".git-operation-panel__title-action {",
+      ".git-operation-panel__title-input.is-over-limit {",
+    );
+
+    expect(titleActionSection).toContain("cursor: pointer;");
+    expect(titleActionSection).toContain(".git-operation-panel__title-action--generating {");
+    expect(titleActionSection).toContain("cursor: progress;");
+    expect(titleActionSection).toContain(".git-operation-panel__title-action:disabled {");
+    expect(titleActionSection).toContain("cursor: not-allowed;");
   });
 });

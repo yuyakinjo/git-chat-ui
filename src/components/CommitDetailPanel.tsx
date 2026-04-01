@@ -7,11 +7,14 @@ import type { CommitDetail, WorkingFile, WorkingTreeDiffArea } from "../types";
 
 import { GitFilePathLabel, getWorkingFileStatusPresentation } from "./GitFilePresentation";
 
+type WorkingTreeSelectionArea = WorkingTreeDiffArea | "conflicted";
+
 interface WorkingTreeSelection {
   stagedCount: number;
   unstagedCount: number;
+  conflictedCount: number;
   files: Array<
-    Pick<WorkingFile, "file" | "statusLabel" | "x" | "y"> & { area: WorkingTreeDiffArea }
+    Pick<WorkingFile, "file" | "statusLabel" | "x" | "y"> & { area: WorkingTreeSelectionArea }
   >;
 }
 
@@ -22,6 +25,8 @@ interface CommitDetailPanelProps {
   onOpenFileDiff: (file: string) => void;
   activeWorkingTreeDiff?: { file: string; area: WorkingTreeDiffArea } | null;
   onOpenWorkingTreeDiff?: (file: string, area: WorkingTreeDiffArea) => void;
+  activeConflictFile?: string | null;
+  onOpenConflict?: (file: string) => void;
   workingTreeSelection?: WorkingTreeSelection | null;
   headerAccessory?: JSX.Element | null;
 }
@@ -33,6 +38,8 @@ export function CommitDetailPanel({
   onOpenFileDiff,
   activeWorkingTreeDiff = null,
   onOpenWorkingTreeDiff,
+  activeConflictFile = null,
+  onOpenConflict,
   workingTreeSelection = null,
   headerAccessory,
 }: CommitDetailPanelProps): JSX.Element {
@@ -40,6 +47,7 @@ export function CommitDetailPanel({
   const [containerWidth, setContainerWidth] = useState(0);
   const selectionMode = workingTreeSelection ? "working-tree" : detail ? "commit" : "empty";
   const canOpenWorkingTreeDiff = selectionMode === "working-tree" && Boolean(onOpenWorkingTreeDiff);
+  const canOpenConflict = selectionMode === "working-tree" && Boolean(onOpenConflict);
   const isSplitLayout = shouldSplitCommitDetailPanel(containerWidth);
 
   useEffect(() => {
@@ -72,7 +80,7 @@ export function CommitDetailPanel({
   }, []);
 
   const renderWorkingTreeFileSummary = (
-    file: Pick<WorkingFile, "file" | "statusLabel" | "x" | "y"> & { area: WorkingTreeDiffArea },
+    file: Pick<WorkingFile, "file" | "statusLabel" | "x" | "y"> & { area: WorkingTreeSelectionArea },
     isActive: boolean,
   ): JSX.Element => {
     const statusPresentation = getWorkingFileStatusPresentation(file);
@@ -92,9 +100,19 @@ export function CommitDetailPanel({
           }`}
         >
           <span
-            className={`badge ${file.area === "staged" ? "bg-[#ecfdf3]! text-[#157347]!" : "bg-[#fff4d6]! text-[#a15c00]!"}`}
+            className={`badge ${
+              file.area === "staged"
+                ? "bg-[#ecfdf3]! text-[#157347]!"
+                : file.area === "unstaged"
+                  ? "bg-[#fff4d6]! text-[#a15c00]!"
+                  : "bg-[#ffe2e0]! text-[#b42318]!"
+            }`}
           >
-            {file.area === "staged" ? "Staged" : "Unstaged"}
+            {file.area === "staged"
+              ? "Staged"
+              : file.area === "unstaged"
+                ? "Unstaged"
+                : "Conflicted"}
           </span>
         </div>
         <div
@@ -139,6 +157,9 @@ export function CommitDetailPanel({
           {workingTreeSelection.unstagedCount > 0 ? (
             <span>{workingTreeSelection.unstagedCount} unstaged</span>
           ) : null}
+          {workingTreeSelection.conflictedCount > 0 ? (
+            <span>{workingTreeSelection.conflictedCount} conflicted</span>
+          ) : null}
         </div>
       </div>
     ) : null;
@@ -174,7 +195,7 @@ export function CommitDetailPanel({
           <div className="commit-detail-panel__files" data-controller-panel-drag-ignore="true">
             <div className="commit-detail-panel__section-header mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em]">
               <span>Changed Files</span>
-              {selectionMode !== "commit" && !canOpenWorkingTreeDiff ? (
+              {selectionMode !== "commit" && !canOpenWorkingTreeDiff && !canOpenConflict ? (
                 <span className="commit-detail-panel__files-note text-[11px] font-medium normal-case tracking-normal">
                   WIP 選択中の変更ファイル一覧です
                 </span>
@@ -219,45 +240,67 @@ export function CommitDetailPanel({
                   ))
                 )
               ) : workingTreeSelection && workingTreeSelection.files.length > 0 ? (
-                workingTreeSelection.files.map((file) =>
-                  onOpenWorkingTreeDiff ? (
-                    <button
-                      key={`${file.area}:${file.file}`}
-                      type="button"
-                      className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
-                        activeWorkingTreeDiff?.file === file.file &&
-                        activeWorkingTreeDiff.area === file.area
-                          ? "is-active text-white"
-                          : ""
-                      }`}
-                      onClick={() => onOpenWorkingTreeDiff(file.file, file.area)}
-                    >
-                      {renderWorkingTreeFileSummary(
-                        file,
-                        activeWorkingTreeDiff?.file === file.file &&
-                          activeWorkingTreeDiff.area === file.area,
-                      )}
-                      <div
-                        className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${
-                          activeWorkingTreeDiff?.file === file.file &&
-                          activeWorkingTreeDiff.area === file.area
-                            ? "text-white"
-                            : ""
+                workingTreeSelection.files.map((file) => {
+                  if (file.area === "conflicted" && onOpenConflict) {
+                    return (
+                      <button
+                        key={`${file.area}:${file.file}`}
+                        type="button"
+                        className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                          activeConflictFile === file.file ? "is-active text-white" : ""
                         }`}
+                        onClick={() => onOpenConflict(file.file)}
                       >
-                        <Expand size={12} />
-                        Open Diff
-                      </div>
-                    </button>
-                  ) : (
+                        {renderWorkingTreeFileSummary(file, activeConflictFile === file.file)}
+                        <div
+                          className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${
+                            activeConflictFile === file.file ? "text-white" : ""
+                          }`}
+                        >
+                          <Expand size={12} />
+                          Open Conflict
+                        </div>
+                      </button>
+                    );
+                  }
+
+                  if (file.area !== "conflicted" && onOpenWorkingTreeDiff) {
+                    const area = file.area as WorkingTreeDiffArea;
+                    const isActive =
+                      activeWorkingTreeDiff?.file === file.file &&
+                      activeWorkingTreeDiff.area === area;
+
+                    return (
+                      <button
+                        key={`${file.area}:${file.file}`}
+                        type="button"
+                        className={`commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition last:mb-0 ${
+                          isActive ? "is-active text-white" : ""
+                        }`}
+                        onClick={() => onOpenWorkingTreeDiff(file.file, area)}
+                      >
+                        {renderWorkingTreeFileSummary(file, isActive)}
+                        <div
+                          className={`commit-detail-panel__file-action flex items-center gap-1 text-[11px] font-semibold ${
+                            isActive ? "text-white" : ""
+                          }`}
+                        >
+                          <Expand size={12} />
+                          Open Diff
+                        </div>
+                      </button>
+                    );
+                  }
+
+                  return (
                     <div
                       key={`${file.area}:${file.file}`}
                       className="commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 last:mb-0"
                     >
                       {renderWorkingTreeFileSummary(file, false)}
                     </div>
-                  ),
-                )
+                  );
+                })
               ) : (
                 <div className="commit-detail-panel__muted p-3 text-xs">
                   未コミットの変更はありません。

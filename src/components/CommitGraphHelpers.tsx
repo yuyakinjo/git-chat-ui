@@ -9,7 +9,6 @@ export const LINE_OVERDRAW = 1;
 export const WIP_NODE_SIZE = 18;
 export const WIP_NODE_CENTER = WIP_NODE_SIZE / 2;
 export const WIP_NODE_RING_RADIUS = 7;
-export const WIP_NODE_CORE_RADIUS = 3.5;
 export const WIP_LINE_TOP = ROW_HEIGHT / 2 + WIP_NODE_CENTER - 1;
 export const REF_COLUMN_MIN_WIDTH = 140;
 export const REF_COLUMN_MAX_WIDTH = 900;
@@ -150,12 +149,6 @@ export function WipNode({
           r={WIP_NODE_RING_RADIUS}
           strokeDasharray="2 3"
           strokeLinecap="round"
-        />
-        <circle
-          className="wip-node-core"
-          cx={WIP_NODE_CENTER}
-          cy={WIP_NODE_CENTER}
-          r={WIP_NODE_CORE_RADIUS}
         />
       </svg>
     </span>

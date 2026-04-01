@@ -38,6 +38,7 @@ interface CommitGraphProps {
   busy: boolean;
   wipStagedCount: number;
   wipUnstagedCount: number;
+  wipConflictedCount: number;
   onSelectWip: () => void;
   onSelectCommit: (commit: CommitListItem) => void;
   onCheckoutCommit: (commit: CommitListItem) => void;
@@ -60,6 +61,7 @@ export function CommitGraph({
   busy,
   wipStagedCount,
   wipUnstagedCount,
+  wipConflictedCount,
   onSelectWip,
   onSelectCommit,
   onCheckoutCommit,
@@ -268,7 +270,7 @@ export function CommitGraph({
           <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div>
         ) : null}
 
-        {(wipStagedCount > 0 || wipUnstagedCount > 0) && !loading ? (
+        {(wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading ? (
           <div
             className="wip-row commit-row"
             style={{ gridTemplateColumns }}
@@ -326,9 +328,13 @@ export function CommitGraph({
             <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
               <span>{"// WIP"}</span>
               <span className="wip-row__meta truncate text-xs font-normal">
-                {wipStagedCount > 0 ? `${wipStagedCount} staged` : ""}
-                {wipStagedCount > 0 && wipUnstagedCount > 0 ? " · " : ""}
-                {wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : ""}
+                {[
+                  wipStagedCount > 0 ? `${wipStagedCount} staged` : null,
+                  wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : null,
+                  wipConflictedCount > 0 ? `${wipConflictedCount} conflicted` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </div>
             <div className="wip-row__meta truncate text-xs">—</div>

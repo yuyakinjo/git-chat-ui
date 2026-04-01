@@ -7,6 +7,7 @@ import type { PullStatus, StashEntry, WorkingTreeStatus } from "../../../src/typ
 import { GitOperationPanel } from "../../../src/components/GitOperationPanel";
 
 const status: WorkingTreeStatus = {
+  conflicted: [],
   unstaged: [
     {
       file: "src/components/GitOperationPanel.tsx",
@@ -47,6 +48,20 @@ const stashes: StashEntry[] = [
 ];
 
 const emptyStatus: WorkingTreeStatus = {
+  conflicted: [],
+  unstaged: [],
+  staged: [],
+};
+
+const conflictedStatus: WorkingTreeStatus = {
+  conflicted: [
+    {
+      file: "src/conflict.txt",
+      x: "U",
+      y: "U",
+      statusLabel: "Both Modified",
+    },
+  ],
   unstaged: [],
   staged: [],
 };
@@ -252,6 +267,43 @@ describe("GitOperationPanel", () => {
     expect(html).not.toContain("スタッシュはありません。");
   });
 
+  test("renders conflicted files in a dedicated bucket without making them draggable", () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={conflictedStatus}
+        stashes={[]}
+        commitTitle=""
+        commitDescription=""
+        busy={false}
+        generatingCommitMessage={false}
+        activeWorkingTreeDiff={null}
+        activeConflictFile="src/conflict.txt"
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        onOpenWorkingTreeDiff={() => {}}
+        onOpenConflict={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Conflicts (1)");
+    expect(html).toContain("Both Modified");
+    expect(html).toContain("git-file-card__status-icon--conflicted");
+    expect(html).toContain('git-file-path-label__name">conflict.txt');
+    expect((html.match(/git-operation-panel__bucket-header/g) ?? []).length).toBe(4);
+    expect(html).not.toContain('data-working-tree-drop-zone="conflicted"');
+    expect(html).not.toContain(
+      'role="button" tabIndex="0" aria-haspopup="menu" data-working-tree-context-menu="true"',
+    );
+  });
+
   test("hides AI title generation until staged files are available", () => {
     const html = renderToStaticMarkup(
       <GitOperationPanel
@@ -278,6 +330,68 @@ describe("GitOperationPanel", () => {
 
     expect(html).not.toContain('aria-label="AIでタイトル生成"');
     expect(html).not.toContain('data-lucide="sparkles"');
+  });
+
+  test("keeps the AI title button visible while generation is running even if staged files disappear", () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={emptyStatus}
+        stashes={[]}
+        commitTitle=""
+        commitDescription=""
+        busy={true}
+        generatingCommitMessage={true}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />,
+    );
+
+    expect(html).toContain('aria-label="AIでコミット文を生成中"');
+    expect(html).toContain("git-operation-panel__title-action--generating");
+    expect(html).toContain("animate-spin");
+    expect(html).toContain('placeholder="Commit summary"');
+    expect(html).toContain('disabled=""');
+  });
+
+  test("keeps the commit title locked after the spinner stops until generated text can be applied", () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={status}
+        stashes={stashes}
+        commitTitle="feat: keep current title until ai text is ready"
+        commitDescription=""
+        busy={true}
+        commitMessageEditorLocked={true}
+        generatingCommitMessage={false}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        onPush={() => {}}
+      />,
+    );
+
+    expect(html).toContain('aria-label="AIでタイトル生成"');
+    expect(html).not.toContain("animate-spin");
+    expect(html).toContain('placeholder="Commit summary"');
+    expect(html).toContain('disabled=""');
   });
 
   test("keeps pull hidden in the commit panel even when pull data is available", () => {

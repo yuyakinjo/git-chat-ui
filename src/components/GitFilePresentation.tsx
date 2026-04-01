@@ -1,10 +1,25 @@
-import { Circle, Minus, Pencil, Plus } from "lucide-react";
+import { AlertTriangle, Circle, Minus, Pencil, Plus } from "lucide-react";
 
 import type { WorkingFile } from "../types";
 
 import type { JSX } from "react";
 
-export type WorkingFileStatusTone = "modified" | "added" | "deleted" | "changed";
+export type WorkingFileStatusTone = "modified" | "added" | "deleted" | "changed" | "conflicted";
+
+export function isConflictedWorkingFile(
+  item: Pick<WorkingFile, "x" | "y">,
+): boolean {
+  const pair = `${item.x}${item.y}`;
+  return (
+    pair === "UU" ||
+    pair === "AA" ||
+    pair === "DD" ||
+    pair === "AU" ||
+    pair === "UA" ||
+    pair === "DU" ||
+    pair === "UD"
+  );
+}
 
 function splitGitFilePath(filePath: string): { directory: string | null; fileName: string } {
   const lastSlashIndex = filePath.lastIndexOf("/");
@@ -39,6 +54,14 @@ export function getWorkingFileStatusPresentation(
   label: string;
   icon: JSX.Element;
 } {
+  if (isConflictedWorkingFile(item)) {
+    return {
+      tone: "conflicted",
+      label: item.statusLabel,
+      icon: <AlertTriangle size={12} />,
+    };
+  }
+
   const code = item.x !== " " && item.x !== "?" ? item.x : item.y;
 
   switch (code) {

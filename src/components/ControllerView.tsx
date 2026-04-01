@@ -20,6 +20,7 @@ import { BranchTree } from "./BranchTree";
 import { CommitDetailPanel } from "./CommitDetailPanel";
 import { CommitDiffOverlay } from "./CommitDiffOverlay";
 import { CommitGraph } from "./CommitGraph";
+import { ConflictOverlay } from "./ConflictOverlay";
 import { GitOperationPanel } from "./GitOperationPanel";
 import { StashDiffOverlay } from "./StashDiffOverlay";
 import { StashRenameDialog } from "./StashRenameDialog";
@@ -52,6 +53,8 @@ export function ControllerView({
   const [selectedBranchForHover, setSelectedBranchForHover] = useState<Branch | null>(null);
   const [pendingScrollCommitSha, setPendingScrollCommitSha] = useState<string | null>(null);
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
+  const [pendingCommitMessageGenerationResult, setPendingCommitMessageGenerationResult] =
+    useState<CommitMessageGenerationState>({ status: "idle" });
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
   const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
@@ -87,6 +90,8 @@ export function ControllerView({
       { status: "idle" },
     );
   const isCommitMessageGenerating = commitMessageAnimationPending || generatingCommitMessage;
+  const isCommitMessageEditorLocked =
+    isCommitMessageGenerating || pendingCommitMessageGenerationResult.status !== "idle";
 
   const {
     panelOrder,
@@ -113,33 +118,18 @@ export function ControllerView({
 
   /* oxlint-disable react-hooks/exhaustive-deps -- depend on stable setter references, not the data object itself */
   useEffect(() => {
-    if (commitMessageGenerationState.status === "idle") {
+    if (commitMessageGenerationState.status === "idle" || generatingCommitMessage) {
       return;
     }
 
-    if (commitMessageGenerationState.status === "success") {
-      data.setInlineError(null);
-      data.setCommitTitle(commitMessageGenerationState.title);
-      data.setCommitDescription(commitMessageGenerationState.description);
-    } else {
-      data.setInlineError(commitMessageGenerationState.error);
-      onNotify(commitMessageGenerationState.error.title);
-    }
-
     setCommitMessageAnimationPending(false);
-    data.setOperationBusy(false);
-  }, [
-    commitMessageGenerationState,
-    data.setCommitDescription,
-    data.setCommitTitle,
-    data.setInlineError,
-    data.setOperationBusy,
-    onNotify,
-  ]);
+    setPendingCommitMessageGenerationResult(commitMessageGenerationState);
+  }, [commitMessageGenerationState, generatingCommitMessage]);
   /* oxlint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     setCommitMessageAnimationPending(false);
+    setPendingCommitMessageGenerationResult({ status: "idle" });
   }, [repoPath]);
 
   useEffect(() => {
@@ -153,8 +143,50 @@ export function ControllerView({
   useEffect(() => {
     if (!data.operationBusy) {
       setCommitMessageAnimationPending(false);
+      setPendingCommitMessageGenerationResult({ status: "idle" });
     }
   }, [data.operationBusy]);
+
+  /* oxlint-disable react-hooks/exhaustive-deps -- depend on stable setter references, not the data object itself */
+  useEffect(() => {
+    if (pendingCommitMessageGenerationResult.status === "idle" || isCommitMessageGenerating) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      await waitForNextPaint();
+      if (cancelled) {
+        return;
+      }
+
+      if (pendingCommitMessageGenerationResult.status === "success") {
+        data.setInlineError(null);
+        data.setCommitTitle(pendingCommitMessageGenerationResult.title);
+        data.setCommitDescription(pendingCommitMessageGenerationResult.description);
+      } else {
+        data.setInlineError(pendingCommitMessageGenerationResult.error);
+        onNotify(pendingCommitMessageGenerationResult.error.title);
+      }
+
+      setPendingCommitMessageGenerationResult({ status: "idle" });
+      data.setOperationBusy(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    data.setCommitDescription,
+    data.setCommitTitle,
+    data.setInlineError,
+    data.setOperationBusy,
+    isCommitMessageGenerating,
+    onNotify,
+    pendingCommitMessageGenerationResult,
+  ]);
+  /* oxlint-enable react-hooks/exhaustive-deps */
 
   const highlightedCommitSha = selectedBranchForHover?.commit ?? null;
 
@@ -166,6 +198,7 @@ export function ControllerView({
     return {
       stagedCount: data.workingStatus?.staged.length ?? 0,
       unstagedCount: data.workingStatus?.unstaged.length ?? 0,
+      conflictedCount: data.workingStatus?.conflicted.length ?? 0,
       files: [
         ...(data.workingStatus?.staged.map((item) => ({
           file: item.file,
@@ -177,6 +210,13 @@ export function ControllerView({
         ...(data.workingStatus?.unstaged.map((item) => ({
           file: item.file,
           area: "unstaged" as const,
+          x: item.x,
+          y: item.y,
+          statusLabel: item.statusLabel,
+        })) ?? []),
+        ...(data.workingStatus?.conflicted.map((item) => ({
+          file: item.file,
+          area: "conflicted" as const,
           x: item.x,
           y: item.y,
           statusLabel: item.statusLabel,
@@ -198,6 +238,7 @@ export function ControllerView({
     !canMergeBranchWithoutWorkingTreeChange(data.currentBranchName, branchOps.branchAction.target)
       ? data.selfMutationBlockedReason
       : null;
+  const activeConflictSummary = data.conflictSummary;
 
   // --- Panel JSX ---
 
@@ -218,6 +259,7 @@ export function ControllerView({
       busy={data.operationBusy}
       wipStagedCount={data.workingStatus?.staged.length ?? 0}
       wipUnstagedCount={data.workingStatus?.unstaged.length ?? 0}
+      wipConflictedCount={data.workingStatus?.conflicted.length ?? 0}
       onSelectWip={() => {
         data.setIsWipSelected(true);
         data.setActiveCommit(null);
@@ -253,8 +295,10 @@ export function ControllerView({
       commitTitle={data.commitTitle}
       commitDescription={data.commitDescription}
       busy={data.operationBusy}
+      commitMessageEditorLocked={isCommitMessageEditorLocked}
       generatingCommitMessage={isCommitMessageGenerating}
       activeWorkingTreeDiff={data.focusedWorkingTreeDiff}
+      activeConflictFile={data.focusedConflictFile}
       onCommitTitleChange={data.setCommitTitle}
       onCommitDescriptionChange={data.setCommitDescription}
       onStageFile={(file) => {
@@ -323,6 +367,13 @@ export function ControllerView({
       onOpenWorkingTreeDiff={(file, area) => {
         void data.loadWorkingTreeDiffDetail(file, area);
       }}
+      onOpenConflict={(file) => {
+        void data.openConflictViewer({
+          file,
+          summary:
+            activeConflictSummary?.contextType === "repository" ? activeConflictSummary : null,
+        });
+      }}
       onGenerateCommitMessage={() => {
         if (data.commitMessageFiles.length === 0) {
           const nextError = describeGitError(
@@ -337,7 +388,6 @@ export function ControllerView({
         const files = data.commitMessageFiles;
 
         flushSync(() => {
-          data.clearCommitMessageDraft();
           setCommitMessageAnimationPending(true);
           data.setOperationBusy(true);
         });
@@ -419,11 +469,19 @@ export function ControllerView({
       loading={data.loadingCommitDetail && !data.isWipSelected}
       activeDiffFile={data.focusedCommitDiffFile}
       activeWorkingTreeDiff={data.focusedWorkingTreeDiff}
+      activeConflictFile={data.focusedConflictFile}
       onOpenFileDiff={(file) => {
         data.setFocusedCommitDiffFile(file);
       }}
       onOpenWorkingTreeDiff={(file, area) => {
         void data.loadWorkingTreeDiffDetail(file, area);
+      }}
+      onOpenConflict={(file) => {
+        void data.openConflictViewer({
+          file,
+          summary:
+            activeConflictSummary?.contextType === "repository" ? activeConflictSummary : null,
+        });
       }}
       workingTreeSelection={workingTreeSelection}
     />
@@ -456,6 +514,61 @@ export function ControllerView({
           >
             <X size={14} />
           </button>
+        </section>
+      ) : null}
+
+      {activeConflictSummary?.contextType === "mergeSession" && !data.showConflictViewer ? (
+        <section className="panel flex flex-wrap items-center justify-between gap-3 border border-amber-500/25 bg-amber-50/80 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-amber-900">Merge session is paused</div>
+            <div className="text-xs text-amber-800">
+              {activeConflictSummary.sourceBranch && activeConflictSummary.targetBranch
+                ? `${activeConflictSummary.sourceBranch} -> ${activeConflictSummary.targetBranch}`
+                : "別ブランチ向けの merge session"}
+              {" · "}
+              {activeConflictSummary.files.length > 0
+                ? `${activeConflictSummary.files.length} conflicted files remain.`
+                : "No unresolved conflicts remain. Complete Merge で target branch を更新できます。"}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={data.operationBusy}
+              onClick={() => {
+                void data.openConflictViewer({
+                  summary: activeConflictSummary,
+                  file: data.focusedConflictFile ?? activeConflictSummary.files[0]?.file ?? null,
+                  sessionId: activeConflictSummary.sessionId ?? null,
+                });
+              }}
+            >
+              Resume Conflict Viewer
+            </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={data.operationBusy}
+              onClick={() => {
+                void data.abortActiveMergeSession();
+              }}
+            >
+              Abort Merge
+            </button>
+            {activeConflictSummary.files.length === 0 ? (
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={data.operationBusy}
+                onClick={() => {
+                  void data.completeActiveMergeSession();
+                }}
+              >
+                Complete Merge
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -587,6 +700,33 @@ export function ControllerView({
           targetBranchName={data.currentLocalBranch?.name ?? null}
           onClose={() => data.setShowBranchDiff(false)}
           onNotify={onNotify}
+        />
+      ) : null}
+
+      {data.showConflictViewer && activeConflictSummary ? (
+        <ConflictOverlay
+          summary={activeConflictSummary}
+          activeFilePath={data.focusedConflictFile}
+          detail={data.conflictFileDetail}
+          loading={data.loadingConflictFileDetail}
+          busy={data.operationBusy}
+          onSelectFile={(file) => {
+            void data.openConflictViewer({
+              summary: activeConflictSummary,
+              file,
+              sessionId: activeConflictSummary.sessionId ?? null,
+            });
+          }}
+          onResolve={(side) => {
+            void data.resolveActiveConflict(side);
+          }}
+          onCompleteMergeSession={() => {
+            void data.completeActiveMergeSession();
+          }}
+          onAbortMergeSession={() => {
+            void data.abortActiveMergeSession();
+          }}
+          onClose={data.closeConflictViewer}
         />
       ) : null}
 

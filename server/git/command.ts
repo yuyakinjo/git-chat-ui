@@ -15,7 +15,7 @@ export const SKIP_DIRS = new Set([
   "node_modules",
 ]);
 
-export function statusLabel(code: string): string {
+export function statusCodeLabel(code: string): string {
   switch (code) {
     case "M":
       return "Modified";
@@ -33,6 +33,44 @@ export function statusLabel(code: string): string {
       return "Untracked";
     default:
       return "Changed";
+  }
+}
+
+export function isUnmergedStatus(x: string, y: string): boolean {
+  const pair = `${x}${y}`;
+  return (
+    pair === "UU" ||
+    pair === "AA" ||
+    pair === "DD" ||
+    pair === "AU" ||
+    pair === "UA" ||
+    pair === "DU" ||
+    pair === "UD"
+  );
+}
+
+export function statusLabel(x: string, y: string): string {
+  const pair = `${x}${y}`;
+
+  switch (pair) {
+    case "UU":
+      return "Both Modified";
+    case "AA":
+      return "Both Added";
+    case "DD":
+      return "Both Deleted";
+    case "AU":
+      return "Added by Ours";
+    case "UA":
+      return "Added by Theirs";
+    case "DU":
+      return "Deleted by Ours";
+    case "UD":
+      return "Deleted by Theirs";
+    default: {
+      const code = x !== " " && x !== "?" ? x : y;
+      return statusCodeLabel(code);
+    }
   }
 }
 
@@ -127,12 +165,49 @@ export async function runCommand(
   }
 }
 
+export async function runCommandBuffer(
+  command: string,
+  args: string[],
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<Buffer> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      cwd,
+      encoding: "buffer",
+      maxBuffer: 20 * 1024 * 1024,
+      env: env ? { ...process.env, ...env } : process.env,
+    });
+
+    return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+  } catch (error) {
+    const typed = error as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
+    const stderr = Buffer.isBuffer(typed.stderr)
+      ? typed.stderr.toString("utf8").trim()
+      : typed.stderr?.trim();
+    const stdout = Buffer.isBuffer(typed.stdout)
+      ? typed.stdout.toString("utf8").trim()
+      : typed.stdout?.trim();
+    throw new Error(stderr || stdout || typed.message || `Failed to execute ${command} command.`, {
+      cause: error,
+    });
+  }
+}
+
 export async function runGit(
   args: string[],
   repoPath: string,
   env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   return runCommand("git", args, repoPath, env);
+}
+
+export async function runGitBuffer(
+  args: string[],
+  repoPath: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<Buffer> {
+  return runCommandBuffer("git", args, repoPath, env);
 }
 
 export async function runGh(args: string[], repoPath: string): Promise<string> {

@@ -87,8 +87,8 @@ router.post("/api/stashes/apply", async (request, response, next) => {
   try {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
     const stashId = getRequiredString(request.body.stashId, "stashId");
-    await applyStash(repoPath, stashId);
-    response.json({ ok: true });
+    const result = await applyStash(repoPath, stashId);
+    response.json(result);
   } catch (error) {
     next(error);
   }
@@ -98,8 +98,8 @@ router.post("/api/stashes/pop", async (request, response, next) => {
   try {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
     const stashId = getRequiredString(request.body.stashId, "stashId");
-    await popStash(repoPath, stashId);
-    response.json({ ok: true });
+    const result = await popStash(repoPath, stashId);
+    response.json(result);
   } catch (error) {
     next(error);
   }

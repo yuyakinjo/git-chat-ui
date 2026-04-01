@@ -5,8 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  abortMergeSession,
   applyStash,
   appendFileToStash,
+  completeMergeSession,
   createBranch,
   discardFile,
   deleteBranch,
@@ -15,25 +17,149 @@ import {
   getBranchDiffFileDetail,
   getCommitDetail,
   getCommitFileDiffDetail,
+  getConflictFileDetail,
+  getConflictSummary,
   getDiffSnippet,
   getPullStatus,
   getStashDiffDetail,
   getStashDiffFileDetail,
   getStashes,
+  getWorkingTreeStatus,
   getWorkingTreeDiffDetail,
   mergeBranches,
   normalizeGithubRemoteUrl,
   popStash,
   pullCurrentBranch,
   renameStash,
+  resolveConflictVersion,
   resolveRepositories,
 } from "../../server/gitService";
+import { spawn } from "node:child_process";
+import type { ConflictOperationResult } from "../../server/types";
 
 const execFileAsync = promisify(execFile);
 
 async function runGit(args: string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trim();
+}
+
+async function runGitWithInput(args: string[], cwd: string, input: string): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+
+      reject(new Error(stderr.trim() || stdout.trim() || `git ${args.join(" ")} failed`));
+    });
+
+    child.stdin.end(input);
+  });
+}
+
+async function hashBlob(repoPath: string, content: string | Buffer): Promise<string> {
+  const tempFile = path.join(
+    repoPath,
+    `.git-chat-ui-blob-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
+  await fs.writeFile(tempFile, content);
+  try {
+    return await runGit(["hash-object", "-w", tempFile], repoPath);
+  } finally {
+    await fs.rm(tempFile, { force: true });
+  }
+}
+
+async function stageConflictEntries(
+  repoPath: string,
+  file: string,
+  entries: Array<{ stage: 1 | 2 | 3; content: string | Buffer }>,
+  mergedContent?: string | Buffer | null,
+  options: {
+    resetIndex?: boolean;
+  } = {},
+): Promise<void> {
+  if (options.resetIndex ?? true) {
+    await runGit(["read-tree", "--empty"], repoPath);
+  }
+  await fs.rm(path.join(repoPath, file), { recursive: true, force: true });
+
+  for (const entry of entries) {
+    const oid = await hashBlob(repoPath, entry.content);
+    await runGitWithInput(
+      ["update-index", "--index-info"],
+      repoPath,
+      `100644 ${oid} ${entry.stage}\t${file}\n`,
+    );
+  }
+
+  if (mergedContent !== undefined) {
+    if (mergedContent === null) {
+      await fs.rm(path.join(repoPath, file), { recursive: true, force: true });
+    } else {
+      await fs.mkdir(path.dirname(path.join(repoPath, file)), { recursive: true });
+      await fs.writeFile(path.join(repoPath, file), mergedContent);
+    }
+  }
+}
+
+async function createConflictFixture(): Promise<{ rootDir: string; repoPath: string }> {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "git-chat-ui-conflict-"));
+  const repoPath = path.join(rootDir, "repo");
+
+  await runGit(["init", "-b", "main", repoPath], rootDir);
+  await runGit(["config", "user.name", "Test User"], repoPath);
+  await runGit(["config", "user.email", "test@example.com"], repoPath);
+  await runGit(["commit", "--allow-empty", "-m", "init"], repoPath);
+
+  return { rootDir, repoPath };
+}
+
+async function createMergeConflictSessionFixture(): Promise<{
+  rootDir: string;
+  repoPath: string;
+}> {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "git-chat-ui-merge-session-"));
+  const repoPath = path.join(rootDir, "repo");
+
+  await runGit(["init", "-b", "main", repoPath], rootDir);
+  await runGit(["config", "user.name", "Test User"], repoPath);
+  await runGit(["config", "user.email", "test@example.com"], repoPath);
+
+  await fs.writeFile(path.join(repoPath, "conflict.txt"), "base\n");
+  await runGit(["add", "conflict.txt"], repoPath);
+  await runGit(["commit", "-m", "init"], repoPath);
+
+  await runGit(["checkout", "-b", "feature/conflict"], repoPath);
+  await fs.writeFile(path.join(repoPath, "conflict.txt"), "feature\n");
+  await runGit(["commit", "-am", "feature"], repoPath);
+
+  await runGit(["checkout", "main"], repoPath);
+  await fs.writeFile(path.join(repoPath, "conflict.txt"), "main\n");
+  await runGit(["commit", "-am", "main"], repoPath);
+
+  await runGit(["checkout", "feature/conflict"], repoPath);
+
+  return { rootDir, repoPath };
+}
+
+function expectConflictResult(
+  result: ConflictOperationResult,
+): asserts result is Extract<ConflictOperationResult, { ok: false }> {
+  expect(result.ok).toBe(false);
 }
 
 async function createRemoteDeleteFixture(): Promise<{ rootDir: string; repoPath: string }> {
@@ -281,6 +407,286 @@ describe("mergeBranches", () => {
       expect(await runGit(["rev-parse", "main"], fixture.repoPath)).toBe(featureSha);
       expect(await fs.readFile(path.join(fixture.repoPath, "feature.txt"), "utf8")).toBe(
         "feature\n",
+      );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getWorkingTreeStatus", () => {
+  test("classifies unmerged entries into conflicted files with pair-aware labels", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(fixture.repoPath, "aa.txt", [
+        { stage: 2, content: "ours aa\n" },
+        { stage: 3, content: "theirs aa\n" },
+      ]);
+      await stageConflictEntries(
+        fixture.repoPath,
+        "au.txt",
+        [{ stage: 2, content: "ours au\n" }],
+        undefined,
+        { resetIndex: false },
+      );
+      await stageConflictEntries(
+        fixture.repoPath,
+        "dd.txt",
+        [{ stage: 1, content: "base dd\n" }],
+        undefined,
+        { resetIndex: false },
+      );
+      await stageConflictEntries(fixture.repoPath, "du.txt", [
+        { stage: 1, content: "base du\n" },
+        { stage: 3, content: "theirs du\n" },
+      ], undefined, { resetIndex: false });
+      await stageConflictEntries(
+        fixture.repoPath,
+        "ua.txt",
+        [{ stage: 3, content: "theirs ua\n" }],
+        undefined,
+        { resetIndex: false },
+      );
+      await stageConflictEntries(fixture.repoPath, "ud.txt", [
+        { stage: 1, content: "base ud\n" },
+        { stage: 2, content: "ours ud\n" },
+      ], undefined, { resetIndex: false });
+      await stageConflictEntries(fixture.repoPath, "uu.txt", [
+        { stage: 1, content: "base uu\n" },
+        { stage: 2, content: "ours uu\n" },
+        { stage: 3, content: "theirs uu\n" },
+      ], undefined, { resetIndex: false });
+
+      const status = await getWorkingTreeStatus(fixture.repoPath);
+      const labels = Object.fromEntries(
+        status.conflicted.map((item) => [item.file, `${item.x}${item.y}:${item.statusLabel}`]),
+      );
+
+      expect(status.staged).toEqual([]);
+      expect(status.unstaged).toEqual([]);
+      expect(labels).toEqual({
+        "aa.txt": "AA:Both Added",
+        "au.txt": "AU:Added by Ours",
+        "dd.txt": "DD:Both Deleted",
+        "du.txt": "DU:Deleted by Ours",
+        "ua.txt": "UA:Added by Theirs",
+        "ud.txt": "UD:Deleted by Theirs",
+        "uu.txt": "UU:Both Modified",
+      });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("conflict details and resolution", () => {
+  test("returns text conflict versions from merged/base/ours/theirs", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "notes.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+          { stage: 3, content: "theirs\n" },
+        ],
+        "<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n",
+      );
+
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({
+        contextType: "repository",
+        files: [{ file: "notes.txt", statusLabel: "Both Modified" }],
+      });
+      await expect(getConflictFileDetail(fixture.repoPath, "notes.txt")).resolves.toMatchObject({
+        file: "notes.txt",
+        statusLabel: "Both Modified",
+        merged: { isBinary: false, content: "<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n" },
+        base: { isBinary: false, content: "base\n" },
+        ours: { isBinary: false, content: "ours\n" },
+        theirs: { isBinary: false, content: "theirs\n" },
+      });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns nullable versions for delete-side conflicts", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "delete-side.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+        ],
+        null,
+      );
+
+      await expect(getConflictFileDetail(fixture.repoPath, "delete-side.txt")).resolves.toMatchObject(
+        {
+          file: "delete-side.txt",
+          statusLabel: "Deleted by Theirs",
+          merged: { isBinary: false, content: null },
+          base: { isBinary: false, content: "base\n" },
+          ours: { isBinary: false, content: "ours\n" },
+          theirs: { isBinary: false, content: null },
+        },
+      );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("marks binary conflict versions as binary", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      const ours = Buffer.from([0, 1, 2, 3]);
+      const theirs = Buffer.from([0, 4, 5, 6]);
+      await stageConflictEntries(
+        fixture.repoPath,
+        "binary.dat",
+        [
+          { stage: 2, content: ours },
+          { stage: 3, content: theirs },
+        ],
+        ours,
+      );
+
+      await expect(getConflictFileDetail(fixture.repoPath, "binary.dat")).resolves.toMatchObject({
+        file: "binary.dat",
+        statusLabel: "Both Added",
+        merged: { isBinary: true, content: null },
+        base: { isBinary: false, content: null },
+        ours: { isBinary: true, content: null },
+        theirs: { isBinary: true, content: null },
+      });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("stages the chosen side for text conflicts", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "resolve.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+          { stage: 3, content: "theirs\n" },
+        ],
+        "<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n",
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "resolve.txt",
+        side: "ours",
+      });
+
+      expect(await fs.readFile(path.join(fixture.repoPath, "resolve.txt"), "utf8")).toBe("ours\n");
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("removes the file when the chosen side is a delete-side resolution", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "removed.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+        ],
+        null,
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "removed.txt",
+        side: "theirs",
+      });
+
+      await expect(fs.readFile(path.join(fixture.repoPath, "removed.txt"), "utf8")).rejects.toThrow();
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("merge sessions", () => {
+  test("keeps a temp merge session for conflicted non-current target merges and completes it explicitly", async () => {
+    const fixture = await createMergeConflictSessionFixture();
+
+    try {
+      const mainBefore = await runGit(["rev-parse", "main"], fixture.repoPath);
+      const result = await mergeBranches(fixture.repoPath, "feature/conflict", "main");
+      expectConflictResult(result);
+
+      expect(result.conflict.contextType).toBe("mergeSession");
+      expect(result.conflict.operation).toBe("merge");
+      expect(result.conflict.sourceBranch).toBe("feature/conflict");
+      expect(result.conflict.targetBranch).toBe("main");
+      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/conflict");
+
+      const sessionId = result.conflict.sessionId;
+      expect(sessionId).toBeTruthy();
+      await expect(getConflictSummary(fixture.repoPath, sessionId)).resolves.toMatchObject({
+        contextType: "mergeSession",
+        files: [{ file: "conflict.txt", statusLabel: "Both Modified" }],
+      });
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "conflict.txt",
+        side: "theirs",
+        sessionId,
+      });
+      await expect(getConflictSummary(fixture.repoPath, sessionId)).resolves.toMatchObject({
+        files: [],
+      });
+
+      await completeMergeSession(fixture.repoPath, sessionId!);
+
+      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/conflict");
+      expect(await runGit(["rev-parse", "main"], fixture.repoPath)).not.toBe(mainBefore);
+      expect(await runGit(["show", "main:conflict.txt"], fixture.repoPath)).toBe("feature");
+      await expect(getConflictSummary(fixture.repoPath, sessionId)).rejects.toThrow(
+        "was not found",
+      );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("aborts conflicted non-current target merge sessions without updating the target branch", async () => {
+    const fixture = await createMergeConflictSessionFixture();
+
+    try {
+      const mainBefore = await runGit(["rev-parse", "main"], fixture.repoPath);
+      const result = await mergeBranches(fixture.repoPath, "feature/conflict", "main");
+      expectConflictResult(result);
+
+      const sessionId = result.conflict.sessionId;
+      await abortMergeSession(fixture.repoPath, sessionId!);
+
+      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/conflict");
+      expect(await runGit(["rev-parse", "main"], fixture.repoPath)).toBe(mainBefore);
+      await expect(getConflictSummary(fixture.repoPath, sessionId)).rejects.toThrow(
+        "was not found",
       );
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });

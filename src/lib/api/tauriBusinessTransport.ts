@@ -67,6 +67,38 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("get_working_tree_status", { repoPath });
     },
 
+    getConflictSummary(repoPath, sessionId) {
+      return invokeCommand("get_conflict_summary", {
+        repoPath,
+        sessionId: sessionId?.trim() ? sessionId.trim() : null,
+      });
+    },
+
+    getConflictFileDetail(repoPath, file, sessionId) {
+      return invokeCommand("get_conflict_file_detail", {
+        repoPath,
+        file,
+        sessionId: sessionId?.trim() ? sessionId.trim() : null,
+      });
+    },
+
+    resolveConflictVersion(repoPath, file, side, sessionId) {
+      return invokeCommand("resolve_conflict_version", {
+        repoPath,
+        file,
+        side,
+        sessionId: sessionId?.trim() ? sessionId.trim() : null,
+      });
+    },
+
+    completeMergeSession(repoPath, sessionId) {
+      return invokeCommand("complete_merge_session", { repoPath, sessionId });
+    },
+
+    abortMergeSession(repoPath, sessionId) {
+      return invokeCommand("abort_merge_session", { repoPath, sessionId });
+    },
+
     getWorkingTreeDiffDetail(repoPath, file, area) {
       return invokeCommand("get_working_tree_diff_detail", { repoPath, file, area });
     },

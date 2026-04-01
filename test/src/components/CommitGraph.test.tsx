@@ -25,7 +25,7 @@ const commits: CommitListItem[] = [
 ];
 
 describe("CommitGraph", () => {
-  test("renders the WIP marker as a dashed circle in detailed mode", () => {
+  test("renders the WIP marker as a hollow dashed circle in detailed mode", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
@@ -41,6 +41,7 @@ describe("CommitGraph", () => {
         busy={false}
         wipStagedCount={1}
         wipUnstagedCount={2}
+        wipConflictedCount={0}
         onSelectWip={() => {}}
         onSelectCommit={() => {}}
         onCheckoutCommit={() => {}}
@@ -51,7 +52,7 @@ describe("CommitGraph", () => {
 
     expect(html).toContain('class="wip-node-ring"');
     expect(html).toContain('stroke-dasharray="2 3"');
-    expect(html).toContain('class="wip-node-core"');
+    expect(html).not.toContain('class="wip-node-core"');
     expect(html).toContain('class="wip-row__badge');
     expect(html).toContain('class="wip-row__primary');
     expect(html).toContain('class="wip-row__meta');
@@ -60,5 +61,34 @@ describe("CommitGraph", () => {
     expect(html).toContain("commit-graph__ref-badge--head");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
     expect(html).not.toContain("Detailed lane mode (branch / merge)");
+  });
+
+  test("renders the WIP row when conflicts exist without staged or unstaged files", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={commits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha={null}
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={2}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+      />,
+    );
+
+    expect(html).toContain("// WIP");
+    expect(html).toContain("2 conflicted");
   });
 });
