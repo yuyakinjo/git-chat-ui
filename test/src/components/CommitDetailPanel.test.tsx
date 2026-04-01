@@ -31,6 +31,23 @@ index 1111111..2222222 100644
 };
 
 describe("CommitDetailPanel", () => {
+  test("renders a header accessory in the commit detail title row", () => {
+    const html = renderToStaticMarkup(
+      <CommitDetailPanel
+        detail={detail}
+        loading={false}
+        activeDiffFile={null}
+        onOpenFileDiff={() => {}}
+        headerAccessory={<button type="button">Diffs vs main</button>}
+      />,
+    );
+
+    expect(html).toContain('section-title">Commit Detail');
+    expect(html).toContain("Diffs vs main");
+    expect(html).toContain("mb-2 flex items-center justify-between gap-2 px-2");
+    expect(html.indexOf("Diffs vs main")).toBeLessThan(html.indexOf("Overview"));
+  });
+
   test("renders changed files buttons without inline diff view", () => {
     const html = renderToStaticMarkup(
       <CommitDetailPanel

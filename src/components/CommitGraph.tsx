@@ -5,11 +5,13 @@ import { useContainerWidth } from "../hooks/useContainerWidth";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows } from "../lib/commitGraphLayout";
+import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
 import type { BranchResponse, CommitGraphMode, CommitListItem } from "../types";
 import {
+  buildDefaultBranchAnchorLaneIndices,
   clampColumnWidth,
-  LANE_COLORS,
+  DEFAULT_BRANCH_LANE_COLOR,
   LANE_GAP,
   LANE_PADDING,
   laneColor,
@@ -100,6 +102,14 @@ export function CommitGraph({
 
   const visibleCommits = useMemo(() => commits, [commits]);
   const laneLayout = useMemo(() => buildLaneRows(commits), [commits]);
+  const defaultBranchHeadSha = useMemo(
+    () => resolveDefaultBranch(branchContext)?.commit ?? null,
+    [branchContext],
+  );
+  const defaultBranchAnchorLaneIndices = useMemo(
+    () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
+    [commits, defaultBranchHeadSha, laneLayout.rows],
+  );
   const refLabelBySha = useMemo(
     () => new Map(commits.map((commit) => [commit.sha, parseCommitRefLabels(commit.decoration)])),
     [commits],
@@ -245,6 +255,11 @@ export function CommitGraph({
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
   const gridTemplateColumns = columnLayout.templateColumns;
   const wipLineBottomStart = ROW_HEIGHT / 2 + WIP_NODE_LINE_CLEARANCE;
+  const resolveLaneStroke = useCallback(
+    (rowIndex: number, laneIndex: number) =>
+      laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0),
+    [defaultBranchAnchorLaneIndices],
+  );
   const handleCopySha = useCallback(
     (sha: string) => {
       void copyTextToClipboard(sha)
@@ -334,7 +349,7 @@ export function CommitGraph({
                     y1={wipLineBottomStart}
                     x2={laneX(0)}
                     y2={ROW_HEIGHT + LINE_OVERDRAW}
-                    stroke={LANE_COLORS[0]}
+                    stroke={resolveLaneStroke(0, 0) || DEFAULT_BRANCH_LANE_COLOR}
                     strokeWidth={2.2}
                     opacity={0.85}
                     strokeLinecap="round"
@@ -452,7 +467,7 @@ export function CommitGraph({
                           y1={y1}
                           x2={laneX(laneIndex)}
                           y2={y2}
-                          stroke={laneColor(laneIndex)}
+                          stroke={resolveLaneStroke(index, laneIndex)}
                           strokeWidth={strokeWidth}
                           opacity={isCommitLane ? 0.85 : 0.48}
                           strokeLinecap="round"
@@ -468,7 +483,7 @@ export function CommitGraph({
                         <path
                           key={`${commit.sha}-merge-${targetLaneIndex}`}
                           d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
-                          stroke={laneColor(targetLaneIndex)}
+                          stroke={resolveLaneStroke(index, targetLaneIndex)}
                           strokeWidth={1.5}
                           opacity={0.75}
                         />
@@ -479,7 +494,7 @@ export function CommitGraph({
                     row.primaryParentLaneIndex !== row.laneIndex ? (
                       <path
                         d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
-                        stroke={laneColor(row.primaryParentLaneIndex)}
+                        stroke={resolveLaneStroke(index, row.primaryParentLaneIndex)}
                         strokeWidth={1.6}
                         opacity={0.78}
                       />
@@ -491,7 +506,7 @@ export function CommitGraph({
                     style={{
                       left: `${laneX(row.laneIndex) - nodeSize / 2}px`,
                       top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
-                      background: avatarSrc ? undefined : laneColor(row.laneIndex),
+                      background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
                     }}
                   >
                     {avatarSrc ? (
@@ -516,7 +531,9 @@ export function CommitGraph({
                   />
                   <span
                     className={`commit-node ${avatarSrc ? "commit-node--avatar" : ""} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                    style={{ background: avatarSrc ? undefined : laneColor(row.laneIndex) }}
+                    style={{
+                      background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
+                    }}
                   >
                     {avatarSrc ? (
                       <img

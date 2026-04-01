@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import {
+  buildDefaultBranchAnchorLaneIndices,
+  DEFAULT_BRANCH_LANE_COLOR,
+  LEFT_BRANCH_LANE_COLORS,
+  RIGHT_BRANCH_LANE_COLORS,
+  laneColor,
+} from "../../../src/components/CommitGraphHelpers";
 import type { BranchResponse, CommitListItem } from "../../../src/types";
 
 import { CommitGraph } from "../../../src/components/CommitGraph";
+import { buildLaneRows } from "../../../src/lib/commitGraphLayout";
 
 const commits: CommitListItem[] = [
   {
@@ -46,6 +54,42 @@ const branchContext: BranchResponse = {
 };
 
 describe("CommitGraph", () => {
+  test("anchors lane colors around the default branch lane", () => {
+    const branchyCommits: CommitListItem[] = [
+      {
+        sha: "feature-tip",
+        parentShas: ["base"],
+        author: "kinjo",
+        date: "2026-03-30T12:00:00.000Z",
+        subject: "feat: feature branch",
+        decoration: "(HEAD -> feature)",
+      },
+      {
+        sha: "main-tip",
+        parentShas: ["base"],
+        author: "kinjo",
+        date: "2026-03-29T12:00:00.000Z",
+        subject: "chore: main tip",
+        decoration: "(main, origin/main)",
+      },
+      {
+        sha: "base",
+        parentShas: [],
+        author: "kinjo",
+        date: "2026-03-28T12:00:00.000Z",
+        subject: "chore: base",
+        decoration: "",
+      },
+    ];
+    const layout = buildLaneRows(branchyCommits);
+    const anchors = buildDefaultBranchAnchorLaneIndices(branchyCommits, layout.rows, "main-tip");
+
+    expect(anchors).toEqual([1, 1, 0]);
+    expect(laneColor(1, anchors[1])).toBe(DEFAULT_BRANCH_LANE_COLOR);
+    expect(laneColor(0, anchors[0])).toBe(LEFT_BRANCH_LANE_COLORS[0]);
+    expect(laneColor(1, anchors[2])).toBe(RIGHT_BRANCH_LANE_COLORS[0]);
+  });
+
   test("renders the WIP marker as a hollow dashed circle in detailed mode", () => {
     const html = renderToStaticMarkup(
       <CommitGraph

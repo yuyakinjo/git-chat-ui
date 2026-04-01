@@ -1,13 +1,26 @@
 import { AlertTriangle, GitCommitHorizontal, GripVertical, UploadCloud, X } from "lucide-react";
-import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type JSX,
+} from "react";
 import { flushSync } from "react-dom";
 
 import { api } from "../lib/api";
+import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { describeGitError, type UiError } from "../lib/errors";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
 import { canMergeBranchWithoutWorkingTreeChange } from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
+import {
+  resolveCollapsedControllerPanelsGridClassName,
+  shouldRenderGitOperationsPanel,
+} from "../lib/controllerPanelLayout";
 import {
   getWorkingTreeDiscardConfirmMessage,
   resolveWorkingTreeDiscardTarget,
@@ -42,6 +55,8 @@ type CommitMessageGenerationState =
   | { status: "success"; title: string; description: string }
   | { status: "error"; error: UiError };
 
+const GIT_OPERATION_PANEL_HIDE_DURATION_MS = 320;
+
 export function ControllerView({
   repository,
   appConfig,
@@ -55,6 +70,10 @@ export function ControllerView({
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
   const [pendingCommitMessageGenerationResult, setPendingCommitMessageGenerationResult] =
     useState<CommitMessageGenerationState>({ status: "idle" });
+  const [gitOperationsPanelVisibility, setGitOperationsPanelVisibility] = useState<
+    "visible" | "hiding" | "hidden"
+  >("visible");
+  const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
   const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
@@ -239,6 +258,26 @@ export function ControllerView({
       ? data.selfMutationBlockedReason
       : null;
   const activeConflictSummary = data.conflictSummary;
+  const branchDiffTooltip = getBranchDiffButtonTooltip(
+    data.branchDiffBaseLabel,
+    data.showBranchDiff,
+  );
+  const branchDiffHeaderAccessory = data.showBranchDiffButton ? (
+    <button
+      type="button"
+      className={`button ${data.showBranchDiff ? "button-primary" : "button-secondary"}`}
+      disabled={data.loadingBranchDiffDetail}
+      title={branchDiffTooltip}
+      aria-haspopup="dialog"
+      aria-expanded={data.showBranchDiff}
+      onClick={() => {
+        data.setFocusedCommitDiffFile(null);
+        data.setShowBranchDiff(!data.showBranchDiff);
+      }}
+    >
+      {data.showBranchDiff ? "Close Diffs" : data.branchDiffButtonLabel}
+    </button>
+  ) : null;
 
   // --- Panel JSX ---
 
@@ -324,6 +363,40 @@ export function ControllerView({
     data.operationBusy ||
     (data.workingStatus?.staged.length ?? 0) === 0 ||
     !data.commitTitle.trim();
+  const shouldShowGitOperations = shouldRenderGitOperationsPanel(data.workingStatus);
+
+  useEffect(() => {
+    if (gitOperationsHideTimeoutRef.current !== null) {
+      clearTimeout(gitOperationsHideTimeoutRef.current);
+      gitOperationsHideTimeoutRef.current = null;
+    }
+
+    if (shouldShowGitOperations) {
+      setGitOperationsPanelVisibility("visible");
+      return;
+    }
+
+    setGitOperationsPanelVisibility((current) => (current === "hidden" ? current : "hiding"));
+    gitOperationsHideTimeoutRef.current = setTimeout(() => {
+      gitOperationsHideTimeoutRef.current = null;
+      setGitOperationsPanelVisibility("hidden");
+    }, GIT_OPERATION_PANEL_HIDE_DURATION_MS);
+
+    return () => {
+      if (gitOperationsHideTimeoutRef.current !== null) {
+        clearTimeout(gitOperationsHideTimeoutRef.current);
+        gitOperationsHideTimeoutRef.current = null;
+      }
+    };
+  }, [shouldShowGitOperations]);
+
+  useEffect(() => {
+    return () => {
+      if (gitOperationsHideTimeoutRef.current !== null) {
+        clearTimeout(gitOperationsHideTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const gitOperationPanel = (
     <GitOperationPanel
@@ -475,21 +548,6 @@ export function ControllerView({
             <GitCommitHorizontal size={16} aria-hidden="true" />
             <span>Commit</span>
           </button>
-          {data.showBranchDiffButton ? (
-            <button
-              type="button"
-              className={`button ${data.showBranchDiff ? "button-primary" : "button-secondary"}`}
-              disabled={data.loadingBranchDiffDetail}
-              aria-haspopup="dialog"
-              aria-expanded={data.showBranchDiff}
-              onClick={() => {
-                data.setFocusedCommitDiffFile(null);
-                data.setShowBranchDiff(!data.showBranchDiff);
-              }}
-            >
-              {data.showBranchDiff ? "Close Diffs" : data.branchDiffButtonLabel}
-            </button>
-          ) : null}
         </div>
       }
     />
@@ -516,6 +574,7 @@ export function ControllerView({
         });
       }}
       workingTreeSelection={workingTreeSelection}
+      headerAccessory={branchDiffHeaderAccessory}
     />
   );
 
@@ -524,6 +583,19 @@ export function ControllerView({
     gitOperations: gitOperationPanel,
     commitDetail: commitDetailPanel,
   };
+  const renderGitOperationsSlot = gitOperationsPanelVisibility !== "hidden";
+  const visiblePanelOrder = renderGitOperationsSlot
+    ? panelOrder
+    : panelOrder.filter((panelId) => panelId !== "gitOperations");
+  const controllerPanelsGridClassName = [
+    "controller-panels-grid",
+    !renderGitOperationsSlot ? "controller-panels-grid--without-git-operations" : null,
+    !renderGitOperationsSlot
+      ? resolveCollapsedControllerPanelsGridClassName(visiblePanelOrder)
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   // --- Render ---
 
@@ -629,8 +701,8 @@ export function ControllerView({
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
         />
 
-        <div className="controller-panels-grid">
-          {panelOrder.map((panelId) => {
+        <div className={controllerPanelsGridClassName}>
+          {visiblePanelOrder.map((panelId) => {
             const isDragActive = draggedPanelId !== null;
             const isDropTarget = dropTargetPanelId === panelId;
             const isDragSource = draggedPanelId === panelId;
@@ -647,7 +719,11 @@ export function ControllerView({
                 key={panelId}
                 data-controller-panel-drop-id={panelId}
                 data-controller-panel-drag-source-id={panelId}
-                className={`controller-panel-slot min-h-0 ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isDragSource ? "is-drag-source" : ""}`}
+                className={`controller-panel-slot min-h-0 ${
+                  panelId === "gitOperations" && gitOperationsPanelVisibility === "hiding"
+                    ? "controller-panel-slot--hiding"
+                    : ""
+                } ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isDragSource ? "is-drag-source" : ""}`}
                 onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
               >
                 <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>

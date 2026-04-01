@@ -80,3 +80,14 @@ export function getBranchDiffBaseLabel(branch: Branch | null): string | null {
 export function getBranchDiffButtonLabel(defaultBranchName: string | null): string {
   return `Diffs vs ${defaultBranchName ?? "default"}`;
 }
+
+export function getBranchDiffButtonTooltip(
+  defaultBranchName: string | null,
+  expanded: boolean,
+): string {
+  const baseLabel = defaultBranchName ?? "default";
+
+  return expanded
+    ? `${baseLabel} との差分表示を閉じる`
+    : `現在のブランチと ${baseLabel} の差分を表示する`;
+}

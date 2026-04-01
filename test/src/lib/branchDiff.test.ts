@@ -6,6 +6,7 @@ import {
   canCompareCurrentBranch,
   getBranchDiffBaseLabel,
   getBranchDiffButtonLabel,
+  getBranchDiffButtonTooltip,
   isCurrentBranchDiffDetail,
   resolveBranchDiffBaseBranch,
 } from "../../../src/lib/branchDiff";
@@ -89,6 +90,18 @@ describe("isCurrentBranchDiffDetail", () => {
 describe("getBranchDiffButtonLabel", () => {
   test("describes the default branch comparison target", () => {
     expect(getBranchDiffButtonLabel("main")).toBe("Diffs vs main");
+  });
+});
+
+describe("getBranchDiffButtonTooltip", () => {
+  test("describes opening the branch diff against the base branch", () => {
+    expect(getBranchDiffButtonTooltip("main", false)).toBe(
+      "現在のブランチと main の差分を表示する",
+    );
+  });
+
+  test("describes closing the open branch diff", () => {
+    expect(getBranchDiffButtonTooltip("main", true)).toBe("main との差分表示を閉じる");
   });
 });
 

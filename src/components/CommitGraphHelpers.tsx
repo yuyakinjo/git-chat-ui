@@ -1,6 +1,9 @@
 import { Cloud, HardDrive, Tag, type LucideIcon } from "lucide-react";
 import type { CSSProperties, JSX } from "react";
 
+import type { LaneRow } from "../lib/commitGraphLayout";
+import type { CommitListItem } from "../types";
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 export const LANE_GAP = 18;
@@ -27,6 +30,23 @@ export const LANE_COLORS = [
   "#6e56cf",
   "#f59f00",
 ];
+export const DEFAULT_BRANCH_LANE_COLOR = "#7ed957";
+export const LEFT_BRANCH_LANE_COLORS = [
+  "#ffd84a",
+  "#ff9f43",
+  "#ff5a54",
+  "#ff2d95",
+  "#9a35ff",
+  "#21c7ff",
+];
+export const RIGHT_BRANCH_LANE_COLORS = [
+  "#39d7b6",
+  "#21c7ff",
+  "#2f7cff",
+  "#9a35ff",
+  "#ff2d95",
+  "#ff5a54",
+];
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -43,8 +63,76 @@ export interface CommitRefScopeContext {
 
 // ── Pure functions ─────────────────────────────────────────────────────
 
-export function laneColor(index: number): string {
-  return LANE_COLORS[index % LANE_COLORS.length];
+function normalizeSha(sha: string | null | undefined): string {
+  return sha?.trim() ?? "";
+}
+
+export function laneColor(index: number, defaultLaneIndex = 0): string {
+  const offset = index - defaultLaneIndex;
+  if (offset === 0) {
+    return DEFAULT_BRANCH_LANE_COLOR;
+  }
+
+  if (offset < 0) {
+    return LEFT_BRANCH_LANE_COLORS[(Math.abs(offset) - 1) % LEFT_BRANCH_LANE_COLORS.length];
+  }
+
+  return RIGHT_BRANCH_LANE_COLORS[(offset - 1) % RIGHT_BRANCH_LANE_COLORS.length];
+}
+
+export function buildDefaultBranchAnchorLaneIndices(
+  commits: Array<Pick<CommitListItem, "sha" | "parentShas">>,
+  rows: LaneRow[],
+  defaultBranchHeadSha: string | null | undefined,
+): number[] {
+  if (commits.length === 0 || rows.length === 0) {
+    return [];
+  }
+
+  const normalizedDefaultHeadSha = normalizeSha(defaultBranchHeadSha);
+  if (!normalizedDefaultHeadSha) {
+    return rows.map(() => 0);
+  }
+
+  const commitBySha = new Map(
+    commits.map((commit) => [normalizeSha(commit.sha), commit] satisfies [string, typeof commit]),
+  );
+  const firstDefaultRowIndex = commits.findIndex(
+    (commit) => normalizeSha(commit.sha) === normalizedDefaultHeadSha,
+  );
+
+  if (firstDefaultRowIndex === -1) {
+    return rows.map(() => 0);
+  }
+
+  const anchors = rows.map(() => rows[firstDefaultRowIndex]?.laneIndex ?? 0);
+  let currentAnchorLaneIndex = anchors[firstDefaultRowIndex] ?? 0;
+  let nextDefaultSha = normalizedDefaultHeadSha;
+  let started = false;
+
+  for (let index = 0; index < commits.length; index += 1) {
+    const commit = commits[index];
+    const row = rows[index];
+    if (!row) {
+      anchors[index] = currentAnchorLaneIndex;
+      continue;
+    }
+
+    const commitSha = normalizeSha(commit.sha);
+    if (commitSha === nextDefaultSha) {
+      started = true;
+      anchors[index] = row.laneIndex;
+      currentAnchorLaneIndex = row.primaryParentLaneIndex ?? row.laneIndex;
+
+      const nextParentSha = normalizeSha(commit.parentShas[0]);
+      nextDefaultSha = nextParentSha && commitBySha.has(nextParentSha) ? nextParentSha : "";
+      continue;
+    }
+
+    anchors[index] = started ? currentAnchorLaneIndex : (anchors[firstDefaultRowIndex] ?? 0);
+  }
+
+  return anchors;
 }
 
 export function laneX(index: number): number {

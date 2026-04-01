@@ -1,13 +1,27 @@
 import type { ControllerPanelId } from "./controllerPanelOrder";
 import type { Branch, BranchResponse } from "../types";
 
+function getRemoteBranchShortName(branchName: string): string {
+  const parts = branchName.trim().split("/").filter(Boolean);
+  if (parts.length <= 1) {
+    return branchName.trim();
+  }
+
+  return parts.slice(1).join("/");
+}
+
 export function resolveDefaultBranch(branches: BranchResponse | null): Branch | undefined {
   if (!branches) {
     return undefined;
   }
 
   const localBranches = branches.local;
+  const remoteDefault = branches.remote.find((branch) => branch.isRemoteDefault);
+  const remoteDefaultLocalCandidate = remoteDefault
+    ? localBranches.find((branch) => branch.name === getRemoteBranchShortName(remoteDefault.name))
+    : undefined;
   const candidate =
+    remoteDefaultLocalCandidate ??
     localBranches.find((branch) => branch.name === "main") ??
     localBranches.find((branch) => branch.name === "master") ??
     localBranches.find((branch) => branch.name === branches.current) ??
