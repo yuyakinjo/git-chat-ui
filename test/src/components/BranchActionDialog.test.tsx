@@ -23,8 +23,8 @@ describe("BranchActionDialog", () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain("Merge");
     expect(html).toContain("Pull Request");
-    expect(html).toContain("feature/dnd を");
-    expect(html).toContain("main に取り込みます。");
+    expect(html).toContain("feature/dnd</span> を");
+    expect(html).toContain("main</span> に取り込みます。");
     expect(html).toContain("feature/dnd</span> から");
     expect(html).toContain("main</span> 向けの Pull Request を作成します。");
     expect(html).toContain("branch-action-dialog__ref-flow");
