@@ -100,7 +100,7 @@ export interface UseControllerDataResult {
   commitMessageFiles: string[];
 
   reportError: (error: unknown, fallbackTitle: string) => void;
-  reportBlockedMutation: (title: string) => boolean;
+  reportBlockedMutation: (title: string, detail?: string) => boolean;
   loadCommitDetail: (sha: string) => Promise<void>;
   loadBranchDiffDetail: () => Promise<void>;
   loadWorkingTreeDiffDetail: (file: string, area: WorkingTreeDiffArea) => Promise<void>;

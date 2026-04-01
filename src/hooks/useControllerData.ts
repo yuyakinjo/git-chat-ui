@@ -242,14 +242,14 @@ export function useControllerData({
   );
 
   const reportBlockedMutation = useCallback(
-    (title: string): boolean => {
+    (title: string, detail?: string): boolean => {
       if (!selfMutationBlockedReason) {
         return false;
       }
 
       const nextError: UiError = {
         title,
-        detail: selfMutationBlockedReason,
+        detail: detail ?? selfMutationBlockedReason,
       };
       setInlineError(nextError);
       onNotify(title);

@@ -52,14 +52,16 @@ export function BranchActionDialog({
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="section-title">Branch Action</div>
-            <div className="truncate text-base font-semibold text-ink">
-              {sourceBranchName} -&gt; {targetBranchName}
-            </div>
-            <div className="mt-1 text-sm text-ink-subtle">
-              {step === "select-action"
-                ? "ドロップしたブランチに対して進める操作を選んでください。"
-                : "source branch を push してから Pull Request を作成します。"}
-            </div>
+            {step === "confirm-push" ? (
+              <>
+                <div className="truncate text-base font-semibold text-ink">
+                  {sourceBranchName} -&gt; {targetBranchName}
+                </div>
+                <div className="mt-1 text-sm text-ink-subtle">
+                  source branch を push してから Pull Request を作成します。
+                </div>
+              </>
+            ) : null}
           </div>
 
           <button
@@ -75,17 +77,14 @@ export function BranchActionDialog({
         </div>
 
         {step === "select-action" ? (
-          <div className="space-y-3">
+          <div className="flex h-full flex-col gap-3">
             <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
               <div className="font-semibold text-ink">Merge</div>
-              <div className="mt-1">
+              <div className="mt-1 leading-6">
                 <span className="font-medium text-ink">{sourceBranchName}</span> を{" "}
                 <span className="font-medium text-ink">{targetBranchName}</span> に取り込みます。
               </div>
-            </div>
-            <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
-              <div className="font-semibold text-ink">Pull Request</div>
-              <div className="branch-action-dialog__ref-flow">
+              <div className="mt-3 branch-action-dialog__ref-flow">
                 <span className="branch-action-dialog__ref-pill">
                   <span className="branch-action-dialog__ref-label">base</span>
                   <span className="branch-action-dialog__ref-value" title={targetBranchName}>
@@ -102,13 +101,43 @@ export function BranchActionDialog({
                   </span>
                 </span>
               </div>
-            </div>
-            {mergeDisabledReason ? (
-              <div className="rounded-2xl border border-amber-300/70 bg-amber-50/85 p-4 text-sm text-amber-900">
-                <div className="font-semibold">Merge is unavailable here</div>
-                <div className="mt-1 leading-6">{mergeDisabledReason}</div>
+              {mergeDisabledReason ? (
+                <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50/85 p-3 text-sm text-amber-900">
+                  <div className="font-semibold">Merge is unavailable here</div>
+                  <div className="mt-1 leading-6">{mergeDisabledReason}</div>
+                </div>
+              ) : null}
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="button button-primary inline-flex items-center gap-2"
+                  onClick={onMerge}
+                  disabled={busy || Boolean(mergeDisabledReason)}
+                >
+                  <GitMerge size={14} aria-hidden="true" />
+                  Merge
+                </button>
               </div>
-            ) : null}
+            </div>
+            <div className="rounded-2xl border border-black/10 bg-white/70 p-4 text-sm text-ink-soft">
+              <div className="font-semibold text-ink">Pull Request</div>
+              <div className="mt-1 leading-6">
+                <span className="font-medium text-ink">{sourceBranchName}</span> から{" "}
+                <span className="font-medium text-ink">{targetBranchName}</span> 向けの Pull Request
+                を作成します。
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="button button-secondary inline-flex items-center gap-2"
+                  onClick={onPreparePullRequest}
+                  disabled={busy}
+                >
+                  <GitPullRequestArrow size={14} aria-hidden="true" />
+                  Pull Request
+                </button>
+              </div>
+            </div>
             <div className="mt-auto flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -117,24 +146,6 @@ export function BranchActionDialog({
                 disabled={busy}
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                className="button button-secondary inline-flex items-center gap-2"
-                onClick={onPreparePullRequest}
-                disabled={busy}
-              >
-                <GitPullRequestArrow size={14} aria-hidden="true" />
-                Pull Request
-              </button>
-              <button
-                type="button"
-                className="button button-primary inline-flex items-center gap-2"
-                onClick={onMerge}
-                disabled={busy || Boolean(mergeDisabledReason)}
-              >
-                <GitMerge size={14} aria-hidden="true" />
-                Merge
               </button>
             </div>
           </div>

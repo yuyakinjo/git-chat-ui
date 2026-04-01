@@ -1,13 +1,22 @@
 import type { Branch, RepositoryMutationSafety } from "../types";
 
-const SELF_MUTATION_BLOCKED_REASON =
-  "開発モードでアプリ自身のリポジトリに checkout / merge / pull を行うと、dev server や tauri dev が再起動して UI が落ちるため、この操作は無効です。clone した repo かビルド済みアプリで実行してください。";
+function formatSelfMutationBlockedReason(actionLabel: string): string {
+  return `開発モードでアプリ自身のリポジトリに ${actionLabel} を行うと、dev server や tauri dev が再起動して UI が落ちるため、この操作は無効です。clone した repo かビルド済みアプリで実行してください。`;
+}
+
+const SELF_MUTATION_BLOCKED_REASON = formatSelfMutationBlockedReason("checkout / merge / pull");
 
 export function getSelfMutationBlockedReason(
   isDev: boolean,
   repositoryMutationSafety: RepositoryMutationSafety,
 ): string | null {
   return isDev && repositoryMutationSafety.isSelfRepository ? SELF_MUTATION_BLOCKED_REASON : null;
+}
+
+export function getSelfStashMutationBlockedReason(
+  actionLabel: "apply" | "pop" | "apply / pop",
+): string {
+  return formatSelfMutationBlockedReason(`stash ${actionLabel}`);
 }
 
 export function canCheckoutBranchWithoutWorkingTreeChange(

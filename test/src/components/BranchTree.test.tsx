@@ -61,6 +61,7 @@ describe("BranchTree", () => {
         branches={branches}
         stashes={[]}
         selectedBranchName="main"
+        stashMutationBlockedReason={null}
         busy={false}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
@@ -88,6 +89,7 @@ describe("BranchTree", () => {
         branches={branches}
         stashes={stashes}
         selectedBranchName="main"
+        stashMutationBlockedReason={null}
         busy={false}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
@@ -127,6 +129,7 @@ describe("BranchTree", () => {
         branches={branchesWithVisibleRemoteLeaf}
         stashes={stashes}
         selectedBranchName="main"
+        stashMutationBlockedReason={null}
         busy={false}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}

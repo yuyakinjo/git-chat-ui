@@ -30,11 +30,11 @@ import {
   clampContextMenuPosition,
   getBranchDisplayName,
   getContextMenuHeight,
+  getStashContextMenuHeight,
   getStashContextMenuHint,
   getStashMetaLabel,
   getStashPrimaryLabel,
   SectionTitle,
-  STASH_CONTEXT_MENU_HEIGHT_PX,
   type TreeNode,
 } from "./BranchTreeHelpers";
 
@@ -42,6 +42,7 @@ interface BranchTreeProps {
   branches: BranchResponse | null;
   stashes: StashEntry[];
   selectedBranchName: string | null;
+  stashMutationBlockedReason: string | null;
   busy: boolean;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
@@ -61,6 +62,7 @@ export function BranchTree({
   branches,
   stashes,
   selectedBranchName,
+  stashMutationBlockedReason,
   busy,
   onSelectBranch,
   onCheckoutBranch,
@@ -90,6 +92,7 @@ export function BranchTree({
     | {
         kind: "stash";
         stash: StashEntry;
+        actionBlockedReason: string | null;
         x: number;
         y: number;
       }
@@ -408,11 +411,12 @@ export function BranchTree({
     const position = clampContextMenuPosition(
       event.clientX,
       event.clientY,
-      STASH_CONTEXT_MENU_HEIGHT_PX,
+      getStashContextMenuHeight(stashMutationBlockedReason),
     );
     setContextMenu({
       kind: "stash",
       stash,
+      actionBlockedReason: stashMutationBlockedReason,
       x: position.x,
       y: position.y,
     });
@@ -613,11 +617,15 @@ export function BranchTree({
               </>
             ) : (
               <>
+                {contextMenu.actionBlockedReason ? (
+                  <div className="branch-context-menu__hint">{contextMenu.actionBlockedReason}</div>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item ${busy ? "is-disabled" : ""}`}
-                  disabled={busy}
+                  className={`branch-context-menu__item ${busy || contextMenu.actionBlockedReason ? "is-disabled" : ""}`}
+                  disabled={busy || Boolean(contextMenu.actionBlockedReason)}
+                  title={contextMenu.actionBlockedReason ?? undefined}
                   onClick={() => handleApplyStashRequestFromTree(contextMenu.stash)}
                 >
                   <Download size={14} />
@@ -626,8 +634,9 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item is-danger ${busy ? "is-disabled" : ""}`}
-                  disabled={busy}
+                  className={`branch-context-menu__item is-danger ${busy || contextMenu.actionBlockedReason ? "is-disabled" : ""}`}
+                  disabled={busy || Boolean(contextMenu.actionBlockedReason)}
+                  title={contextMenu.actionBlockedReason ?? undefined}
                   onClick={() => handlePopStashRequestFromTree(contextMenu.stash)}
                 >
                   <Trash2 size={14} />

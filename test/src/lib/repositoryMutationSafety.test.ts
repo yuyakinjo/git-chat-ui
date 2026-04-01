@@ -4,6 +4,7 @@ import type { Branch, RepositoryMutationSafety } from "../../../src/types";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfStashMutationBlockedReason,
   getSelfMutationBlockedReason,
 } from "../../../src/lib/repositoryMutationSafety";
 
@@ -42,6 +43,14 @@ describe("getSelfMutationBlockedReason", () => {
     expect(getSelfMutationBlockedReason(true, mutationSafety)).toContain("checkout / merge");
     expect(getSelfMutationBlockedReason(false, mutationSafety)).toBeNull();
     expect(getSelfMutationBlockedReason(true, { isSelfRepository: false })).toBeNull();
+  });
+});
+
+describe("getSelfStashMutationBlockedReason", () => {
+  test("returns stash-specific wording for apply, pop, and menu-level blocking", () => {
+    expect(getSelfStashMutationBlockedReason("apply")).toContain("stash apply");
+    expect(getSelfStashMutationBlockedReason("pop")).toContain("stash pop");
+    expect(getSelfStashMutationBlockedReason("apply / pop")).toContain("stash apply / pop");
   });
 });
 

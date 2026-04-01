@@ -7,6 +7,7 @@ import { type UiError } from "../lib/errors";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfStashMutationBlockedReason,
 } from "../lib/repositoryMutationSafety";
 import type { UseControllerDataResult } from "./useControllerData";
 import { type BranchActionDialogStep } from "../components/BranchActionDialog";
@@ -403,11 +404,22 @@ export function useControllerBranchOps({
   };
 
   const handleApplyOrPopStash = async (stash: StashEntry, mode: "apply" | "pop"): Promise<void> => {
+    const blockedReason = getSelfStashMutationBlockedReason(mode);
     if (mode === "apply") {
-      if (data.reportBlockedMutation("開発中のアプリ自身の repo は stash を apply できません")) {
+      if (
+        data.reportBlockedMutation(
+          "開発中のアプリ自身の repo は stash を apply できません",
+          blockedReason,
+        )
+      ) {
         return;
       }
-    } else if (data.reportBlockedMutation("開発中のアプリ自身の repo は stash を pop できません")) {
+    } else if (
+      data.reportBlockedMutation(
+        "開発中のアプリ自身の repo は stash を pop できません",
+        blockedReason,
+      )
+    ) {
       return;
     }
 

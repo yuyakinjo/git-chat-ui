@@ -15,7 +15,10 @@ import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { describeGitError, type UiError } from "../lib/errors";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
-import { canMergeBranchWithoutWorkingTreeChange } from "../lib/repositoryMutationSafety";
+import {
+  canMergeBranchWithoutWorkingTreeChange,
+  getSelfStashMutationBlockedReason,
+} from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
 import {
   resolveCollapsedControllerPanelsGridClassName,
@@ -257,6 +260,9 @@ export function ControllerView({
     !canMergeBranchWithoutWorkingTreeChange(data.currentBranchName, branchOps.branchAction.target)
       ? data.selfMutationBlockedReason
       : null;
+  const stashMutationBlockedReason = data.selfMutationBlockedReason
+    ? getSelfStashMutationBlockedReason("apply / pop")
+    : null;
   const activeConflictSummary = data.conflictSummary;
   const branchDiffTooltip = getBranchDiffButtonTooltip(
     data.branchDiffBaseLabel,
@@ -681,6 +687,7 @@ export function ControllerView({
           branches={data.branches}
           stashes={data.stashes}
           selectedBranchName={data.branches?.current ?? null}
+          stashMutationBlockedReason={stashMutationBlockedReason}
           busy={data.operationBusy}
           onSelectBranch={branchOps.handleSelectBranch}
           onCheckoutBranch={(branch) => {
