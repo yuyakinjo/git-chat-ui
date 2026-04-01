@@ -284,6 +284,7 @@ export function ControllerView({
           compareRefs: data.activeCompareRefs,
         });
       }}
+      onNotify={onNotify}
     />
   );
 

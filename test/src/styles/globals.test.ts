@@ -93,6 +93,24 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
+  test("branch rows expose dedicated local and remote ref badge styles with dark-theme overrides", () => {
+    const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
+
+    expect(branchBadgeSection).toContain(".branch-list-item__header {");
+    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge {");
+    expect(branchBadgeSection).toContain("text-transform: uppercase;");
+    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge--local {");
+    expect(branchBadgeSection).toContain("rgb(219 234 254 / 0.82)");
+    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge--remote {");
+    expect(branchBadgeSection).toContain("rgb(204 251 241 / 0.78)");
+    expect(branchBadgeSection).toContain(
+      'body[data-theme="default-dark"] .branch-list-item__ref-badge--local {',
+    );
+    expect(branchBadgeSection).toContain(
+      'body[data-theme="default-dark"] .branch-list-item__ref-badge--remote {',
+    );
+  });
+
   test("config commit prompt textarea can shrink within the panel and wrap long lines", () => {
     const promptSection = getSection(".config-view__commit-title-prompt {", ".button {");
 

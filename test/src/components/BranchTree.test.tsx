@@ -26,6 +26,19 @@ const branches: BranchResponse = {
   ],
 };
 
+const branchesWithVisibleRemoteLeaf: BranchResponse = {
+  current: "main",
+  local: branches.local,
+  remote: [
+    {
+      name: "origin",
+      fullRef: "refs/remotes/origin",
+      type: "remote",
+      commit: "abc1234",
+    },
+  ],
+};
+
 const stashes: StashEntry[] = [
   {
     id: "stash@{0}",
@@ -73,5 +86,30 @@ describe("BranchTree", () => {
     expect(html).not.toContain(
       "右クリックで branch 作成 / 削除。local branch は別の local branch にドロップできます。",
     );
+  });
+
+  test("renders distinct local and remote ref badges in branch rows", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branchesWithVisibleRemoteLeaf}
+        stashes={stashes}
+        selectedBranchName="main"
+        busy={false}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("branch-list-item__ref-badge branch-list-item__ref-badge--local");
+    expect(html).toContain("branch-list-item__ref-badge branch-list-item__ref-badge--remote");
+    expect(html).toContain('aria-label="Local ref"');
+    expect(html).toContain('aria-label="Remote ref"');
   });
 });

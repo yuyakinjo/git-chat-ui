@@ -2,9 +2,11 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Cloud,
   Download,
   Folder,
   GitBranch,
+  HardDrive,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -479,6 +481,18 @@ export function BranchTree({
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
           const isLocalBranch = leaf.branch.type === "local";
+          const refBadge = isLocalBranch
+            ? {
+                label: "Local",
+                Icon: HardDrive,
+                className: "branch-list-item__ref-badge--local",
+              }
+            : {
+                label: "Remote",
+                Icon: Cloud,
+                className: "branch-list-item__ref-badge--remote",
+              };
+          const RefBadgeIcon = refBadge.Icon;
           const isDragActive = draggedBranchName !== null;
           const isDropTarget = dropTargetBranchName === leaf.branch.name;
           const isDragSource = draggedBranchName === leaf.branch.name;
@@ -539,8 +553,19 @@ export function BranchTree({
               ) : (
                 <>
                   <GitBranch size={13} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium">{leaf.displayName}</div>
+                  <div className="branch-list-item__content">
+                    <div className="branch-list-item__header">
+                      <div className="branch-list-item__title truncate text-[13px] font-medium">
+                        {leaf.displayName}
+                      </div>
+                      <span
+                        className={`branch-list-item__ref-badge ${refBadge.className}`}
+                        aria-label={`${refBadge.label} ref`}
+                      >
+                        <RefBadgeIcon size={11} aria-hidden="true" />
+                        <span>{refBadge.label}</span>
+                      </span>
+                    </div>
                     {statusLabel ? (
                       <div className="branch-list-item__status">{statusLabel}</div>
                     ) : null}

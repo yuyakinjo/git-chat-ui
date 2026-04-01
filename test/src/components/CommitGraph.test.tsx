@@ -47,6 +47,7 @@ describe("CommitGraph", () => {
         onCheckoutCommit={() => {}}
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
+        onNotify={() => {}}
       />,
     );
 
@@ -85,10 +86,42 @@ describe("CommitGraph", () => {
         onCheckoutCommit={() => {}}
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
+        onNotify={() => {}}
       />,
     );
 
     expect(html).toContain("// WIP");
     expect(html).toContain("2 conflicted");
+  });
+
+  test("renders the SHA column as a copyable button", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={commits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha={null}
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+      />,
+    );
+
+    expect(html).toContain('title="abc1234 をコピー"');
+    expect(html).toContain('aria-label="abc1234 をクリップボードにコピー"');
+    expect(html).toContain(">abc1234</span></button>");
   });
 });

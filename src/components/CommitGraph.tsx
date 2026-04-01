@@ -2,6 +2,7 @@ import { animate, stagger } from "animejs";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { useContainerWidth } from "../hooks/useContainerWidth";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows } from "../lib/commitGraphLayout";
 import { formatRelativeDate, shortSha } from "../lib/format";
@@ -44,6 +45,7 @@ interface CommitGraphProps {
   onCheckoutCommit: (commit: CommitListItem) => void;
   onCheckoutBranchRef: (refName: string) => void;
   onLoadMore: () => void;
+  onNotify: (message: string) => void;
   headerAccessory?: JSX.Element | null;
 }
 
@@ -67,6 +69,7 @@ export function CommitGraph({
   onCheckoutCommit,
   onCheckoutBranchRef,
   onLoadMore,
+  onNotify,
   headerAccessory,
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -216,6 +219,18 @@ export function CommitGraph({
   const isCompactLayout = columnLayout.isCompact;
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
   const gridTemplateColumns = columnLayout.templateColumns;
+  const handleCopySha = useCallback(
+    (sha: string) => {
+      void copyTextToClipboard(sha)
+        .then(() => {
+          onNotify(`${shortSha(sha)} をコピーしました。`);
+        })
+        .catch(() => {
+          onNotify("SHA のコピーに失敗しました。");
+        });
+    },
+    [onNotify],
+  );
 
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
@@ -505,7 +520,23 @@ export function CommitGraph({
               <div className="truncate text-xs text-ink-soft">{commit.author}</div>
               {!isCompactLayout ? (
                 <div className="commit-id-column truncate text-xs text-ink-subtle">
-                  {shortSha(commit.sha)}
+                  <button
+                    type="button"
+                    className="inline-flex max-w-full cursor-pointer items-center truncate rounded-sm border border-transparent px-1 py-px text-left transition hover:text-ink focus-visible:border-black/10 focus-visible:outline-none"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleCopySha(commit.sha);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    title={`${commit.sha} をコピー`}
+                    aria-label={`${commit.sha} をクリップボードにコピー`}
+                  >
+                    <span className="truncate">{shortSha(commit.sha)}</span>
+                  </button>
                 </div>
               ) : null}
             </div>
