@@ -1691,6 +1691,26 @@ body[data-theme="default-dark"] .wip-row__meta {
   }
 }
 
+@keyframes commit-submit-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0.18));
+  }
+
+  35% {
+    transform: scale(1.18);
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.44))
+      drop-shadow(0 0 18px rgba(166, 214, 255, 0.2));
+  }
+
+  60% {
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.28))
+      drop-shadow(0 0 12px rgba(166, 214, 255, 0.12));
+  }
+}
+
 .branch-action-dialog__ref-flow {
   display: flex;
   flex-wrap: wrap;
@@ -1877,13 +1897,20 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
 }
 
 .git-operation-panel__commit-actions {
-  display: grid;
+  display: flex;
   flex: 0 0 auto;
   gap: 8px;
+  justify-content: flex-end;
 }
 
-.git-operation-panel__commit-actions--two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.git-operation-panel__commit-submit-icon {
+  transform-origin: center;
+}
+
+.git-operation-panel__commit-actions
+  .button:not(:disabled)
+  .git-operation-panel__commit-submit-icon {
+  animation: commit-submit-breathe 2.2s ease-in-out infinite;
 }
 
 .git-operation-panel__drop-zone-empty {
@@ -2002,7 +2029,10 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
 
 @media (prefers-reduced-motion: reduce) {
   .git-operation-panel__title-action--generating,
-  .git-operation-panel__title-action--generating::before {
+  .git-operation-panel__title-action--generating::before,
+  .git-operation-panel__commit-actions
+    .button:not(:disabled)
+    .git-operation-panel__commit-submit-icon {
     animation: none;
   }
 }

@@ -24,6 +24,8 @@ describe("ControllerView", () => {
     expect(html).toContain('data-controller-panel-drop-id="commitDetail"');
     expect(html).toContain('data-controller-panel-drag-source-id="commitDetail"');
     expect(html).toContain("controller-panels-grid");
+    expect(html).toContain('class="lucide lucide-cloud-upload"');
+    expect(html).toContain(">Push</span>");
     expect(html).not.toContain("controller-panel-slot__handle");
     expect(html).not.toContain("右上の handle をドラッグしてパネル位置を入れ替えます。");
   });

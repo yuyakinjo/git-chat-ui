@@ -98,14 +98,25 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
-        headerAccessory={<button type="button">Diffs vs main</button>}
+        headerAccessory={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="button button-secondary inline-flex items-center gap-2"
+            >
+              <span>Push</span>
+            </button>
+            <button type="button">Diffs vs main</button>
+          </div>
+        }
       />,
     );
 
     expect(html).toContain('section-title">Git Operations');
+    expect(html).toContain("Push");
     expect(html).toContain("Diffs vs main");
     expect(html).toContain("mb-2 flex items-center justify-between gap-2 px-2");
+    expect(html.indexOf("Push")).toBeLessThan(html.indexOf("Diffs vs main"));
   });
 
   test("renders change buckets and commit controls in a shared responsive grid", () => {
@@ -128,7 +139,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -160,9 +170,12 @@ describe("GitOperationPanel", () => {
     );
     expect(html).toContain("git-operation-panel__commit-column flex min-h-0 min-w-0 flex-col");
     expect(html).toContain("git-operation-panel__commit-body");
-    expect(html).toContain(
-      "git-operation-panel__commit-actions git-operation-panel__commit-actions--two",
-    );
+    expect(html).toContain("git-operation-panel__commit-actions");
+    expect(html).not.toContain("git-operation-panel__commit-actions--two");
+    expect(html).toContain("lucide-git-commit-horizontal");
+    expect(html).toContain("git-operation-panel__commit-submit-icon");
+    expect(html).toContain(">Commit</span>");
+    expect(html).toContain("button button-primary inline-flex items-center gap-2");
     expect(html).toContain("git-operation-panel__bucket-header");
     expect((html.match(/git-operation-panel__bucket-header/g) ?? []).length).toBe(3);
     expect((html.match(/git-operation-panel__drop-zone-empty/g) ?? []).length).toBe(1);
@@ -220,7 +233,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -249,7 +261,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -289,7 +300,6 @@ describe("GitOperationPanel", () => {
         onOpenConflict={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -324,7 +334,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -352,7 +361,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -384,7 +392,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -415,7 +422,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
         onPull={() => {}}
       />,
     );
@@ -427,8 +433,8 @@ describe("GitOperationPanel", () => {
     expect(html).not.toContain("origin/main is ahead");
     expect(html).not.toContain("Pull を押してください。");
     expect(html).not.toContain(">Pull</button>");
-    expect(html).toContain(">Commit</button>");
-    expect(html).toContain(">Push</button>");
+    expect(html).toContain(">Commit</span></button>");
+    expect(html).not.toContain(">Push</button>");
   });
 
   test("chooses git operation column counts from panel width", () => {
@@ -462,7 +468,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -496,7 +501,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 
@@ -526,7 +530,6 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
-        onPush={() => {}}
       />,
     );
 

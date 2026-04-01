@@ -1,4 +1,4 @@
-import { AlertTriangle, GripVertical, X } from "lucide-react";
+import { AlertTriangle, GripVertical, UploadCloud, X } from "lucide-react";
 import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from "react";
 import { flushSync } from "react-dom";
 
@@ -287,6 +287,21 @@ export function ControllerView({
     />
   );
 
+  const pushCurrentBranch = (): void => {
+    void data.mutateAndReload(
+      async () => {
+        await api.push(repoPath);
+      },
+      {
+        onSuccess: () => {
+          flushSync(() => {
+            data.clearCommitMessageDraft();
+          });
+        },
+      },
+    );
+  };
+
   const gitOperationPanel = (
     <GitOperationPanel
       status={data.workingStatus}
@@ -413,20 +428,6 @@ export function ControllerView({
           },
         );
       }}
-      onPush={() => {
-        void data.mutateAndReload(
-          async () => {
-            await api.push(repoPath);
-          },
-          {
-            onSuccess: () => {
-              flushSync(() => {
-                data.clearCommitMessageDraft();
-              });
-            },
-          },
-        );
-      }}
       onPull={() => {
         if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
           return;
@@ -444,21 +445,32 @@ export function ControllerView({
         );
       }}
       headerAccessory={
-        data.showBranchDiffButton ? (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`button ${data.showBranchDiff ? "button-primary" : "button-secondary"}`}
-            disabled={data.loadingBranchDiffDetail}
-            aria-haspopup="dialog"
-            aria-expanded={data.showBranchDiff}
-            onClick={() => {
-              data.setFocusedCommitDiffFile(null);
-              data.setShowBranchDiff(!data.showBranchDiff);
-            }}
+            className="button button-secondary inline-flex items-center gap-2"
+            disabled={data.operationBusy}
+            onClick={pushCurrentBranch}
           >
-            {data.showBranchDiff ? "Close Diffs" : data.branchDiffButtonLabel}
+            <UploadCloud size={16} aria-hidden="true" />
+            <span>Push</span>
           </button>
-        ) : null
+          {data.showBranchDiffButton ? (
+            <button
+              type="button"
+              className={`button ${data.showBranchDiff ? "button-primary" : "button-secondary"}`}
+              disabled={data.loadingBranchDiffDetail}
+              aria-haspopup="dialog"
+              aria-expanded={data.showBranchDiff}
+              onClick={() => {
+                data.setFocusedCommitDiffFile(null);
+                data.setShowBranchDiff(!data.showBranchDiff);
+              }}
+            >
+              {data.showBranchDiff ? "Close Diffs" : data.branchDiffButtonLabel}
+            </button>
+          ) : null}
+        </div>
       }
     />
   );

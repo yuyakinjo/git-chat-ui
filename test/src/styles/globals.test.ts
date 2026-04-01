@@ -71,8 +71,10 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("overflow: auto;");
     expect(gitOperationSection).toContain(".git-operation-panel__description-input--compact {");
     expect(gitOperationSection).toContain("min-height: 44px;");
-    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions--two {");
-    expect(gitOperationSection).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions {");
+    expect(gitOperationSection).toContain("display: flex;");
+    expect(gitOperationSection).toContain("justify-content: flex-end;");
+    expect(gitOperationSection).not.toContain(".git-operation-panel__commit-actions--two {");
     expect(gitOperationSection).toContain(".git-operation-panel__drop-zone-empty {");
     expect(gitOperationSection).toContain("line-height: 1;");
     expect(gitOperationSection).toContain("transform: translateY(-1px);");
@@ -212,5 +214,25 @@ describe("globals.css", () => {
     expect(titleActionSection).toContain("cursor: progress;");
     expect(titleActionSection).toContain(".git-operation-panel__title-action:disabled {");
     expect(titleActionSection).toContain("cursor: not-allowed;");
+  });
+
+  test("commit button animates its icon only while the action is enabled and respects reduced motion", () => {
+    const gitOperationSection = getSection(
+      "@keyframes commit-submit-breathe {",
+      ".git-operation-panel__title-input.is-over-limit {",
+    );
+
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-submit-icon {");
+    expect(gitOperationSection).toContain("transform-origin: center;");
+    expect(gitOperationSection).toContain("transform: scale(1.18);");
+    expect(gitOperationSection).toContain("drop-shadow(0 0 18px rgba(166, 214, 255, 0.2))");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions");
+    expect(gitOperationSection).toContain(".button:not(:disabled)");
+    expect(gitOperationSection).toContain(
+      "animation: commit-submit-breathe 2.2s ease-in-out infinite;",
+    );
+    expect(gitOperationSection).toContain("@media (prefers-reduced-motion: reduce) {");
+    expect(gitOperationSection).toContain(".git-operation-panel__commit-actions");
+    expect(gitOperationSection).toContain("animation: none;");
   });
 });

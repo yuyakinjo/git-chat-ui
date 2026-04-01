@@ -1,4 +1,11 @@
-import { GripVertical, LoaderCircle, RotateCcw, Sparkles, UploadCloud } from "lucide-react";
+import {
+  GitCommitHorizontal,
+  GripVertical,
+  LoaderCircle,
+  RotateCcw,
+  Sparkles,
+  UploadCloud,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -58,7 +65,6 @@ interface GitOperationPanelProps {
   onOpenConflict?: (file: string) => void;
   onGenerateCommitMessage: () => void;
   onCommit: () => void;
-  onPush: () => void;
   onPull?: () => void;
   headerAccessory?: JSX.Element | null;
 }
@@ -94,7 +100,6 @@ export function GitOperationPanel({
   onOpenConflict,
   onGenerateCommitMessage,
   onCommit,
-  onPush,
   onPull,
   headerAccessory,
 }: GitOperationPanelProps): JSX.Element {
@@ -617,8 +622,6 @@ export function GitOperationPanel({
   const commitDescriptionClass = isCompactMediumLayout
     ? "git-operation-panel__description-input--compact"
     : "";
-  const commitActionsClass = "git-operation-panel__commit-actions--two";
-
   const renderUnstagedBucket = (): JSX.Element => (
     <div className="flex min-h-0 min-w-0 flex-col">
       <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
@@ -827,22 +830,19 @@ export function GitOperationPanel({
             onChange={(event) => onCommitDescriptionChange(event.target.value)}
           />
         </div>
-        <div className={`git-operation-panel__commit-actions ${commitActionsClass}`.trim()}>
+        <div className="git-operation-panel__commit-actions">
           <button
             type="button"
-            className="button button-primary"
+            className="button button-primary inline-flex items-center gap-2"
             disabled={busy || staged.length === 0 || !commitTitle.trim()}
             onClick={onCommit}
           >
-            Commit
-          </button>
-          <button
-            type="button"
-            className="button button-secondary"
-            disabled={busy}
-            onClick={onPush}
-          >
-            Push
+            <GitCommitHorizontal
+              size={16}
+              aria-hidden="true"
+              className="git-operation-panel__commit-submit-icon"
+            />
+            <span>Commit</span>
           </button>
         </div>
       </div>
