@@ -831,7 +831,7 @@ export function GitOperationPanel({
             ) : null}
           </div>
           <textarea
-            className={`input min-h-20 flex-1 resize-y ${commitDescriptionClass}`.trim()}
+            className={`input git-operation-panel__description-input resize-y ${commitDescriptionClass}`.trim()}
             placeholder="Description"
             value={commitDescription}
             disabled={isCommitMessageEditorActuallyLocked}

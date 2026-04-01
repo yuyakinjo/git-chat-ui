@@ -150,6 +150,7 @@ describe("GitOperationPanel", () => {
       />,
     );
 
+    expect(html).toContain("git-operation-panel__description-input");
     expect(html).toContain("git-operation-panel__description-input--expanded");
     expect(html).not.toContain("git-operation-panel__description-input--compact");
     expect(html).not.toContain("git-operation-panel__commit-actions");

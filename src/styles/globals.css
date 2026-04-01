@@ -1942,14 +1942,21 @@ body[data-theme="default-dark"] .branch-action-dialog__ref-pill {
   overflow: auto;
 }
 
+.git-operation-panel__description-input {
+  min-height: 0;
+  max-height: 100%;
+  flex: 1 1 80px;
+}
+
 .git-operation-panel__description-input--compact {
   min-height: 44px;
   max-height: 64px;
+  flex: 0 0 auto;
   resize: none;
 }
 
 .git-operation-panel__description-input--expanded {
-  min-height: 132px;
+  flex-basis: 132px;
 }
 
 .git-operation-panel__commit-actions {

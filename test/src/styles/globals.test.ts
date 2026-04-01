@@ -69,10 +69,14 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("padding: 8px;");
     expect(gitOperationSection).toContain(".git-operation-panel__commit-body {");
     expect(gitOperationSection).toContain("overflow: auto;");
+    expect(gitOperationSection).toContain(".git-operation-panel__description-input {");
+    expect(gitOperationSection).toContain("max-height: 100%;");
+    expect(gitOperationSection).toContain("flex: 1 1 80px;");
     expect(gitOperationSection).toContain(".git-operation-panel__description-input--compact {");
     expect(gitOperationSection).toContain("min-height: 44px;");
+    expect(gitOperationSection).toContain("flex: 0 0 auto;");
     expect(gitOperationSection).toContain(".git-operation-panel__description-input--expanded {");
-    expect(gitOperationSection).toContain("min-height: 132px;");
+    expect(gitOperationSection).toContain("flex-basis: 132px;");
     expect(gitOperationSection).toContain(".git-operation-panel__commit-actions {");
     expect(gitOperationSection).toContain("display: flex;");
     expect(gitOperationSection).toContain("justify-content: flex-end;");
