@@ -245,6 +245,7 @@ export function ControllerView({
   const commitGraphPanel = (
     <CommitGraph
       commits={data.commits}
+      commitAuthorAvatars={data.commitAuthorAvatars}
       mode={data.commitGraphMode}
       activeCommitSha={data.activeCommit?.sha ?? null}
       highlightedCommitSha={highlightedCommitSha}

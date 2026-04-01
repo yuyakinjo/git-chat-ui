@@ -81,6 +81,18 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/commits?${params.toString()}`);
     },
 
+    getCommitAuthorAvatars(repoPath, ref, shas, allowRemoteFetch = false) {
+      return request(baseUrl, "/commits/avatars", {
+        method: "POST",
+        body: JSON.stringify({
+          repoPath,
+          ref: ref?.trim() ? ref.trim() : undefined,
+          shas,
+          allowRemoteFetch,
+        }),
+      });
+    },
+
     getCommitDetail(repoPath, sha) {
       const params = new URLSearchParams({ repoPath, sha });
       return request(baseUrl, `/commits/detail?${params.toString()}`);

@@ -79,6 +79,7 @@ export function useControllerData({
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
   const [commits, setCommits] = useState<CommitListItem[]>([]);
+  const [commitAuthorAvatars, setCommitAuthorAvatars] = useState<Record<string, string>>({});
   const [hasMoreCommits, setHasMoreCommits] = useState(true);
   const [loadingCommits, setLoadingCommits] = useState(false);
   const [loadingMoreCommits, setLoadingMoreCommits] = useState(false);
@@ -125,7 +126,9 @@ export function useControllerData({
       isSelfRepository: false,
     });
   const refreshLockRef = useRef(false);
+  const currentRepoPathRef = useRef(repoPath);
   const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
+  const commitAvatarRemotePrefetchDoneRef = useRef(false);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
   const conflictFileRequestKeyRef = useRef<string | null>(null);
   const stashDiffRequestKeyRef = useRef<string | null>(null);
@@ -162,6 +165,10 @@ export function useControllerData({
   }, [branches, commits]);
 
   const commitMessageFiles = useMemo(() => getCommitMessageFiles(workingStatus), [workingStatus]);
+
+  useEffect(() => {
+    currentRepoPathRef.current = repoPath;
+  }, [repoPath]);
 
   const persistCommitMessageDraft = useCallback(
     (draft: CommitMessageDraftInput): void => {
@@ -264,6 +271,46 @@ export function useControllerData({
       }
     },
     [repoPath, reportError],
+  );
+
+  const hydrateCommitAuthorAvatars = useCallback(
+    async (
+      nextCommits: CommitListItem[],
+      ref: string,
+      options: {
+        allowRemoteFetch: boolean;
+      },
+    ): Promise<void> => {
+      const shas = nextCommits.map((commit) => commit.sha.trim()).filter(Boolean);
+      if (shas.length === 0) {
+        return;
+      }
+
+      try {
+        const response = await api.getCommitAuthorAvatars(
+          repoPath,
+          ref,
+          shas,
+          options.allowRemoteFetch,
+        );
+
+        if (currentRepoPathRef.current !== repoPath) {
+          return;
+        }
+
+        if (Object.keys(response.avatars).length === 0) {
+          return;
+        }
+
+        setCommitAuthorAvatars((current) => ({
+          ...current,
+          ...response.avatars,
+        }));
+      } catch {
+        // Avatar hydration is best-effort and should not block the graph.
+      }
+    },
+    [repoPath],
   );
 
   const loadBranchDiffDetail = useCallback(async (): Promise<void> => {
@@ -486,7 +533,14 @@ export function useControllerData({
         setOperationBusy(false);
       }
     },
-    [conflictSummary, focusedConflictFile, loadConflictFile, loadWorkingState, repoPath, reportError],
+    [
+      conflictSummary,
+      focusedConflictFile,
+      loadConflictFile,
+      loadWorkingState,
+      repoPath,
+      reportError,
+    ],
   );
 
   const loadStashDiffDetail = useCallback(
@@ -576,6 +630,14 @@ export function useControllerData({
           setActiveCompareRefs(normalizedCompareRefs);
         }
 
+        const allowRemoteFetch = !commitAvatarRemotePrefetchDoneRef.current && !options.append;
+        if (allowRemoteFetch) {
+          commitAvatarRemotePrefetchDoneRef.current = true;
+        }
+        void hydrateCommitAuthorAvatars(nextCommits, normalizedRef, {
+          allowRemoteFetch,
+        });
+
         if (!options.append && nextCommits.length > 0) {
           const focusedCommit = focusCommitSha
             ? (nextCommits.find((commit) => commit.sha === focusCommitSha) ?? null)
@@ -593,7 +655,7 @@ export function useControllerData({
         setLoadingMoreCommits(false);
       }
     },
-    [loadCommitDetail, repoPath, reportError],
+    [hydrateCommitAuthorAvatars, loadCommitDetail, repoPath, reportError],
   );
 
   const loadBranches = useCallback(async (): Promise<BranchResponse | null> => {
@@ -788,6 +850,7 @@ export function useControllerData({
     setActiveCompareRefs([]);
     setActiveCommit(null);
     setIsWipSelected(false);
+    setCommitAuthorAvatars({});
     setCommitDetail(null);
     applyCommitMessageDraft(initialCommitMessageDraft, { persist: false });
     setBranchDiffDetail(null);
@@ -798,6 +861,7 @@ export function useControllerData({
     closeStashDiffOverlay();
     setPullStatus(null);
     setInlineError(null);
+    commitAvatarRemotePrefetchDoneRef.current = false;
     void refreshAll(defaultRef);
   }, [
     clearConflictState,
@@ -971,6 +1035,7 @@ export function useControllerData({
     setActiveCompareRefs,
 
     commits,
+    commitAuthorAvatars,
     hasMoreCommits,
     loadingCommits,
     loadingMoreCommits,

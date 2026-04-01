@@ -25,6 +25,7 @@ fn main() {
             backend::get_repository_mutation_safety,
             backend::get_branches,
             backend::get_commits,
+            backend::get_commit_author_avatars,
             backend::get_commit_detail,
             backend::get_commit_file_diff_detail,
             backend::get_branch_diff_detail,

@@ -24,13 +24,14 @@ import {
   refLabelIconClass,
   resolveCommitRefScope,
   ROW_HEIGHT,
-  WIP_LINE_TOP,
   WIP_NODE_CENTER,
+  WIP_NODE_LINE_CLEARANCE,
   WipNode,
 } from "./CommitGraphHelpers";
 
 interface CommitGraphProps {
   commits: CommitListItem[];
+  commitAuthorAvatars?: Record<string, string>;
   mode: CommitGraphMode;
   activeCommitSha: string | null;
   highlightedCommitSha: string | null;
@@ -56,6 +57,7 @@ interface CommitGraphProps {
 
 export function CommitGraph({
   commits,
+  commitAuthorAvatars = {},
   mode,
   activeCommitSha,
   highlightedCommitSha,
@@ -78,6 +80,8 @@ export function CommitGraph({
   headerAccessory,
   branchContext = null,
 }: CommitGraphProps): JSX.Element {
+  const COMMIT_DOT_NODE_SIZE = 12;
+  const COMMIT_AVATAR_NODE_SIZE = 24;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
   const containerWidth = useContainerWidth(rootRef);
@@ -227,6 +231,8 @@ export function CommitGraph({
   }, [onScrollToCommitHandled, scrollToCommitSha, visibleCommits.length]);
 
   const isDetailedMode = mode === "detailed";
+  const hasWipRow =
+    (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
   const graphColumnWidth = isDetailedMode
     ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
     : 22;
@@ -238,6 +244,7 @@ export function CommitGraph({
   const isCompactLayout = columnLayout.isCompact;
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
   const gridTemplateColumns = columnLayout.templateColumns;
+  const wipLineBottomStart = ROW_HEIGHT / 2 + WIP_NODE_LINE_CLEARANCE;
   const handleCopySha = useCallback(
     (sha: string) => {
       void copyTextToClipboard(sha)
@@ -304,7 +311,7 @@ export function CommitGraph({
           <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div>
         ) : null}
 
-        {(wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading ? (
+        {hasWipRow ? (
           <div
             className="wip-row commit-row"
             style={{ gridTemplateColumns }}
@@ -322,15 +329,15 @@ export function CommitGraph({
                   fill="none"
                 >
                   <line
+                    className="wip-row__lane-line wip-row__lane-line--connector"
                     x1={laneX(0)}
-                    y1={WIP_LINE_TOP}
+                    y1={wipLineBottomStart}
                     x2={laneX(0)}
                     y2={ROW_HEIGHT + LINE_OVERDRAW}
                     stroke={LANE_COLORS[0]}
                     strokeWidth={2.2}
                     opacity={0.85}
                     strokeLinecap="round"
-                    strokeDasharray="4 3"
                   />
                 </svg>
                 <WipNode
@@ -344,10 +351,10 @@ export function CommitGraph({
             ) : (
               <div className="relative flex h-8 items-center justify-center">
                 <div
-                  className="absolute w-[2px] bg-accent/20"
+                  className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
                   style={{
-                    top: `${WIP_LINE_TOP}px`,
-                    height: `${ROW_HEIGHT - WIP_LINE_TOP + LINE_OVERDRAW}px`,
+                    top: `${wipLineBottomStart}px`,
+                    height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
                   }}
                 />
                 <WipNode />
@@ -382,6 +389,8 @@ export function CommitGraph({
           const isHighlighted = highlightedCommitSha === commit.sha;
           const isActive = activeCommitSha === commit.sha;
           const isCheckedOutCommit = checkedOutCommitSha === commit.sha;
+          const avatarSrc = commitAuthorAvatars[commit.sha];
+          const nodeSize = avatarSrc ? COMMIT_AVATAR_NODE_SIZE : COMMIT_DOT_NODE_SIZE;
           const row = laneLayout.rows[index] ?? {
             laneIndex: 0,
             activeLaneIndices: [0],
@@ -419,7 +428,9 @@ export function CommitGraph({
                     {row.activeLaneIndices.map((laneIndex) => {
                       const isCommitLane = laneIndex === row.laneIndex;
                       const strokeWidth = isCommitLane ? 2.2 : 1.5;
-                      const hasIncoming = index > 0 && row.incomingLaneIndices.includes(laneIndex);
+                      const hasIncoming =
+                        (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
+                        (hasWipRow && index === 0 && laneIndex === 0);
                       const hasOutgoingRaw = row.outgoingLaneIndices.includes(laneIndex);
                       const hasOutgoing =
                         hasOutgoingRaw && !(index === visibleCommits.length - 1 && !hasMore);
@@ -435,6 +446,7 @@ export function CommitGraph({
 
                       return (
                         <line
+                          className="commit-graph__lane-line"
                           key={`${commit.sha}-${laneIndex}`}
                           x1={laneX(laneIndex)}
                           y1={y1}
@@ -475,13 +487,23 @@ export function CommitGraph({
                   </svg>
 
                   <span
-                    className={`absolute block commit-node border border-white/90 shadow-sm ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
+                    className={`absolute block commit-node ${avatarSrc ? "commit-node--avatar" : "border border-white/90 shadow-sm"} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
                     style={{
-                      left: `${laneX(row.laneIndex) - 6}px`,
-                      top: `${ROW_HEIGHT / 2 - 6}px`,
-                      background: laneColor(row.laneIndex),
+                      left: `${laneX(row.laneIndex) - nodeSize / 2}px`,
+                      top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
+                      background: avatarSrc ? undefined : laneColor(row.laneIndex),
                     }}
-                  />
+                  >
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        aria-hidden="true"
+                        className="commit-node__avatar"
+                        draggable={false}
+                      />
+                    ) : null}
+                  </span>
                 </div>
               ) : (
                 <div className="relative flex h-8 items-center justify-center">
@@ -493,8 +515,19 @@ export function CommitGraph({
                     }}
                   />
                   <span
-                    className={`commit-node ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                  />
+                    className={`commit-node ${avatarSrc ? "commit-node--avatar" : ""} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
+                    style={{ background: avatarSrc ? undefined : laneColor(row.laneIndex) }}
+                  >
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        aria-hidden="true"
+                        className="commit-node__avatar"
+                        draggable={false}
+                      />
+                    ) : null}
+                  </span>
                 </div>
               )}
 

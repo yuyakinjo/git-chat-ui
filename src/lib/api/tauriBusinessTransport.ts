@@ -47,6 +47,15 @@ export function createTauriBusinessTransport(): BusinessTransport {
       });
     },
 
+    getCommitAuthorAvatars(repoPath, ref, shas, allowRemoteFetch = false) {
+      return invokeCommand("get_commit_author_avatars", {
+        repoPath,
+        refName: ref?.trim() ? ref.trim() : null,
+        shas,
+        allowRemoteFetch,
+      });
+    },
+
     getCommitDetail(repoPath, sha) {
       return invokeCommand("get_commit_detail", { repoPath, sha });
     },

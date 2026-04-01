@@ -5,6 +5,7 @@ import type {
   BranchDiffDetail,
   BranchDiffFileDetail,
   BranchResponse,
+  CommitAuthorAvatarResponse,
   CommitDetail,
   CommitFileDiffDetail,
   CommitResponse,
@@ -87,6 +88,15 @@ export const api = {
     compareRefs?: string[],
   ): Promise<CommitResponse> {
     return getBusinessTransport().getCommits(repoPath, ref, offset, limit, compareRefs);
+  },
+
+  getCommitAuthorAvatars(
+    repoPath: string,
+    ref: string | undefined,
+    shas: string[],
+    allowRemoteFetch = false,
+  ): Promise<CommitAuthorAvatarResponse> {
+    return getBusinessTransport().getCommitAuthorAvatars(repoPath, ref, shas, allowRemoteFetch);
   },
 
   getCommitDetail(repoPath: string, sha: string): Promise<CommitDetail> {

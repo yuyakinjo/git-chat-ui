@@ -45,6 +45,10 @@ export interface CommitResponse {
   hasMore: boolean;
 }
 
+export interface CommitAuthorAvatarResponse {
+  avatars: Record<string, string>;
+}
+
 export interface CommitDetail {
   sha: string;
   parentShas: string[];

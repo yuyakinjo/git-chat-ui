@@ -55,7 +55,34 @@ const stashes: StashEntry[] = [
 ];
 
 describe("BranchTree", () => {
-  test("does not render the idle branch operation hint", () => {
+  test("hides the stash footer entirely when there are no stashes", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branches}
+        stashes={[]}
+        selectedBranchName="main"
+        busy={false}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Branch List");
+    expect(html).toContain("branch-tree__branch-scroll");
+    expect(html).not.toContain("Stashes");
+    expect(html).not.toContain("branch-tree__stash-section");
+    expect(html).not.toContain("branch-tree__expand-count");
+    expect(html).not.toContain("No stashes");
+  });
+
+  test("renders stashes in a dedicated footer below the branch scroll area", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
@@ -83,6 +110,12 @@ describe("BranchTree", () => {
     expect(html).toContain("Auto stash before cherry pick");
     expect(html).not.toContain("stash@{0}");
     expect(html).not.toContain("stash@{1}");
+    expect(html).toContain("branch-tree__body");
+    expect(html).toContain("branch-tree__branch-scroll");
+    expect(html).toContain("branch-tree__stash-section");
+    expect(html.indexOf("branch-tree__branch-scroll")).toBeLessThan(
+      html.indexOf("branch-tree__stash-section"),
+    );
     expect(html).not.toContain(
       "右クリックで branch 作成 / 削除。local branch は別の local branch にドロップできます。",
     );

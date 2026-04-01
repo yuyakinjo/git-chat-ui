@@ -70,6 +70,38 @@ describe("api.health", () => {
   });
 });
 
+describe("api.getCommitAuthorAvatars", () => {
+  test("posts commit avatar hydration input to the avatar endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({ avatars: { abc1234: "data:image/png;base64,avatar" } }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.getCommitAuthorAvatars("/tmp/repo", "refs/heads/main", ["abc1234"], true);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/commits/avatars");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      ref: "refs/heads/main",
+      shas: ["abc1234"],
+      allowRemoteFetch: true,
+    });
+  });
+});
+
 describe("api.validateOpenAiToken", () => {
   test("posts the token to the OpenAI validation endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
@@ -340,12 +372,12 @@ describe("conflict API transport", () => {
       contextType: "mergeSession",
       sessionId: "session-1",
     });
-    await expect(api.getConflictFileDetail("/tmp/repo", "conflict.txt", "session-1")).resolves.toMatchObject(
-      {
-        file: "conflict.txt",
-        statusLabel: "Both Modified",
-      },
-    );
+    await expect(
+      api.getConflictFileDetail("/tmp/repo", "conflict.txt", "session-1"),
+    ).resolves.toMatchObject({
+      file: "conflict.txt",
+      statusLabel: "Both Modified",
+    });
 
     expect(requests).toEqual([
       {
@@ -413,7 +445,8 @@ describe("conflict API transport", () => {
           ok: false,
           conflict: {
             contextType: "repository",
-            operation: requests.length === 1 ? "merge" : requests.length === 2 ? "stashApply" : "stashPop",
+            operation:
+              requests.length === 1 ? "merge" : requests.length === 2 ? "stashApply" : "stashPop",
             files: [{ file: "conflict.txt", x: "U", y: "U", statusLabel: "Both Modified" }],
           },
         }),
@@ -424,10 +457,12 @@ describe("conflict API transport", () => {
       );
     }) as unknown as typeof fetch;
 
-    await expect(api.mergeBranches("/tmp/repo", "feature/conflict", "main")).resolves.toMatchObject({
-      ok: false,
-      conflict: { operation: "merge" },
-    });
+    await expect(api.mergeBranches("/tmp/repo", "feature/conflict", "main")).resolves.toMatchObject(
+      {
+        ok: false,
+        conflict: { operation: "merge" },
+      },
+    );
     await expect(api.applyStash("/tmp/repo", "stash@{0}")).resolves.toMatchObject({
       ok: false,
       conflict: { operation: "stashApply" },

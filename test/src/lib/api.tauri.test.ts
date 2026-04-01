@@ -36,6 +36,7 @@ describe("api in Tauri", () => {
     const { api } = await import("../../../src/lib/api");
 
     await api.health();
+    await api.getCommitAuthorAvatars("/tmp/repo", "refs/heads/main", ["abc1234"], true);
     await api.generateCommitMessage("/tmp/repo", ["src/App.tsx"], {
       openAiToken: "",
       openAiModel: "gpt-4.1-mini",
@@ -46,7 +47,13 @@ describe("api in Tauri", () => {
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "get_commit_author_avatars", {
+      repoPath: "/tmp/repo",
+      refName: "refs/heads/main",
+      shas: ["abc1234"],
+      allowRemoteFetch: true,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -57,7 +64,7 @@ describe("api in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });

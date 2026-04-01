@@ -4,6 +4,7 @@ import type {
   BranchDiffDetail,
   BranchDiffFileDetail,
   BranchResponse,
+  CommitAuthorAvatarResponse,
   CommitDetail,
   CommitFileDiffDetail,
   CommitResponse,
@@ -42,6 +43,12 @@ export interface BusinessTransport {
     limit?: number,
     compareRefs?: string[],
   ): Promise<CommitResponse>;
+  getCommitAuthorAvatars(
+    repoPath: string,
+    ref: string | undefined,
+    shas: string[],
+    allowRemoteFetch?: boolean,
+  ): Promise<CommitAuthorAvatarResponse>;
   getCommitDetail(repoPath: string, sha: string): Promise<CommitDetail>;
   getCommitFileDiffDetail(
     repoPath: string,

@@ -4,6 +4,7 @@ import {
   commitChanges,
   getBranchDiffDetail,
   getBranchDiffFileDetail,
+  getCommitAuthorAvatars,
   getCommitDetail,
   getCommitFileDiffDetail,
   getCommits,
@@ -34,6 +35,28 @@ router.get("/api/commits", async (request, response, next) => {
       compareRefs,
       offset: Number.isFinite(offset) ? offset : 0,
       limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 50,
+    });
+
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/api/commits/avatars", async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, "repoPath");
+    const ref = typeof request.body.ref === "string" ? request.body.ref : undefined;
+    const shas = Array.isArray(request.body.shas)
+      ? request.body.shas.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const allowRemoteFetch = request.body.allowRemoteFetch === true;
+
+    const result = await getCommitAuthorAvatars({
+      repoPath,
+      ref,
+      shas,
+      allowRemoteFetch,
     });
 
     response.json(result);

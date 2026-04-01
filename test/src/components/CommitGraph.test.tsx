@@ -73,6 +73,18 @@ describe("CommitGraph", () => {
       />,
     );
 
+    const wipConnectorMatch = html.match(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"[^>]*x2="([^"]+)"[^>]*y2="([^"]+)"/,
+    );
+    const firstCommitLaneMatch = html.match(
+      /data-commit-sha="abc1234"[\s\S]*?class="commit-graph__lane-line"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"[^>]*x2="([^"]+)"[^>]*y2="([^"]+)"/,
+    );
+
+    expect(html).not.toContain("wip-row__lane-line--stub");
+    expect(wipConnectorMatch?.[2]).toBe("24");
+    expect(wipConnectorMatch?.[4]).toBe("33");
+    expect(firstCommitLaneMatch?.[2]).toBe("-1");
+    expect(firstCommitLaneMatch?.[4]).toBe("33");
     expect(html).toContain('class="wip-node-ring"');
     expect(html).toContain('stroke-dasharray="2 3"');
     expect(html).not.toContain('class="wip-node-core"');
@@ -154,5 +166,40 @@ describe("CommitGraph", () => {
     expect(html).toContain('title="abc1234 をコピー"');
     expect(html).toContain('aria-label="abc1234 をクリップボードにコピー"');
     expect(html).toContain(">abc1234</span></button>");
+  });
+
+  test("renders author avatars on commit nodes when cached sources are available", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={commits}
+        commitAuthorAvatars={{
+          abc1234: "data:image/png;base64,avatar",
+        }}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha={null}
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={branchContext}
+      />,
+    );
+
+    expect(html).toContain('class="absolute block commit-node commit-node--avatar');
+    expect(html).toContain('src="data:image/png;base64,avatar"');
+    expect(html).toContain('class="commit-node__avatar"');
   });
 });

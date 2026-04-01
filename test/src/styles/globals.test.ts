@@ -118,6 +118,19 @@ describe("globals.css", () => {
     expect(branchBadgeSection).not.toContain(".branch-list-item__ref-badge {");
   });
 
+  test("branch tree keeps stashes in a dedicated footer below the main branch scroll area", () => {
+    const stashFooterSection = getSection(".branch-tree__body {", ".branch-tree__stash-item {");
+
+    expect(stashFooterSection).toContain(".branch-tree__branch-scroll {");
+    expect(stashFooterSection).toContain("flex: 1 1 auto;");
+    expect(stashFooterSection).toContain("overflow-y: auto;");
+    expect(stashFooterSection).toContain(".branch-tree__stash-section {");
+    expect(stashFooterSection).toContain("flex-shrink: 0;");
+    expect(stashFooterSection).toContain("margin-top: 16px;");
+    expect(stashFooterSection).toContain(".branch-tree__stash-list {");
+    expect(stashFooterSection).toContain("max-height: min(40vh, 240px);");
+  });
+
   test("config commit prompt textarea can shrink within the panel and wrap long lines", () => {
     const promptSection = getSection(".config-view__commit-title-prompt {", ".button {");
 
@@ -165,17 +178,21 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
-  test("wip row defines dedicated dark theme contrast overrides", () => {
+  test("wip row removes its default highlight while keeping dedicated hover and dark-theme overrides", () => {
     const wipSection = getSection(".wip-row {", ".wip-node {");
 
+    expect(wipSection).toContain("background: transparent !important;");
     expect(wipSection).toContain(".wip-row__badge {");
     expect(wipSection).toContain(".wip-row__primary {");
     expect(wipSection).toContain(".wip-row__meta {");
+    expect(wipSection).toContain(".wip-row:hover {");
+    expect(wipSection).toContain("background: rgb(255 251 235 / 0.72) !important;");
     expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row {');
+    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row:hover {');
     expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__badge {');
     expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__meta {');
     expect(wipSection).toContain(
-      "background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;",
+      "background: linear-gradient(90deg, rgb(120 53 15 / 0.2), rgb(68 64 60 / 0.24)) !important;",
     );
     expect(wipSection).toContain("color: rgb(254 243 199 / 0.82);");
   });
@@ -196,6 +213,17 @@ describe("globals.css", () => {
     expect(refBadgeSection).toContain(
       'body[data-theme="default-dark"] .commit-graph__ref-badge--tag {',
     );
+  });
+
+  test("commit nodes support cached author avatars without losing the fallback node styling", () => {
+    const commitNodeSection = getSection(".commit-node {", ".wip-row {");
+
+    expect(commitNodeSection).toContain("overflow: hidden;");
+    expect(commitNodeSection).toContain("pointer-events: none;");
+    expect(commitNodeSection).toContain(".commit-node--avatar {");
+    expect(commitNodeSection).toContain("width: 24px;");
+    expect(commitNodeSection).toContain(".commit-node__avatar {");
+    expect(commitNodeSection).toContain("object-fit: cover;");
   });
 
   test("wip node uses a hollow dashed ring instead of a filled core", () => {

@@ -42,6 +42,7 @@ export interface UseControllerDataResult {
   setActiveCompareRefs: (refs: string[]) => void;
 
   commits: CommitListItem[];
+  commitAuthorAvatars: Record<string, string>;
   hasMoreCommits: boolean;
   loadingCommits: boolean;
   loadingMoreCommits: boolean;

@@ -1,8 +1,13 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use git2::{
     build::CheckoutBuilder, Commit as GitCommit, Repository as GitRepository, Status, StatusOptions,
 };
+use reqwest::blocking::Client;
+use reqwest::header::CONTENT_TYPE;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -24,8 +29,11 @@ const MIN_WINDOW_HEIGHT: u32 = 760;
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(300);
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
-const NO_STAGED_CHANGES_ERROR: &str = "No staged changes are available for commit message generation.";
+const NO_STAGED_CHANGES_ERROR: &str =
+    "No staged changes are available for commit message generation.";
 const NO_AI_PROVIDER_ERROR: &str = "No AI provider is configured for commit message generation.";
+const COMMIT_AVATAR_HISTORY_LIMIT: usize = 100;
+const COMMIT_AVATAR_SIZE: usize = 72;
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
@@ -165,6 +173,76 @@ pub struct CommitListItem {
 pub struct CommitsResponse {
     pub commits: Vec<CommitListItem>,
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitAuthorAvatarsResponse {
+    pub avatars: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CommitAvatarManifest {
+    #[serde(default)]
+    commits: HashMap<String, CommitAvatarCommitEntry>,
+    #[serde(default)]
+    images: HashMap<String, CommitAvatarImageEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitAvatarCommitEntry {
+    image_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitAvatarImageEntry {
+    file_name: String,
+    mime_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlResponse {
+    data: Option<GithubCommitAvatarGraphQlData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlData {
+    repository: Option<GithubCommitAvatarGraphQlRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlRepository {
+    object: Option<GithubCommitAvatarGraphQlObject>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlObject {
+    history: Option<GithubCommitAvatarGraphQlHistory>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlHistory {
+    nodes: Vec<GithubCommitAvatarGraphQlNode>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlNode {
+    oid: Option<String>,
+    author: Option<GithubCommitAvatarGraphQlAuthor>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlAuthor {
+    user: Option<GithubCommitAvatarGraphQlUser>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitAvatarGraphQlUser {
+    #[serde(rename = "avatarUrl")]
+    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -497,6 +575,305 @@ fn config_path() -> Result<PathBuf, String> {
     Ok(config_dir()?.join("config.json"))
 }
 
+fn commit_avatar_cache_root() -> Result<PathBuf, String> {
+    Ok(config_dir()?.join("commit-author-avatars"))
+}
+
+fn commit_avatar_manifest_path(repo_key: &str) -> Result<PathBuf, String> {
+    Ok(commit_avatar_cache_root()?
+        .join("manifests")
+        .join(format!("{}.json", stable_hash_text(repo_key))))
+}
+
+fn commit_avatar_image_path(file_name: &str) -> Result<PathBuf, String> {
+    Ok(commit_avatar_cache_root()?.join("images").join(file_name))
+}
+
+fn normalize_commit_avatar_mime_type(value: Option<&str>) -> String {
+    let normalized = value
+        .unwrap_or("image/png")
+        .split(';')
+        .next()
+        .unwrap_or("image/png")
+        .trim()
+        .to_ascii_lowercase();
+
+    if normalized.starts_with("image/") {
+        normalized
+    } else {
+        "image/png".to_string()
+    }
+}
+
+fn commit_avatar_extension_for_mime_type(mime_type: &str) -> &'static str {
+    match normalize_commit_avatar_mime_type(Some(mime_type)).as_str() {
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        _ => "png",
+    }
+}
+
+fn normalize_github_history_ref(ref_name: &str) -> String {
+    let trimmed = ref_name.trim();
+    if trimmed.is_empty() {
+        return "HEAD".to_string();
+    }
+
+    if let Some(value) = trimmed.strip_prefix("refs/heads/") {
+        return value.to_string();
+    }
+
+    if let Some(value) = trimmed.strip_prefix("refs/remotes/") {
+        let segments: Vec<&str> = value
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        if segments.len() > 1 {
+            return segments[1..].join("/");
+        }
+    }
+
+    if let Some(value) = trimmed.strip_prefix("origin/") {
+        return value.to_string();
+    }
+
+    trimmed.to_string()
+}
+
+fn resolve_github_history_ref(repo_path: &str, ref_name: Option<&str>) -> Result<String, String> {
+    let normalized = normalize_github_history_ref(ref_name.unwrap_or("HEAD"));
+    if normalized != "HEAD" {
+        return Ok(normalized);
+    }
+
+    run_git(&["rev-parse", "HEAD"], repo_path)
+}
+
+fn parse_github_repository_slug(repository_url: &str) -> Option<(String, String)> {
+    let parsed = Url::parse(repository_url).ok()?;
+    let segments: Vec<&str> = parsed
+        .path()
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+
+    if segments.len() != 2 {
+        return None;
+    }
+
+    Some((segments[0].to_string(), segments[1].to_string()))
+}
+
+fn read_commit_avatar_manifest(repo_key: &str) -> CommitAvatarManifest {
+    let path = match commit_avatar_manifest_path(repo_key) {
+        Ok(path) => path,
+        Err(_) => return CommitAvatarManifest::default(),
+    };
+
+    match fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str::<CommitAvatarManifest>(&content).unwrap_or_default(),
+        Err(_) => CommitAvatarManifest::default(),
+    }
+}
+
+fn write_commit_avatar_manifest(
+    repo_key: &str,
+    manifest: &CommitAvatarManifest,
+) -> Result<(), String> {
+    let path = commit_avatar_manifest_path(repo_key)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create avatar manifest dir: {error}"))?;
+    }
+
+    let body = serde_json::to_string_pretty(manifest)
+        .map_err(|error| format!("Failed to serialize avatar manifest: {error}"))?;
+    fs::write(path, body).map_err(|error| format!("Failed to write avatar manifest: {error}"))
+}
+
+fn parse_github_commit_avatar_graphql_response(raw: &str) -> HashMap<String, String> {
+    let parsed = serde_json::from_str::<GithubCommitAvatarGraphQlResponse>(raw).ok();
+    let nodes = parsed
+        .and_then(|value| value.data)
+        .and_then(|value| value.repository)
+        .and_then(|value| value.object)
+        .and_then(|value| value.history)
+        .map(|value| value.nodes)
+        .unwrap_or_default();
+
+    let mut avatars = HashMap::new();
+    for node in nodes {
+        let sha = node.oid.unwrap_or_default().trim().to_string();
+        let avatar_url = node
+            .author
+            .and_then(|value| value.user)
+            .and_then(|value| value.avatar_url)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        if sha.is_empty() || avatar_url.is_empty() {
+            continue;
+        }
+
+        avatars.insert(sha, avatar_url);
+    }
+
+    avatars
+}
+
+fn fetch_github_commit_avatar_urls(
+    repo_path: &str,
+    owner: &str,
+    name: &str,
+    ref_name: &str,
+) -> Result<HashMap<String, String>, String> {
+    let query = [
+        "query($owner: String!, $name: String!, $ref: String!, $limit: Int!, $avatarSize: Int!) {",
+        "  repository(owner: $owner, name: $name) {",
+        "    object(expression: $ref) {",
+        "      ... on Commit {",
+        "        history(first: $limit) {",
+        "          nodes {",
+        "            oid",
+        "            author {",
+        "              user {",
+        "                avatarUrl(size: $avatarSize)",
+        "              }",
+        "            }",
+        "          }",
+        "        }",
+        "      }",
+        "    }",
+        "  }",
+        "}",
+    ]
+    .join("\n");
+
+    let args = vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("owner={owner}"),
+        "-F".to_string(),
+        format!("name={name}"),
+        "-F".to_string(),
+        format!("ref={ref_name}"),
+        "-F".to_string(),
+        format!("limit={COMMIT_AVATAR_HISTORY_LIMIT}"),
+        "-F".to_string(),
+        format!("avatarSize={COMMIT_AVATAR_SIZE}"),
+    ];
+
+    let output = run_gh_owned(&args, repo_path)?;
+    Ok(parse_github_commit_avatar_graphql_response(&output))
+}
+
+fn download_commit_avatar_image(url: &str) -> Result<(Vec<u8>, String), String> {
+    let client = Client::builder()
+        .user_agent("git-chat-ui")
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("Failed to create avatar client: {error}"))?;
+    let response = client
+        .get(url)
+        .header("Accept", "image/*")
+        .send()
+        .map_err(|error| format!("Failed to download avatar image: {error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to download avatar image: HTTP {}",
+            response.status()
+        ));
+    }
+
+    let mime_type = normalize_commit_avatar_mime_type(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+    );
+    let bytes = response
+        .bytes()
+        .map_err(|error| format!("Failed to read avatar image: {error}"))?
+        .to_vec();
+
+    Ok((bytes, mime_type))
+}
+
+fn persist_commit_avatar_image(
+    image_key: &str,
+    avatar_url: &str,
+    manifest: &mut CommitAvatarManifest,
+) -> Result<(), String> {
+    if let Some(existing) = manifest.images.get(image_key) {
+        let cached_path = commit_avatar_image_path(&existing.file_name)?;
+        if cached_path.is_file() {
+            return Ok(());
+        }
+    }
+
+    let (bytes, mime_type) = download_commit_avatar_image(avatar_url)?;
+    let file_name = format!(
+        "{image_key}.{}",
+        commit_avatar_extension_for_mime_type(&mime_type)
+    );
+    let target_path = commit_avatar_image_path(&file_name)?;
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create avatar cache dir: {error}"))?;
+    }
+    fs::write(&target_path, bytes)
+        .map_err(|error| format!("Failed to write avatar image cache: {error}"))?;
+    manifest.images.insert(
+        image_key.to_string(),
+        CommitAvatarImageEntry {
+            file_name,
+            mime_type,
+        },
+    );
+    Ok(())
+}
+
+fn build_commit_author_avatar_sources(
+    manifest: &CommitAvatarManifest,
+    shas: &[String],
+) -> HashMap<String, String> {
+    let mut avatars = HashMap::new();
+
+    for sha in shas {
+        let Some(commit_entry) = manifest.commits.get(sha) else {
+            continue;
+        };
+        let Some(image_entry) = manifest.images.get(&commit_entry.image_key) else {
+            continue;
+        };
+        let Ok(path) = commit_avatar_image_path(&image_entry.file_name) else {
+            continue;
+        };
+        let Ok(bytes) = fs::read(path) else {
+            continue;
+        };
+
+        avatars.insert(
+            sha.clone(),
+            format!(
+                "data:{};base64,{}",
+                image_entry.mime_type,
+                BASE64_STANDARD.encode(bytes)
+            ),
+        );
+    }
+
+    avatars
+}
+
 #[cfg(target_os = "macos")]
 fn keychain_get(service: &str) -> Option<String> {
     let output = Command::new("security")
@@ -660,7 +1037,8 @@ fn normalize_config_value(value: Value) -> AppConfig {
 
     let selected_ai_provider = normalize_selected_ai_provider(value.get("selectedAiProvider"));
     let commit_title_prompt = resolve_commit_title_prompt(
-        value.get("commitTitlePrompt")
+        value
+            .get("commitTitlePrompt")
             .and_then(Value::as_str)
             .unwrap_or_default(),
     );
@@ -1295,7 +1673,12 @@ fn validate_append_file(repo_path: &str, file: &str) -> Result<String, String> {
     }
 
     run_git(
-        &["ls-files", "--error-unmatch", "--", normalized_file.as_str()],
+        &[
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            normalized_file.as_str(),
+        ],
         repo_path,
     )?;
 
@@ -1456,6 +1839,12 @@ fn hash_text(text: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn stable_hash_text(text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn ensure_repo_path(repo_path: &str) -> Result<(), String> {
@@ -1785,6 +2174,11 @@ fn ensure_github_auth(repo_path: &str) -> Result<(), String> {
     run_gh(&["auth", "status", "-h", "github.com"], repo_path).map(|_| ())
 }
 
+fn resolve_repository_github_url(repo_path: &str) -> Option<String> {
+    let remote_url = run_git(&["remote", "get-url", "origin"], repo_path).ok()?;
+    normalize_github_remote_url(&remote_url)
+}
+
 fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
     let upstream_ref = format!("{branch_name}@{{upstream}}");
     run_git(
@@ -1828,7 +2222,11 @@ fn sync_upstream_tracking_ref_to_branch_head(
     }
 
     let head = run_git(
-        &["rev-parse", "--verify", &format!("refs/heads/{branch_name}")],
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch_name}"),
+        ],
         repo_path,
     )?;
     run_git(
@@ -1934,13 +2332,7 @@ fn status_code_label(code: &str) -> String {
 fn is_unmerged_status(x: char, y: char) -> bool {
     matches!(
         (x, y),
-        ('U', 'U')
-            | ('A', 'A')
-            | ('D', 'D')
-            | ('A', 'U')
-            | ('U', 'A')
-            | ('D', 'U')
-            | ('U', 'D')
+        ('U', 'U') | ('A', 'A') | ('D', 'D') | ('A', 'U') | ('U', 'A') | ('D', 'U') | ('U', 'D')
     )
 }
 
@@ -2739,10 +3131,7 @@ fn build_commit_generation_failure_message(results: &[ProviderAttemptResult]) ->
             format!(
                 "{}: {}",
                 result.provider,
-                result
-                    .error
-                    .as_deref()
-                    .unwrap_or("Unknown failure.")
+                result.error.as_deref().unwrap_or("Unknown failure.")
             )
         })
         .collect::<Vec<_>>()
@@ -2891,15 +3280,13 @@ fn generate_with_claude(
                         .unwrap_or(false);
 
                     if is_text {
-                        item.get("text")
-                            .and_then(Value::as_str)
-                            .and_then(|text| {
-                                if text.trim().is_empty() {
-                                    None
-                                } else {
-                                    Some(text.to_string())
-                                }
-                            })
+                        item.get("text").and_then(Value::as_str).and_then(|text| {
+                            if text.trim().is_empty() {
+                                None
+                            } else {
+                                Some(text.to_string())
+                            }
+                        })
                     } else {
                         None
                     }
@@ -3118,16 +3505,8 @@ pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
 #[tauri::command]
 pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUrlResponse, String> {
     ensure_repo_path(&repo_path)?;
-
-    let remote_url = match run_git(&["remote", "get-url", "origin"], &repo_path) {
-        Ok(value) => value,
-        Err(_) => {
-            return Ok(RepositoryGithubUrlResponse { url: None });
-        }
-    };
-
     Ok(RepositoryGithubUrlResponse {
-        url: normalize_github_remote_url(&remote_url),
+        url: resolve_repository_github_url(&repo_path),
     })
 }
 
@@ -3234,6 +3613,75 @@ pub fn get_commits(
 }
 
 #[tauri::command]
+pub fn get_commit_author_avatars(
+    repo_path: String,
+    ref_name: Option<String>,
+    shas: Vec<String>,
+    allow_remote_fetch: bool,
+) -> Result<CommitAuthorAvatarsResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let mut seen = HashSet::new();
+    let requested_shas: Vec<String> = shas
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && seen.insert(value.clone()))
+        .collect();
+
+    if requested_shas.is_empty() {
+        return Ok(CommitAuthorAvatarsResponse {
+            avatars: HashMap::new(),
+        });
+    }
+
+    let repository_url = resolve_repository_github_url(&repo_path);
+    let repo_key = repository_url.clone().unwrap_or_else(|| repo_path.clone());
+    let mut manifest = read_commit_avatar_manifest(&repo_key);
+
+    if allow_remote_fetch {
+        if let Some(repository_url) = repository_url.as_deref() {
+            if let Some((owner, name)) = parse_github_repository_slug(repository_url) {
+                if ensure_github_auth(&repo_path).is_ok() {
+                    if let Ok(history_ref) =
+                        resolve_github_history_ref(&repo_path, ref_name.as_deref())
+                    {
+                        if let Ok(commit_avatar_urls) =
+                            fetch_github_commit_avatar_urls(&repo_path, &owner, &name, &history_ref)
+                        {
+                            let mut changed = false;
+
+                            for (sha, avatar_url) in commit_avatar_urls {
+                                let image_key = stable_hash_text(&avatar_url);
+                                if persist_commit_avatar_image(
+                                    &image_key,
+                                    &avatar_url,
+                                    &mut manifest,
+                                )
+                                .is_ok()
+                                {
+                                    manifest
+                                        .commits
+                                        .insert(sha, CommitAvatarCommitEntry { image_key });
+                                    changed = true;
+                                }
+                            }
+
+                            if changed {
+                                let _ = write_commit_avatar_manifest(&repo_key, &manifest);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(CommitAuthorAvatarsResponse {
+        avatars: build_commit_author_avatar_sources(&manifest, &requested_shas),
+    })
+}
+
+#[tauri::command]
 pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail, String> {
     ensure_repo_path(&repo_path)?;
 
@@ -3304,7 +3752,13 @@ pub fn get_commit_file_diff_detail(
     }
 
     let diff = run_git(
-        &["show", "--pretty=format:", sha.as_str(), "--", file.as_str()],
+        &[
+            "show",
+            "--pretty=format:",
+            sha.as_str(),
+            "--",
+            file.as_str(),
+        ],
         &repo_path,
     )?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -3778,7 +4232,11 @@ fn map_conflict_buffer_to_version(buffer: Option<Vec<u8>>) -> ConflictFileVersio
     }
 }
 
-fn read_stage_buffer(worktree_path: &str, stage: u8, file: &str) -> Result<Option<Vec<u8>>, String> {
+fn read_stage_buffer(
+    worktree_path: &str,
+    stage: u8,
+    file: &str,
+) -> Result<Option<Vec<u8>>, String> {
     let stage_spec = format!(":{stage}:{file}");
     match run_git_buffer(&["show", stage_spec.as_str()], worktree_path) {
         Ok(buffer) => Ok(Some(buffer)),
@@ -3862,7 +4320,10 @@ fn get_conflict_summary_for_context(
     })
 }
 
-fn get_conflict_file_status(worktree_path: &str, file: &str) -> Result<Option<WorkingFile>, String> {
+fn get_conflict_file_status(
+    worktree_path: &str,
+    file: &str,
+) -> Result<Option<WorkingFile>, String> {
     let output = run_git(
         &["status", "--porcelain=v1", "-uall", "--", file],
         worktree_path,
@@ -3977,7 +4438,10 @@ fn restore_paths_from_head(
     Ok(())
 }
 
-fn remove_paths_from_index_and_working_tree(repo_path: &str, files: &[String]) -> Result<(), String> {
+fn remove_paths_from_index_and_working_tree(
+    repo_path: &str,
+    files: &[String],
+) -> Result<(), String> {
     let mut remove_args = vec![
         "rm".to_string(),
         "--cached".to_string(),
@@ -4141,7 +4605,13 @@ pub fn get_stash_diff_file_detail(
 
     let stash_base = format!("{stash_id}^1");
     let diff = run_git(
-        &["diff", stash_base.as_str(), stash_id.as_str(), "--", file.as_str()],
+        &[
+            "diff",
+            stash_base.as_str(),
+            stash_id.as_str(),
+            "--",
+            file.as_str(),
+        ],
         &repo_path,
     )?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -4339,7 +4809,12 @@ pub fn create_branch(
     let normalized_new_branch =
         validate_create_branch_input(&repo_path, &base_branch, &new_branch)?;
     run_git(
-        &["checkout", "-b", normalized_new_branch.as_str(), base_branch.as_str()],
+        &[
+            "checkout",
+            "-b",
+            normalized_new_branch.as_str(),
+            base_branch.as_str(),
+        ],
         &repo_path,
     )?;
 
@@ -4378,11 +4853,19 @@ pub fn get_pull_status(repo_path: String) -> Result<PullStatusResponse, String> 
     };
 
     let ahead_count = parse_commit_count(&run_git(
-        &["rev-list", "--count", &format!("{upstream_name}..{branch_name}")],
+        &[
+            "rev-list",
+            "--count",
+            &format!("{upstream_name}..{branch_name}"),
+        ],
         &repo_path,
     )?);
     let behind_count = parse_commit_count(&run_git(
-        &["rev-list", "--count", &format!("{branch_name}..{upstream_name}")],
+        &[
+            "rev-list",
+            "--count",
+            &format!("{branch_name}..{upstream_name}"),
+        ],
         &repo_path,
     )?);
     let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
@@ -4440,10 +4923,7 @@ pub fn merge_branches(
 }
 
 #[tauri::command]
-pub fn complete_merge_session(
-    repo_path: String,
-    session_id: String,
-) -> Result<OkResponse, String> {
+pub fn complete_merge_session(repo_path: String, session_id: String) -> Result<OkResponse, String> {
     let normalized_session_id = session_id.trim().to_string();
     if normalized_session_id.is_empty() {
         return Err("sessionId is required.".to_string());
@@ -4457,9 +4937,12 @@ pub fn complete_merge_session(
         ));
     }
 
-    let remaining_conflicts = list_conflict_files(session.worktree_path.to_string_lossy().as_ref())?;
+    let remaining_conflicts =
+        list_conflict_files(session.worktree_path.to_string_lossy().as_ref())?;
     if !remaining_conflicts.is_empty() {
-        return Err("Resolve all conflicted files before completing the merge session.".to_string());
+        return Err(
+            "Resolve all conflicted files before completing the merge session.".to_string(),
+        );
     }
 
     let mut operation_error = None;
@@ -4550,7 +5033,9 @@ pub fn pull_current_branch(repo_path: String) -> Result<OkResponse, String> {
     }
 
     if get_branch_upstream(&repo_path, &branch_name).is_none() {
-        return Err(format!("Current branch '{branch_name}' has no upstream branch."));
+        return Err(format!(
+            "Current branch '{branch_name}' has no upstream branch."
+        ));
     }
 
     let args = vec!["pull".to_string(), "--ff-only".to_string()];
@@ -4746,8 +5231,11 @@ pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String>
         if let Some(upstream_name) = get_branch_upstream(&repo_path, &current_branch) {
             snapshot.push('\n');
             snapshot.push_str(&upstream_name);
-            let upstream_head = run_git(&["rev-parse", "--verify", upstream_name.as_str()], &repo_path)
-                .unwrap_or_default();
+            let upstream_head = run_git(
+                &["rev-parse", "--verify", upstream_name.as_str()],
+                &repo_path,
+            )
+            .unwrap_or_default();
             snapshot.push('\n');
             snapshot.push_str(&upstream_head);
         }
@@ -5024,8 +5512,12 @@ mod tests {
             &repo_path_str,
         )
         .expect("git user.email config should succeed");
-        run_command("git", &["commit", "--allow-empty", "-m", "init"], &repo_path_str)
-            .expect("initial empty commit should succeed");
+        run_command(
+            "git",
+            &["commit", "--allow-empty", "-m", "init"],
+            &repo_path_str,
+        )
+        .expect("initial empty commit should succeed");
 
         TestRepoFixture {
             root_dir,
@@ -5057,8 +5549,12 @@ mod tests {
         run_command("git", &["commit", "-m", "init"], &repo_path_str)
             .expect("git commit should succeed");
 
-        run_command("git", &["checkout", "-b", "feature/conflict"], &repo_path_str)
-            .expect("feature branch should be created");
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/conflict"],
+            &repo_path_str,
+        )
+        .expect("feature branch should be created");
         fs::write(repo_path.join("conflict.txt"), "feature\n")
             .expect("feature file should be written");
         run_command("git", &["commit", "-am", "feature"], &repo_path_str)
@@ -5207,8 +5703,12 @@ mod tests {
         let repo_path_str = repo_path.to_string_lossy().to_string();
         run_command("git", &["init", "--bare", &origin_path_str], &root_dir_str)
             .expect("bare origin should be created");
-        run_command("git", &["clone", &origin_path_str, &repo_path_str], &root_dir_str)
-            .expect("local clone should succeed");
+        run_command(
+            "git",
+            &["clone", &origin_path_str, &repo_path_str],
+            &root_dir_str,
+        )
+        .expect("local clone should succeed");
         run_command("git", &["config", "user.name", "Test User"], &repo_path_str)
             .expect("git user.name config should succeed");
         run_command(
@@ -5226,17 +5726,33 @@ mod tests {
             .expect("git commit should succeed");
         run_command("git", &["push", "-u", "origin", "main"], &repo_path_str)
             .expect("git push should succeed");
-        run_command("git", &["symbolic-ref", "HEAD", "refs/heads/main"], &origin_path_str)
-            .expect("origin head should be updated");
-        run_command("git", &["remote", "set-head", "origin", "--auto"], &repo_path_str)
-            .expect("origin head should be detected locally");
+        run_command(
+            "git",
+            &["symbolic-ref", "HEAD", "refs/heads/main"],
+            &origin_path_str,
+        )
+        .expect("origin head should be updated");
+        run_command(
+            "git",
+            &["remote", "set-head", "origin", "--auto"],
+            &repo_path_str,
+        )
+        .expect("origin head should be detected locally");
 
         let collaborator_path = root_dir.join("collaborator");
         let collaborator_path_str = collaborator_path.to_string_lossy().to_string();
-        run_command("git", &["clone", &origin_path_str, &collaborator_path_str], &root_dir_str)
-            .expect("collaborator clone should succeed");
-        run_command("git", &["config", "user.name", "Test User"], &collaborator_path_str)
-            .expect("git user.name config should succeed");
+        run_command(
+            "git",
+            &["clone", &origin_path_str, &collaborator_path_str],
+            &root_dir_str,
+        )
+        .expect("collaborator clone should succeed");
+        run_command(
+            "git",
+            &["config", "user.name", "Test User"],
+            &collaborator_path_str,
+        )
+        .expect("git user.name config should succeed");
         run_command(
             "git",
             &["config", "user.email", "test@example.com"],
@@ -5290,12 +5806,8 @@ mod tests {
         run_command("git", &["commit", "-m", "init"], &repo_path_str)
             .expect("git commit should succeed");
 
-        run_command(
-            "git",
-            &["checkout", "-b", "feature/syntax"],
-            &repo_path_str,
-        )
-        .expect("feature branch should be created");
+        run_command("git", &["checkout", "-b", "feature/syntax"], &repo_path_str)
+            .expect("feature branch should be created");
 
         let feature_lines = (0..3200)
             .map(|index| format!("feature line {index}"))
@@ -5376,8 +5888,14 @@ mod tests {
             "commitTitlePrompt": "   "
         }));
 
-        assert_eq!(missing_prompt.commit_title_prompt, DEFAULT_COMMIT_TITLE_PROMPT);
-        assert_eq!(blank_prompt.commit_title_prompt, DEFAULT_COMMIT_TITLE_PROMPT);
+        assert_eq!(
+            missing_prompt.commit_title_prompt,
+            DEFAULT_COMMIT_TITLE_PROMPT
+        );
+        assert_eq!(
+            blank_prompt.commit_title_prompt,
+            DEFAULT_COMMIT_TITLE_PROMPT
+        );
     }
 
     #[test]
@@ -5561,7 +6079,9 @@ mod tests {
 
         assert!(overall.is_diff_truncated);
         assert!(overall.files.iter().any(|file| file.file == "src/app.ts"));
-        assert!(!overall.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+        assert!(!overall
+            .diff
+            .contains("diff --git a/src/app.ts b/src/app.ts"));
 
         let detail = get_branch_diff_file_detail(
             fixture.repo_path.clone(),
@@ -5586,7 +6106,9 @@ mod tests {
             .expect("commit detail should be returned");
 
         assert!(overall.files.iter().any(|file| file.file == "src/app.ts"));
-        assert!(!overall.diff.contains("diff --git a/src/app.ts b/src/app.ts"));
+        assert!(!overall
+            .diff
+            .contains("diff --git a/src/app.ts b/src/app.ts"));
 
         let detail = get_commit_file_diff_detail(
             fixture.repo_path.clone(),
@@ -5670,8 +6192,12 @@ mod tests {
         let fixture = create_working_tree_diff_fixture();
         let nested_repo_path = Path::new(&fixture.repo_path).join("repo");
         fs::create_dir(&nested_repo_path).expect("nested repo dir should be created");
-        run_command("git", &["init"], nested_repo_path.to_string_lossy().as_ref())
-            .expect("nested repo should be initialized");
+        run_command(
+            "git",
+            &["init"],
+            nested_repo_path.to_string_lossy().as_ref(),
+        )
+        .expect("nested repo should be initialized");
         fs::write(nested_repo_path.join("README.md"), "nested\n")
             .expect("nested repo readme should be written");
 
@@ -5737,7 +6263,11 @@ mod tests {
         .expect("append to stash should succeed");
 
         let stashes = get_stashes(fixture.repo_path.clone()).expect("stashes should be returned");
-        let messages: Vec<String> = stashes.stashes.iter().map(|stash| stash.message.clone()).collect();
+        let messages: Vec<String> = stashes
+            .stashes
+            .iter()
+            .map(|stash| stash.message.clone())
+            .collect();
         assert_eq!(
             messages,
             vec![
@@ -5756,7 +6286,8 @@ mod tests {
 
         let detail = get_stash_diff_detail(fixture.repo_path.clone(), "stash@{1}".to_string())
             .expect("combined stash diff should be returned");
-        let mut detail_files: Vec<String> = detail.files.iter().map(|file| file.file.clone()).collect();
+        let mut detail_files: Vec<String> =
+            detail.files.iter().map(|file| file.file.clone()).collect();
         detail_files.sort();
         assert_eq!(
             detail_files,
@@ -5868,8 +6399,20 @@ mod tests {
             None,
             true,
         );
-        stage_conflict_entries(&fixture.repo_path, "au.txt", &[(2, b"ours au\n")], None, false);
-        stage_conflict_entries(&fixture.repo_path, "dd.txt", &[(1, b"base dd\n")], None, false);
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "au.txt",
+            &[(2, b"ours au\n")],
+            None,
+            false,
+        );
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "dd.txt",
+            &[(1, b"base dd\n")],
+            None,
+            false,
+        );
         stage_conflict_entries(
             &fixture.repo_path,
             "du.txt",
@@ -5877,7 +6420,13 @@ mod tests {
             None,
             false,
         );
-        stage_conflict_entries(&fixture.repo_path, "ua.txt", &[(3, b"theirs ua\n")], None, false);
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "ua.txt",
+            &[(3, b"theirs ua\n")],
+            None,
+            false,
+        );
         stage_conflict_entries(
             &fixture.repo_path,
             "ud.txt",
@@ -5893,12 +6442,17 @@ mod tests {
             false,
         );
 
-        let status =
-            get_working_tree_status(fixture.repo_path.clone()).expect("working tree status should resolve");
+        let status = get_working_tree_status(fixture.repo_path.clone())
+            .expect("working tree status should resolve");
         let labels: HashMap<String, String> = status
             .conflicted
             .into_iter()
-            .map(|item| (item.file, format!("{}{}:{}", item.x, item.y, item.status_label)))
+            .map(|item| {
+                (
+                    item.file,
+                    format!("{}{}:{}", item.x, item.y, item.status_label),
+                )
+            })
             .collect();
 
         assert!(status.staged.is_empty());
@@ -5942,12 +6496,9 @@ mod tests {
             false,
         );
 
-        let text_detail = get_conflict_file_detail(
-            fixture.repo_path.clone(),
-            "notes.txt".to_string(),
-            None,
-        )
-        .expect("text conflict detail should resolve");
+        let text_detail =
+            get_conflict_file_detail(fixture.repo_path.clone(), "notes.txt".to_string(), None)
+                .expect("text conflict detail should resolve");
         assert_eq!(text_detail.status_label, "Both Modified");
         assert_eq!(
             text_detail.merged.content.as_deref(),
@@ -5969,12 +6520,9 @@ mod tests {
         assert_eq!(delete_detail.ours.content.as_deref(), Some("ours\n"));
         assert_eq!(delete_detail.theirs.content, None);
 
-        let binary_detail = get_conflict_file_detail(
-            fixture.repo_path.clone(),
-            "binary.dat".to_string(),
-            None,
-        )
-        .expect("binary conflict detail should resolve");
+        let binary_detail =
+            get_conflict_file_detail(fixture.repo_path.clone(), "binary.dat".to_string(), None)
+                .expect("binary conflict detail should resolve");
         assert!(binary_detail.merged.is_binary);
         assert!(binary_detail.ours.is_binary);
         assert!(binary_detail.theirs.is_binary);
@@ -6003,12 +6551,10 @@ mod tests {
                 .expect("resolved file should be readable"),
             "ours\n"
         );
-        assert!(
-            get_conflict_summary(fixture.repo_path.clone(), None)
-                .expect("conflict summary should resolve")
-                .files
-                .is_empty()
-        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
 
         stage_conflict_entries(
             &fixture.repo_path,
@@ -6025,19 +6571,17 @@ mod tests {
         )
         .expect("delete-side resolution should succeed");
         assert!(!Path::new(&fixture.repo_path).join("removed.txt").exists());
-        assert!(
-            get_conflict_summary(fixture.repo_path.clone(), None)
-                .expect("conflict summary should resolve")
-                .files
-                .is_empty()
-        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
     }
 
     #[test]
     fn merge_sessions_require_explicit_completion_or_abort() {
         let fixture = create_merge_conflict_session_fixture();
-        let main_before =
-            run_command("git", &["rev-parse", "main"], &fixture.repo_path).expect("main sha should resolve");
+        let main_before = run_command("git", &["rev-parse", "main"], &fixture.repo_path)
+            .expect("main sha should resolve");
 
         let result = merge_branches(
             fixture.repo_path.clone(),
@@ -6089,8 +6633,8 @@ mod tests {
     #[test]
     fn abort_merge_session_leaves_the_target_branch_unchanged() {
         let fixture = create_merge_conflict_session_fixture();
-        let main_before =
-            run_command("git", &["rev-parse", "main"], &fixture.repo_path).expect("main sha should resolve");
+        let main_before = run_command("git", &["rev-parse", "main"], &fixture.repo_path)
+            .expect("main sha should resolve");
 
         let result = merge_branches(
             fixture.repo_path.clone(),
@@ -6129,14 +6673,19 @@ mod tests {
             "root\nremote update\n",
         )
         .expect("remote update should be written");
-        run_command("git", &["commit", "-am", "remote update"], &collaborator_path)
-            .expect("remote commit should succeed");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
         run_command("git", &["push", "origin", "main"], &collaborator_path)
             .expect("remote push should succeed");
         run_command("git", &["fetch", "origin"], &fixture.repo_path)
             .expect("local fetch should succeed");
 
-        let status = get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+        let status =
+            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
 
         assert_eq!(status.branch_name.as_deref(), Some("main"));
         assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
@@ -6157,8 +6706,12 @@ mod tests {
             "root\nremote update\n",
         )
         .expect("remote update should be written");
-        run_command("git", &["commit", "-am", "remote update"], &collaborator_path)
-            .expect("remote commit should succeed");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
         run_command("git", &["push", "origin", "main"], &collaborator_path)
             .expect("remote push should succeed");
 
@@ -6172,7 +6725,8 @@ mod tests {
             .expect("upstream head should resolve");
         let readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
             .expect("README should be readable");
-        let status = get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+        let status =
+            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
 
         assert_eq!(current_branch, "main");
         assert_eq!(head, upstream_head);

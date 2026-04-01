@@ -25,6 +25,7 @@ export {
   commitChanges,
   pushChanges,
 } from "./git/commit.js";
+export { getCommitAuthorAvatars } from "./git/commitAvatars.js";
 export {
   getBranchDiffDetail,
   getBranchDiffFileDetail,

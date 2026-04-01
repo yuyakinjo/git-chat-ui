@@ -569,6 +569,7 @@ export function BranchTree({
       ? `${dropTargetBranchName} にドロップして Merge / PR を開く`
       : "別の local branch にドロップ"
     : null;
+  const hasStashes = stashes.length > 0;
 
   const contextMenuPortal =
     contextMenu && typeof document !== "undefined"
@@ -663,40 +664,40 @@ export function BranchTree({
             </div>
           ) : null}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <SectionTitle>Local</SectionTitle>
-          <div className="mt-1">{renderNode(localTree, "local", 0)}</div>
+        <div className="branch-tree__body">
+          <div className="branch-tree__branch-scroll">
+            <SectionTitle>Local</SectionTitle>
+            <div className="mt-1">{renderNode(localTree, "local", 0)}</div>
 
-          <SectionTitle>Remote</SectionTitle>
-          <div className="mt-1">{renderNode(remoteTree, "remote", 0)}</div>
+            <SectionTitle>Remote</SectionTitle>
+            <div className="mt-1">{renderNode(remoteTree, "remote", 0)}</div>
+          </div>
 
-          <div className="mt-4 border-t border-black/5 pt-3">
-            <button
-              type="button"
-              className="branch-tree__expand-button"
-              aria-expanded={isStashesExpanded}
-              aria-controls="branch-tree-stashes"
-              onClick={() => setIsStashesExpanded((current) => !current)}
-            >
-              <div className="branch-tree__expand-title">
-                {isStashesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <Archive size={14} className="text-ink-subtle" />
-                <span className="section-title">Stashes</span>
-              </div>
-              <span className="branch-tree__expand-count">{stashes.length}</span>
-            </button>
-
-            {isStashesExpanded ? (
-              <div
-                id="branch-tree-stashes"
-                className="branch-tree__stash-list"
-                role="list"
-                aria-label="stashes"
+          {hasStashes ? (
+            <div className="branch-tree__stash-section border-t border-black/5 pt-3">
+              <button
+                type="button"
+                className="branch-tree__expand-button"
+                aria-expanded={isStashesExpanded}
+                aria-controls="branch-tree-stashes"
+                onClick={() => setIsStashesExpanded((current) => !current)}
               >
-                {stashes.length === 0 ? (
-                  <div className="branch-tree__empty">No stashes</div>
-                ) : (
-                  stashes.map((stash) => (
+                <div className="branch-tree__expand-title">
+                  {isStashesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <Archive size={14} className="text-ink-subtle" />
+                  <span className="section-title">Stashes</span>
+                </div>
+                <span className="branch-tree__expand-count">{stashes.length}</span>
+              </button>
+
+              {isStashesExpanded ? (
+                <div
+                  id="branch-tree-stashes"
+                  className="branch-tree__stash-list"
+                  role="list"
+                  aria-label="stashes"
+                >
+                  {stashes.map((stash) => (
                     <button
                       key={stash.id}
                       type="button"
@@ -716,11 +717,11 @@ export function BranchTree({
                         </div>
                       </div>
                     </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {draggedBranchName && dragPreviewPosition ? (

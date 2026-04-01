@@ -24,6 +24,10 @@ export interface CommitListItem {
   decoration: string;
 }
 
+export interface CommitAuthorAvatarResponse {
+  avatars: Record<string, string>;
+}
+
 export interface CommitDetail {
   sha: string;
   parentShas: string[];
