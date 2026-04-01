@@ -71,6 +71,8 @@ describe("globals.css", () => {
     expect(gitOperationSection).toContain("overflow: auto;");
     expect(gitOperationSection).toContain(".git-operation-panel__description-input--compact {");
     expect(gitOperationSection).toContain("min-height: 44px;");
+    expect(gitOperationSection).toContain(".git-operation-panel__description-input--expanded {");
+    expect(gitOperationSection).toContain("min-height: 132px;");
     expect(gitOperationSection).toContain(".git-operation-panel__commit-actions {");
     expect(gitOperationSection).toContain("display: flex;");
     expect(gitOperationSection).toContain("justify-content: flex-end;");
@@ -93,22 +95,23 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
-  test("branch rows expose dedicated local and remote ref badge styles with dark-theme overrides", () => {
+  test("branch rows expose dedicated local and remote icon styles with dark-theme overrides", () => {
     const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
 
+    expect(branchBadgeSection).toContain(".branch-list-item__icon {");
+    expect(branchBadgeSection).toContain(".branch-list-item__icon--local {");
+    expect(branchBadgeSection).toContain("rgb(29 78 216 / 0.92)");
+    expect(branchBadgeSection).toContain(".branch-list-item__icon--remote {");
+    expect(branchBadgeSection).toContain("rgb(15 118 110 / 0.96)");
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
-    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge {");
-    expect(branchBadgeSection).toContain("text-transform: uppercase;");
-    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge--local {");
-    expect(branchBadgeSection).toContain("rgb(219 234 254 / 0.82)");
-    expect(branchBadgeSection).toContain(".branch-list-item__ref-badge--remote {");
-    expect(branchBadgeSection).toContain("rgb(204 251 241 / 0.78)");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
     expect(branchBadgeSection).toContain(
-      'body[data-theme="default-dark"] .branch-list-item__ref-badge--local {',
+      'body[data-theme="default-dark"] .branch-list-item__icon--local {',
     );
     expect(branchBadgeSection).toContain(
-      'body[data-theme="default-dark"] .branch-list-item__ref-badge--remote {',
+      'body[data-theme="default-dark"] .branch-list-item__icon--remote {',
     );
+    expect(branchBadgeSection).not.toContain(".branch-list-item__ref-badge {");
   });
 
   test("config commit prompt textarea can shrink within the panel and wrap long lines", () => {
@@ -171,6 +174,24 @@ describe("globals.css", () => {
       "background: linear-gradient(90deg, rgb(120 53 15 / 0.34), rgb(68 64 60 / 0.42)) !important;",
     );
     expect(wipSection).toContain("color: rgb(254 243 199 / 0.82);");
+  });
+
+  test("commit graph ref badges reserve space for icons and keep themed variants", () => {
+    const refBadgeSection = getSection(".commit-graph__ref-badge {", ".commit-row:hover {");
+
+    expect(refBadgeSection).toContain("gap: 4px;");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-icon {");
+    expect(refBadgeSection).toContain("flex-shrink: 0;");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-label {");
+    expect(refBadgeSection).toContain("min-width: 0;");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge--head {");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge--tag {");
+    expect(refBadgeSection).toContain(
+      'body[data-theme="default-dark"] .commit-graph__ref-badge--head {',
+    );
+    expect(refBadgeSection).toContain(
+      'body[data-theme="default-dark"] .commit-graph__ref-badge--tag {',
+    );
   });
 
   test("wip node uses a hollow dashed ring instead of a filled core", () => {

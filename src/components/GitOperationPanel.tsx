@@ -67,6 +67,7 @@ interface GitOperationPanelProps {
   onCommit: () => void;
   onPull?: () => void;
   headerAccessory?: JSX.Element | null;
+  hideFooterCommitAction?: boolean;
 }
 
 const DRAG_THRESHOLD_PX = 6;
@@ -102,6 +103,7 @@ export function GitOperationPanel({
   onCommit,
   onPull,
   headerAccessory,
+  hideFooterCommitAction = false,
 }: GitOperationPanelProps): JSX.Element {
   const rootRef = useRef<HTMLElement | null>(null);
   const [draggedFile, setDraggedFile] = useState<WorkingTreeDragPayload | null>(null);
@@ -139,6 +141,7 @@ export function GitOperationPanel({
   const normalizedCommitTitle = commitTitle.replace(/\r?\n/g, " ");
   const commitTitleLength = Array.from(normalizedCommitTitle.trim()).length;
   const commitTitleOverflowCount = Math.max(0, commitTitleLength - COMMIT_TITLE_SOFT_LIMIT);
+  const commitActionDisabled = busy || staged.length === 0 || !commitTitle.trim();
   const generateCommitMessageTitle = isCommitMessageGenerating
     ? "AIでコミット文を生成中"
     : "AIでタイトル生成";
@@ -619,9 +622,14 @@ export function GitOperationPanel({
     : isMediumLayout
       ? "git-operation-panel__commit-card--medium"
       : "";
-  const commitDescriptionClass = isCompactMediumLayout
-    ? "git-operation-panel__description-input--compact"
-    : "";
+  const commitDescriptionClass = [
+    isCompactMediumLayout && !hideFooterCommitAction
+      ? "git-operation-panel__description-input--compact"
+      : null,
+    hideFooterCommitAction ? "git-operation-panel__description-input--expanded" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const renderUnstagedBucket = (): JSX.Element => (
     <div className="flex min-h-0 min-w-0 flex-col">
       <div className="git-operation-panel__bucket-header mb-1 flex min-h-8 items-center justify-between px-1 text-xs text-ink-subtle">
@@ -830,21 +838,23 @@ export function GitOperationPanel({
             onChange={(event) => onCommitDescriptionChange(event.target.value)}
           />
         </div>
-        <div className="git-operation-panel__commit-actions">
-          <button
-            type="button"
-            className="button button-primary inline-flex items-center gap-2"
-            disabled={busy || staged.length === 0 || !commitTitle.trim()}
-            onClick={onCommit}
-          >
-            <GitCommitHorizontal
-              size={16}
-              aria-hidden="true"
-              className="git-operation-panel__commit-submit-icon"
-            />
-            <span>Commit</span>
-          </button>
-        </div>
+        {hideFooterCommitAction ? null : (
+          <div className="git-operation-panel__commit-actions">
+            <button
+              type="button"
+              className="button button-primary inline-flex items-center gap-2"
+              disabled={commitActionDisabled}
+              onClick={onCommit}
+            >
+              <GitCommitHorizontal
+                size={16}
+                aria-hidden="true"
+                className="git-operation-panel__commit-submit-icon"
+              />
+              <span>Commit</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

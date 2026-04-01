@@ -98,6 +98,7 @@ describe("GitOperationPanel", () => {
         onOpenWorkingTreeDiff={() => {}}
         onGenerateCommitMessage={() => {}}
         onCommit={() => {}}
+        hideFooterCommitAction
         headerAccessory={
           <div className="flex items-center gap-2">
             <button
@@ -105,6 +106,9 @@ describe("GitOperationPanel", () => {
               className="button button-secondary inline-flex items-center gap-2"
             >
               <span>Push</span>
+            </button>
+            <button type="button">
+              <span>Commit</span>
             </button>
             <button type="button">Diffs vs main</button>
           </div>
@@ -114,9 +118,41 @@ describe("GitOperationPanel", () => {
 
     expect(html).toContain('section-title">Git Operations');
     expect(html).toContain("Push");
+    expect(html).toContain("Commit");
     expect(html).toContain("Diffs vs main");
     expect(html).toContain("mb-2 flex items-center justify-between gap-2 px-2");
-    expect(html.indexOf("Push")).toBeLessThan(html.indexOf("Diffs vs main"));
+    expect(html).not.toContain("git-operation-panel__commit-actions");
+    expect(html.indexOf("Push")).toBeLessThan(html.indexOf("Commit"));
+    expect(html.indexOf("Commit")).toBeLessThan(html.indexOf("Diffs vs main"));
+  });
+
+  test("expands the description editor when the footer commit action is hidden", () => {
+    const html = renderToStaticMarkup(
+      <GitOperationPanel
+        status={status}
+        stashes={stashes}
+        commitTitle="feat: add more room for commit body text"
+        commitDescription="- first line\n- second line"
+        busy={false}
+        generatingCommitMessage={false}
+        onCommitTitleChange={() => {}}
+        onCommitDescriptionChange={() => {}}
+        onStageFile={() => {}}
+        onUnstageFile={() => {}}
+        onStageAll={() => {}}
+        onUnstageAll={() => {}}
+        onStashFile={() => {}}
+        activeWorkingTreeDiff={null}
+        onOpenWorkingTreeDiff={() => {}}
+        onGenerateCommitMessage={() => {}}
+        onCommit={() => {}}
+        hideFooterCommitAction
+      />,
+    );
+
+    expect(html).toContain("git-operation-panel__description-input--expanded");
+    expect(html).not.toContain("git-operation-panel__description-input--compact");
+    expect(html).not.toContain("git-operation-panel__commit-actions");
   });
 
   test("renders change buckets and commit controls in a shared responsive grid", () => {

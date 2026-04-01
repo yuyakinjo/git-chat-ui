@@ -1,4 +1,4 @@
-import { AlertTriangle, GripVertical, UploadCloud, X } from "lucide-react";
+import { AlertTriangle, GitCommitHorizontal, GripVertical, UploadCloud, X } from "lucide-react";
 import { startTransition, useActionState, useEffect, useMemo, useState, type JSX } from "react";
 import { flushSync } from "react-dom";
 
@@ -285,6 +285,7 @@ export function ControllerView({
         });
       }}
       onNotify={onNotify}
+      branchContext={data.branches}
     />
   );
 
@@ -302,6 +303,26 @@ export function ControllerView({
       },
     );
   };
+
+  const commitCurrentChanges = (): void => {
+    void data.mutateAndReload(
+      async () => {
+        await api.commit(repoPath, data.commitTitle, data.commitDescription);
+      },
+      {
+        onSuccess: () => {
+          flushSync(() => {
+            data.clearCommitMessageDraft();
+          });
+        },
+      },
+    );
+  };
+
+  const commitActionDisabled =
+    data.operationBusy ||
+    (data.workingStatus?.staged.length ?? 0) === 0 ||
+    !data.commitTitle.trim();
 
   const gitOperationPanel = (
     <GitOperationPanel
@@ -415,20 +436,7 @@ export function ControllerView({
           });
         })();
       }}
-      onCommit={() => {
-        void data.mutateAndReload(
-          async () => {
-            await api.commit(repoPath, data.commitTitle, data.commitDescription);
-          },
-          {
-            onSuccess: () => {
-              flushSync(() => {
-                data.clearCommitMessageDraft();
-              });
-            },
-          },
-        );
-      }}
+      onCommit={commitCurrentChanges}
       onPull={() => {
         if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
           return;
@@ -445,6 +453,7 @@ export function ControllerView({
           },
         );
       }}
+      hideFooterCommitAction
       headerAccessory={
         <div className="flex items-center gap-2">
           <button
@@ -455,6 +464,15 @@ export function ControllerView({
           >
             <UploadCloud size={16} aria-hidden="true" />
             <span>Push</span>
+          </button>
+          <button
+            type="button"
+            className="button button-primary inline-flex items-center gap-2"
+            disabled={commitActionDisabled}
+            onClick={commitCurrentChanges}
+          >
+            <GitCommitHorizontal size={16} aria-hidden="true" />
+            <span>Commit</span>
           </button>
           {data.showBranchDiffButton ? (
             <button

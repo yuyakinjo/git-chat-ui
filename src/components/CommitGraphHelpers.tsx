@@ -1,3 +1,4 @@
+import { Cloud, HardDrive, Tag, type LucideIcon } from "lucide-react";
 import type { CSSProperties, JSX } from "react";
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ export const REF_COLUMN_MIN_WIDTH = 140;
 export const REF_COLUMN_MAX_WIDTH = 900;
 export const REF_COLUMN_DEFAULT_WIDTH = 230;
 export const REF_COLUMN_STORAGE_KEY = "git-chat-ui.commit-refs-column-width";
+export const REF_BADGE_ICON_SIZE = 10;
 
 export const LANE_COLORS = [
   "#0071e3",
@@ -31,6 +33,12 @@ export const LANE_COLORS = [
 export interface CommitRefLabel {
   type: "head" | "branch" | "tag";
   name: string;
+}
+
+export interface CommitRefScopeContext {
+  localRefNames: Set<string>;
+  remoteRefNames: Set<string>;
+  remoteNames: Set<string>;
 }
 
 // ── Pure functions ─────────────────────────────────────────────────────
@@ -120,9 +128,69 @@ export function refLabelClass(type: CommitRefLabel["type"]): string {
     return "commit-graph__ref-badge--head border-blue-300 bg-blue-50 text-blue-700";
   }
   if (type === "tag") {
-    return "border-amber-300 bg-amber-50 text-amber-700";
+    return "commit-graph__ref-badge--tag border-amber-300 bg-amber-50 text-amber-700";
   }
   return "border-slate-300 bg-white/85 text-slate-700";
+}
+
+function hasRemotePrefix(labelName: string, remoteNames: Set<string>): boolean {
+  return [...remoteNames].some((remoteName) => labelName.startsWith(`${remoteName}/`));
+}
+
+export function resolveCommitRefScope(
+  label: CommitRefLabel,
+  context: CommitRefScopeContext | null,
+): "local" | "remote" | "tag" {
+  if (label.type === "tag") {
+    return "tag";
+  }
+
+  if (label.type === "head") {
+    return "local";
+  }
+
+  if (!context) {
+    return "local";
+  }
+
+  const isLocal = context.localRefNames.has(label.name);
+  const isRemote = context.remoteRefNames.has(label.name);
+
+  if (isLocal && !isRemote) {
+    return "local";
+  }
+
+  if (isRemote && !isLocal) {
+    return "remote";
+  }
+
+  if (isRemote && isLocal) {
+    return hasRemotePrefix(label.name, context.remoteNames) ? "remote" : "local";
+  }
+
+  if (label.name.endsWith("/HEAD") && hasRemotePrefix(label.name, context.remoteNames)) {
+    return "remote";
+  }
+
+  if (hasRemotePrefix(label.name, context.remoteNames)) {
+    return "remote";
+  }
+
+  return "local";
+}
+
+export function refLabelIcon(scope: "local" | "remote" | "tag"): LucideIcon {
+  if (scope === "remote") {
+    return Cloud;
+  }
+  if (scope === "tag") {
+    return Tag;
+  }
+  return HardDrive;
+}
+
+export function refLabelIconClass(scope: "local" | "remote" | "tag"): string {
+  return `commit-graph__ref-badge-icon commit-graph__ref-badge-icon--${scope}`;
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────

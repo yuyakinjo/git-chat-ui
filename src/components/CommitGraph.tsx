@@ -6,7 +6,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows } from "../lib/commitGraphLayout";
 import { formatRelativeDate, shortSha } from "../lib/format";
-import type { CommitGraphMode, CommitListItem } from "../types";
+import type { BranchResponse, CommitGraphMode, CommitListItem } from "../types";
 import {
   clampColumnWidth,
   LANE_COLORS,
@@ -16,9 +16,13 @@ import {
   laneX,
   LINE_OVERDRAW,
   parseCommitRefLabels,
+  REF_BADGE_ICON_SIZE,
   REF_COLUMN_DEFAULT_WIDTH,
   REF_COLUMN_STORAGE_KEY,
   refLabelClass,
+  refLabelIcon,
+  refLabelIconClass,
+  resolveCommitRefScope,
   ROW_HEIGHT,
   WIP_LINE_TOP,
   WIP_NODE_CENTER,
@@ -47,6 +51,7 @@ interface CommitGraphProps {
   onLoadMore: () => void;
   onNotify: (message: string) => void;
   headerAccessory?: JSX.Element | null;
+  branchContext?: BranchResponse | null;
 }
 
 export function CommitGraph({
@@ -71,6 +76,7 @@ export function CommitGraph({
   onLoadMore,
   onNotify,
   headerAccessory,
+  branchContext = null,
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
@@ -94,6 +100,19 @@ export function CommitGraph({
     () => new Map(commits.map((commit) => [commit.sha, parseCommitRefLabels(commit.decoration)])),
     [commits],
   );
+  const commitRefScopeContext = useMemo(
+    () =>
+      branchContext
+        ? {
+            localRefNames: new Set(branchContext.local.map((branch) => branch.name)),
+            remoteRefNames: new Set(branchContext.remote.map((branch) => branch.name)),
+            remoteNames: new Set(
+              branchContext.remote.map((branch) => branch.name.split("/", 1)[0]).filter(Boolean),
+            ),
+          }
+        : null,
+    [branchContext],
+  );
   const refsAutoWidth = useMemo(() => {
     if (typeof document === "undefined") {
       return REF_COLUMN_DEFAULT_WIDTH;
@@ -116,7 +135,7 @@ export function CommitGraph({
 
       const rowWidth = labels.reduce((total, label, index) => {
         const textWidth = Math.ceil(context.measureText(label.name).width);
-        const pillWidth = textWidth + 18; // horizontal padding + border
+        const pillWidth = textWidth + 32; // horizontal padding + border + icon + gap
         return total + pillWidth + (index > 0 ? 4 : 0);
       }, 0);
 
@@ -482,27 +501,39 @@ export function CommitGraph({
               <div className="overflow-hidden whitespace-nowrap text-xs text-ink-soft">
                 {commitRefLabels.length > 0 ? (
                   <div className="flex items-center gap-1 overflow-hidden">
-                    {commitRefLabels.map((label) => (
-                      <span
-                        key={`${commit.sha}-${label.type}-${label.name}`}
-                        className={`inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
-                          label.type,
-                        )} ${label.type === "tag" ? "" : "cursor-pointer"}`}
-                        style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
-                        title={label.name}
-                        onDoubleClick={(event) => {
-                          if (busy || label.type === "tag") {
-                            return;
-                          }
+                    {commitRefLabels.map((label) => {
+                      const refScope = resolveCommitRefScope(label, commitRefScopeContext);
+                      const RefBadgeIcon = refLabelIcon(refScope);
 
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCheckoutBranchRef(label.name);
-                        }}
-                      >
-                        <span className="truncate">{label.name}</span>
-                      </span>
-                    ))}
+                      return (
+                        <span
+                          key={`${commit.sha}-${label.type}-${label.name}`}
+                          className={`commit-graph__ref-badge inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
+                            label.type,
+                          )} ${label.type === "tag" ? "" : "cursor-pointer"}`}
+                          style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
+                          title={label.name}
+                          onDoubleClick={(event) => {
+                            if (busy || label.type === "tag") {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onCheckoutBranchRef(label.name);
+                          }}
+                        >
+                          <RefBadgeIcon
+                            size={REF_BADGE_ICON_SIZE}
+                            className={refLabelIconClass(refScope)}
+                            aria-hidden="true"
+                          />
+                          <span className="commit-graph__ref-badge-label truncate">
+                            {label.name}
+                          </span>
+                        </span>
+                      );
+                    })}
                   </div>
                 ) : (
                   <span className="text-ink-subtle">-</span>

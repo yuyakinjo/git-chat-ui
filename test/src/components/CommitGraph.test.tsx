@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { CommitListItem } from "../../../src/types";
+import type { BranchResponse, CommitListItem } from "../../../src/types";
 
 import { CommitGraph } from "../../../src/components/CommitGraph";
 
@@ -12,7 +12,7 @@ const commits: CommitListItem[] = [
     author: "kinjo",
     date: "2026-03-29T12:00:00.000Z",
     subject: "feat: sample graph node",
-    decoration: "(HEAD -> main, origin/main)",
+    decoration: "(HEAD -> main, tag: v1.2.0, origin/main, origin/HEAD)",
   },
   {
     sha: "def5678",
@@ -23,6 +23,27 @@ const commits: CommitListItem[] = [
     decoration: "",
   },
 ];
+
+const branchContext: BranchResponse = {
+  current: "main",
+  local: [
+    {
+      name: "main",
+      fullRef: "refs/heads/main",
+      type: "local",
+      commit: "abc1234",
+    },
+  ],
+  remote: [
+    {
+      name: "origin/main",
+      fullRef: "refs/remotes/origin/main",
+      type: "remote",
+      commit: "abc1234",
+      isRemoteDefault: true,
+    },
+  ],
+};
 
 describe("CommitGraph", () => {
   test("renders the WIP marker as a hollow dashed circle in detailed mode", () => {
@@ -48,6 +69,7 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
+        branchContext={branchContext}
       />,
     );
 
@@ -60,6 +82,13 @@ describe("CommitGraph", () => {
     expect(html).toContain("commit-graph__header");
     expect(html).toContain("commit-graph__cell--primary");
     expect(html).toContain("commit-graph__ref-badge--head");
+    expect(html).toContain("commit-graph__ref-badge--tag");
+    expect(html).toContain("commit-graph__ref-badge-icon");
+    expect(html).toContain("commit-graph__ref-badge-label");
+    expect(html.match(/commit-graph__ref-badge-icon--local/g)?.length ?? 0).toBe(1);
+    expect(html.match(/commit-graph__ref-badge-icon--remote/g)?.length ?? 0).toBe(2);
+    expect(html.match(/commit-graph__ref-badge-icon--tag/g)?.length ?? 0).toBe(1);
+    expect(html).toContain("origin/HEAD");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
     expect(html).not.toContain("Detailed lane mode (branch / merge)");
   });
@@ -87,6 +116,7 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
+        branchContext={branchContext}
       />,
     );
 
@@ -117,6 +147,7 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
+        branchContext={branchContext}
       />,
     );
 

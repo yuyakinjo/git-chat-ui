@@ -88,7 +88,7 @@ describe("BranchTree", () => {
     );
   });
 
-  test("renders distinct local and remote ref badges in branch rows", () => {
+  test("renders distinct local and remote icons in branch rows without ref badges", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branchesWithVisibleRemoteLeaf}
@@ -107,9 +107,10 @@ describe("BranchTree", () => {
       />,
     );
 
-    expect(html).toContain("branch-list-item__ref-badge branch-list-item__ref-badge--local");
-    expect(html).toContain("branch-list-item__ref-badge branch-list-item__ref-badge--remote");
-    expect(html).toContain('aria-label="Local ref"');
-    expect(html).toContain('aria-label="Remote ref"');
+    expect(html).toContain("branch-list-item__icon branch-list-item__icon--local");
+    expect(html).toContain("branch-list-item__icon branch-list-item__icon--remote");
+    expect(html).not.toContain("branch-list-item__ref-badge");
+    expect(html).not.toContain('aria-label="Local ref"');
+    expect(html).not.toContain('aria-label="Remote ref"');
   });
 });
