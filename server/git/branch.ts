@@ -472,7 +472,7 @@ export async function createBranch(
   newBranch: string,
 ): Promise<void> {
   const normalizedNewBranch = await validateCreateBranchInput(repoPath, baseBranch, newBranch);
-  await runGit(["branch", normalizedNewBranch, baseBranch], repoPath);
+  await runGit(["checkout", "-b", normalizedNewBranch, baseBranch], repoPath);
 }
 
 export async function deleteBranch(

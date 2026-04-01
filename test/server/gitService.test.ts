@@ -364,7 +364,7 @@ describe("resolveRepositories", () => {
 });
 
 describe("createBranch", () => {
-  test("creates a new local branch from the selected base branch without switching HEAD", async () => {
+  test("creates a new local branch from the selected base branch and switches HEAD to it", async () => {
     const fixture = await createRemoteDeleteFixture();
 
     try {
@@ -373,7 +373,9 @@ describe("createBranch", () => {
       await createBranch(fixture.repoPath, "feature/remote-delete", "feature/context-menu");
 
       expect(await runGit(["rev-parse", "feature/context-menu"], fixture.repoPath)).toBe(baseSha);
-      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("main");
+      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe(
+        "feature/context-menu",
+      );
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }
@@ -437,10 +439,16 @@ describe("getWorkingTreeStatus", () => {
         undefined,
         { resetIndex: false },
       );
-      await stageConflictEntries(fixture.repoPath, "du.txt", [
-        { stage: 1, content: "base du\n" },
-        { stage: 3, content: "theirs du\n" },
-      ], undefined, { resetIndex: false });
+      await stageConflictEntries(
+        fixture.repoPath,
+        "du.txt",
+        [
+          { stage: 1, content: "base du\n" },
+          { stage: 3, content: "theirs du\n" },
+        ],
+        undefined,
+        { resetIndex: false },
+      );
       await stageConflictEntries(
         fixture.repoPath,
         "ua.txt",
@@ -448,15 +456,27 @@ describe("getWorkingTreeStatus", () => {
         undefined,
         { resetIndex: false },
       );
-      await stageConflictEntries(fixture.repoPath, "ud.txt", [
-        { stage: 1, content: "base ud\n" },
-        { stage: 2, content: "ours ud\n" },
-      ], undefined, { resetIndex: false });
-      await stageConflictEntries(fixture.repoPath, "uu.txt", [
-        { stage: 1, content: "base uu\n" },
-        { stage: 2, content: "ours uu\n" },
-        { stage: 3, content: "theirs uu\n" },
-      ], undefined, { resetIndex: false });
+      await stageConflictEntries(
+        fixture.repoPath,
+        "ud.txt",
+        [
+          { stage: 1, content: "base ud\n" },
+          { stage: 2, content: "ours ud\n" },
+        ],
+        undefined,
+        { resetIndex: false },
+      );
+      await stageConflictEntries(
+        fixture.repoPath,
+        "uu.txt",
+        [
+          { stage: 1, content: "base uu\n" },
+          { stage: 2, content: "ours uu\n" },
+          { stage: 3, content: "theirs uu\n" },
+        ],
+        undefined,
+        { resetIndex: false },
+      );
 
       const status = await getWorkingTreeStatus(fixture.repoPath);
       const labels = Object.fromEntries(
@@ -503,7 +523,10 @@ describe("conflict details and resolution", () => {
       await expect(getConflictFileDetail(fixture.repoPath, "notes.txt")).resolves.toMatchObject({
         file: "notes.txt",
         statusLabel: "Both Modified",
-        merged: { isBinary: false, content: "<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n" },
+        merged: {
+          isBinary: false,
+          content: "<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n",
+        },
         base: { isBinary: false, content: "base\n" },
         ours: { isBinary: false, content: "ours\n" },
         theirs: { isBinary: false, content: "theirs\n" },
@@ -527,16 +550,16 @@ describe("conflict details and resolution", () => {
         null,
       );
 
-      await expect(getConflictFileDetail(fixture.repoPath, "delete-side.txt")).resolves.toMatchObject(
-        {
-          file: "delete-side.txt",
-          statusLabel: "Deleted by Theirs",
-          merged: { isBinary: false, content: null },
-          base: { isBinary: false, content: "base\n" },
-          ours: { isBinary: false, content: "ours\n" },
-          theirs: { isBinary: false, content: null },
-        },
-      );
+      await expect(
+        getConflictFileDetail(fixture.repoPath, "delete-side.txt"),
+      ).resolves.toMatchObject({
+        file: "delete-side.txt",
+        statusLabel: "Deleted by Theirs",
+        merged: { isBinary: false, content: null },
+        base: { isBinary: false, content: "base\n" },
+        ours: { isBinary: false, content: "ours\n" },
+        theirs: { isBinary: false, content: null },
+      });
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }
@@ -619,7 +642,9 @@ describe("conflict details and resolution", () => {
         side: "theirs",
       });
 
-      await expect(fs.readFile(path.join(fixture.repoPath, "removed.txt"), "utf8")).rejects.toThrow();
+      await expect(
+        fs.readFile(path.join(fixture.repoPath, "removed.txt"), "utf8"),
+      ).rejects.toThrow();
       await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });

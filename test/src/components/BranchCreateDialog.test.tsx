@@ -19,7 +19,10 @@ describe("BranchCreateDialog", () => {
     expect(html).toContain("feature/base");
     expect(html).toContain("New Branch Name");
     expect(html).toContain("feature/context-menu");
-    expect(html).toContain("checkout は行いません");
+    expect(html).not.toContain("Base Branch");
+    expect(html).not.toContain("checkout は行いません");
+    expect(html).not.toContain("右クリックした local branch を base にして");
+    expect(html).not.toContain("作成後に切り替えたい場合は");
     expect(html).toContain('title="Close"');
     expect(html).toContain('aria-label="Close"');
     expect(html).not.toContain(">Close<");

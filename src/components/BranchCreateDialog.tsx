@@ -1,4 +1,4 @@
-import { GitBranch, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
 
 interface BranchCreateDialogProps {
@@ -42,9 +42,6 @@ export function BranchCreateDialog({
           <div className="min-w-0">
             <div className="section-title">Create Branch</div>
             <div className="break-all text-base font-semibold text-ink">{baseBranchName}</div>
-            <div className="mt-1 text-sm leading-6 text-ink-subtle">
-              右クリックした local branch を base にして、新しい local branch を作成します。
-            </div>
           </div>
 
           <button
@@ -71,20 +68,6 @@ export function BranchCreateDialog({
           }}
         >
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 sm:space-y-4">
-            <div className="rounded-2xl border border-black/10 bg-white/70 p-3 text-sm text-ink-soft sm:p-4">
-              <div className="flex items-center gap-2 font-semibold text-ink">
-                <GitBranch size={15} />
-                <span>Base Branch</span>
-              </div>
-              <div className="mt-2 break-all text-base font-semibold text-ink">
-                {baseBranchName}
-              </div>
-              <div className="mt-2 leading-6">
-                <span className="font-medium text-ink">{baseBranchName}</span> を起点に branch
-                を作成します。作成後の checkout は行いません。
-              </div>
-            </div>
-
             <div>
               <label htmlFor="branch-create-name" className="text-sm font-semibold text-ink">
                 New Branch Name
@@ -98,9 +81,6 @@ export function BranchCreateDialog({
                 autoFocus
                 disabled={busy}
               />
-              <div className="mt-1.5 text-xs leading-5 text-ink-subtle sm:mt-2">
-                作成後に切り替えたい場合は、branch list から double-click してください。
-              </div>
             </div>
           </div>
 

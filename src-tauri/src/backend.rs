@@ -4339,11 +4339,7 @@ pub fn create_branch(
     let normalized_new_branch =
         validate_create_branch_input(&repo_path, &base_branch, &new_branch)?;
     run_git(
-        &[
-            "branch",
-            normalized_new_branch.as_str(),
-            base_branch.as_str(),
-        ],
+        &["checkout", "-b", normalized_new_branch.as_str(), base_branch.as_str()],
         &repo_path,
     )?;
 
@@ -5773,7 +5769,7 @@ mod tests {
     }
 
     #[test]
-    fn create_branch_creates_new_local_branch_without_switching_head() {
+    fn create_branch_creates_new_local_branch_and_switches_head_to_it() {
         let fixture = create_working_tree_diff_fixture();
         run_command(
             "git",
@@ -5803,7 +5799,7 @@ mod tests {
             .expect("current branch should resolve");
 
         assert_eq!(new_sha, base_sha);
-        assert_eq!(current_branch, "main");
+        assert_eq!(current_branch, "feature/context-menu");
     }
 
     #[test]

@@ -247,6 +247,17 @@ export function useControllerBranchOps({
       return;
     }
 
+    const canBypassSelfMutationBlock = canCheckoutBranchWithoutWorkingTreeChange(
+      data.currentLocalBranch,
+      currentSource,
+    );
+    if (
+      !canBypassSelfMutationBlock &&
+      data.reportBlockedMutation("開発中のアプリ自身の repo は branch 作成後に checkout できません")
+    ) {
+      return;
+    }
+
     data.setOperationBusy(true);
 
     try {
@@ -260,7 +271,7 @@ export function useControllerBranchOps({
       data.setShowBranchDiff(false);
       data.setFocusedCommitDiffFile(null);
       data.setInlineError(null);
-      onNotify(`${newBranchName} を ${currentSource.name} から作成しました。`);
+      onNotify(`${newBranchName} を ${currentSource.name} から作成して切り替えました。`);
       await data.reloadAfterBranchMutation(newBranchName);
     } catch (error) {
       data.reportError(error, "ブランチ作成に失敗しました。");
