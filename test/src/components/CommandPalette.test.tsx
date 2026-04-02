@@ -41,7 +41,8 @@ describe("CommandPalette", () => {
     expect(html).toContain("main");
     expect(html).toContain("Copy Current Branch Name");
     expect(html).toContain("Open GitHub Page");
-    expect(html).toContain("Arrow keys to move, Enter to run, Esc to close");
+    expect(html).not.toContain("Cmd/Ctrl + P");
+    expect(html).not.toContain("Arrow keys to move, Enter to run, Esc to close");
     expect(html).toContain("Unavailable");
   });
 });

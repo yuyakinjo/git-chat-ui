@@ -759,33 +759,8 @@ button.app-tab {
 }
 
 .command-palette__header {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 18px 12px;
+  padding: 14px 18px 10px;
   border-bottom: 1px solid rgb(var(--theme-border-rgb) / 0.12);
-}
-
-.command-palette__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.command-palette__shortcut {
-  margin-left: auto;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgb(var(--theme-overlay-rgb) / 0.08);
-  color: var(--text-subtle);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: none;
 }
 
 .command-palette__context {
@@ -855,7 +830,7 @@ button.app-tab {
   cursor: pointer;
 }
 
-.command-palette__item:hover:not(:disabled),
+.command-palette__results.is-pointer-active .command-palette__item:hover:not(:disabled),
 .command-palette__item.is-active {
   border-color: rgb(var(--color-accent) / 0.18);
   background: rgb(var(--color-accent) / 0.08);
@@ -914,13 +889,6 @@ button.app-tab {
   color: var(--text-secondary);
   font-size: 14px;
   text-align: center;
-}
-
-.command-palette__footer {
-  padding: 12px 18px 16px;
-  border-top: 1px solid rgb(var(--theme-border-rgb) / 0.1);
-  color: var(--text-subtle);
-  font-size: 12px;
 }
 
 .config-view__combobox-menu {

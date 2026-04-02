@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   filterCommandPaletteItems,
+  getDefaultActiveCommandPaletteItemId,
+  getNextActiveCommandPaletteItemId,
   isCommandPaletteShortcut,
 } from "../../../src/lib/commandPalette";
 
@@ -69,5 +71,58 @@ describe("isCommandPaletteShortcut", () => {
         shiftKey: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getDefaultActiveCommandPaletteItemId", () => {
+  const items = [
+    {
+      id: "copy-current-branch-name",
+      title: "Copy Current Branch Name",
+    },
+    {
+      id: "open-github-page",
+      title: "Open GitHub Page",
+    },
+  ];
+
+  test("does not preselect a command for an empty query", () => {
+    expect(getDefaultActiveCommandPaletteItemId(items, "")).toBeNull();
+    expect(getDefaultActiveCommandPaletteItemId(items, "   ")).toBeNull();
+  });
+
+  test("selects the first filtered command after the user starts typing", () => {
+    expect(getDefaultActiveCommandPaletteItemId([items[1]], "git")).toBe("open-github-page");
+  });
+});
+
+describe("getNextActiveCommandPaletteItemId", () => {
+  const items = [
+    {
+      id: "copy-current-branch-name",
+      title: "Copy Current Branch Name",
+    },
+    {
+      id: "create-branch",
+      title: "Create Branch",
+    },
+    {
+      id: "open-github-page",
+      title: "Open GitHub Page",
+    },
+  ];
+
+  test("starts from the first or last command when nothing is active yet", () => {
+    expect(getNextActiveCommandPaletteItemId(items, null, 1)).toBe("copy-current-branch-name");
+    expect(getNextActiveCommandPaletteItemId(items, null, -1)).toBe("open-github-page");
+  });
+
+  test("wraps through the filtered commands", () => {
+    expect(getNextActiveCommandPaletteItemId(items, "copy-current-branch-name", -1)).toBe(
+      "open-github-page",
+    );
+    expect(getNextActiveCommandPaletteItemId(items, "open-github-page", 1)).toBe(
+      "copy-current-branch-name",
+    );
   });
 });

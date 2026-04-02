@@ -1,9 +1,11 @@
-import { Command, Search, type LucideIcon } from "lucide-react";
+import { Search, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import {
   filterCommandPaletteItems,
+  getDefaultActiveCommandPaletteItemId,
+  getNextActiveCommandPaletteItemId,
   type SearchableCommandPaletteItem,
 } from "../lib/commandPalette";
 
@@ -31,6 +33,7 @@ export function CommandPalette({
   const optionRefs = useRef(new Map<string, HTMLButtonElement>());
   const [query, setQuery] = useState("");
   const [activeCommandId, setActiveCommandId] = useState<string | null>(null);
+  const [pointerSelectionEnabled, setPointerSelectionEnabled] = useState(false);
 
   const filteredCommands = useMemo(
     () => filterCommandPaletteItems(commands, query),
@@ -41,11 +44,13 @@ export function CommandPalette({
     if (!open) {
       setQuery("");
       setActiveCommandId(null);
+      setPointerSelectionEnabled(false);
       return;
     }
 
     setQuery("");
-    setActiveCommandId(commands[0]?.id ?? null);
+    setActiveCommandId(null);
+    setPointerSelectionEnabled(false);
     inputRef.current?.focus();
   }, [commands, open]);
 
@@ -61,9 +66,9 @@ export function CommandPalette({
 
       return filteredCommands.some((command) => command.id === current)
         ? current
-        : (filteredCommands[0]?.id ?? null);
+        : getDefaultActiveCommandPaletteItemId(filteredCommands, query);
     });
-  }, [filteredCommands, open]);
+  }, [filteredCommands, open, query]);
 
   useEffect(() => {
     if (!open || !activeCommandId) {
@@ -89,14 +94,14 @@ export function CommandPalette({
   };
 
   const moveActiveCommand = (direction: 1 | -1): void => {
-    if (filteredCommands.length === 0) {
-      return;
-    }
+    setActiveCommandId((current) =>
+      getNextActiveCommandPaletteItemId(filteredCommands, current, direction),
+    );
+  };
 
-    const currentIndex = filteredCommands.findIndex((command) => command.id === activeCommandId);
-    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-    const nextIndex = (safeIndex + direction + filteredCommands.length) % filteredCommands.length;
-    setActiveCommandId(filteredCommands[nextIndex]?.id ?? null);
+  const handleCommandPointerMove = (commandId: string): void => {
+    setPointerSelectionEnabled(true);
+    setActiveCommandId((current) => (current === commandId ? current : commandId));
   };
 
   const content = (
@@ -116,11 +121,6 @@ export function CommandPalette({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="command-palette__header">
-          <div className="command-palette__eyebrow">
-            <Command size={14} aria-hidden="true" />
-            <span>Command Palette</span>
-            <span className="command-palette__shortcut">Cmd/Ctrl + P</span>
-          </div>
           <div className="command-palette__context">
             <span>{repositoryName}</span>
             {currentBranchName ? (
@@ -174,7 +174,11 @@ export function CommandPalette({
           />
         </div>
 
-        <div className="command-palette__results" role="listbox" aria-label="Available commands">
+        <div
+          className={`command-palette__results ${pointerSelectionEnabled ? "is-pointer-active" : ""}`}
+          role="listbox"
+          aria-label="Available commands"
+        >
           {filteredCommands.length > 0 ? (
             filteredCommands.map((command) => {
               const Icon = command.icon;
@@ -197,7 +201,7 @@ export function CommandPalette({
                   className={`command-palette__item ${isActive ? "is-active" : ""}`}
                   disabled={Boolean(command.disabledReason)}
                   onMouseDown={(event) => event.preventDefault()}
-                  onMouseEnter={() => setActiveCommandId(command.id)}
+                  onPointerMove={() => handleCommandPointerMove(command.id)}
                   onClick={() => executeCommand(command)}
                 >
                   <span className="command-palette__item-icon" aria-hidden="true">
@@ -218,10 +222,6 @@ export function CommandPalette({
           ) : (
             <div className="command-palette__empty">No commands match your search.</div>
           )}
-        </div>
-
-        <div className="command-palette__footer">
-          Arrow keys to move, Enter to run, Esc to close
         </div>
       </section>
     </div>
