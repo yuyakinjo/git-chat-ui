@@ -34,7 +34,7 @@ export {
 } from "./git/diff.js";
 export {
   normalizeGithubRemoteUrl,
-  getOpenPullRequestUrls,
+  getOpenPullRequests,
   preparePullRequest,
   createPullRequest,
 } from "./git/pullRequest.js";

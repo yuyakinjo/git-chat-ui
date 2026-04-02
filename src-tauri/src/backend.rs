@@ -462,8 +462,15 @@ pub struct RepositoryGithubUrlResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BranchPullRequestUrlsResponse {
-    pub urls: HashMap<String, String>,
+pub struct BranchPullRequest {
+    pub url: String,
+    pub has_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchPullRequestsResponse {
+    pub pull_requests: HashMap<String, BranchPullRequest>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2315,7 +2322,7 @@ fn find_existing_pull_request(
     Ok(url)
 }
 
-fn get_open_pull_request_urls(repo_path: &str) -> Result<HashMap<String, String>, String> {
+fn get_open_pull_requests(repo_path: &str) -> Result<HashMap<String, BranchPullRequest>, String> {
     if resolve_repository_github_url(repo_path).is_none() {
         return Ok(HashMap::new());
     }
@@ -2332,7 +2339,7 @@ fn get_open_pull_request_urls(repo_path: &str) -> Result<HashMap<String, String>
         "--limit".to_string(),
         "200".to_string(),
         "--json".to_string(),
-        "headRefName,url".to_string(),
+        "headRefName,url,mergeable,mergeStateStatus".to_string(),
     ];
     let output = match run_gh_owned(&args, repo_path) {
         Ok(output) => output,
@@ -2344,7 +2351,7 @@ fn get_open_pull_request_urls(repo_path: &str) -> Result<HashMap<String, String>
     }
 
     let parsed = serde_json::from_str::<Value>(&output).unwrap_or(Value::Null);
-    let mut urls = HashMap::new();
+    let mut pull_requests = HashMap::new();
 
     if let Some(items) = parsed.as_array() {
         for item in items {
@@ -2359,19 +2366,35 @@ fn get_open_pull_request_urls(repo_path: &str) -> Result<HashMap<String, String>
             let normalized_url = url.trim();
             if normalized_head_ref_name.is_empty()
                 || normalized_url.is_empty()
-                || urls.contains_key(normalized_head_ref_name)
+                || pull_requests.contains_key(normalized_head_ref_name)
             {
                 continue;
             }
 
-            urls.insert(
+            let mergeable = item
+                .get("mergeable")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_uppercase();
+            let merge_state_status = item
+                .get("mergeStateStatus")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_uppercase();
+
+            pull_requests.insert(
                 normalized_head_ref_name.to_string(),
-                normalized_url.to_string(),
+                BranchPullRequest {
+                    url: normalized_url.to_string(),
+                    has_conflicts: mergeable == "CONFLICTING" || merge_state_status == "DIRTY",
+                },
             );
         }
     }
 
-    Ok(urls)
+    Ok(pull_requests)
 }
 
 fn extract_url_from_text(text: &str) -> Option<String> {
@@ -3576,12 +3599,10 @@ pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUr
 }
 
 #[tauri::command]
-pub fn get_branch_pull_request_urls(
-    repo_path: String,
-) -> Result<BranchPullRequestUrlsResponse, String> {
+pub fn get_branch_pull_requests(repo_path: String) -> Result<BranchPullRequestsResponse, String> {
     ensure_repo_path(&repo_path)?;
-    Ok(BranchPullRequestUrlsResponse {
-        urls: get_open_pull_request_urls(&repo_path)?,
+    Ok(BranchPullRequestsResponse {
+        pull_requests: get_open_pull_requests(&repo_path)?,
     })
 }
 

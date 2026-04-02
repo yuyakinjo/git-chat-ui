@@ -5,6 +5,7 @@ import {
   isPushRequired,
   pushBranchToOrigin,
 } from "./branch.js";
+import type { BranchPullRequest } from "../types.js";
 
 export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
   const trimmed = remoteUrl.trim();
@@ -41,7 +42,9 @@ async function ensureGithubAuth(repoPath: string): Promise<void> {
   await runGh(["auth", "status", "-h", "github.com"], repoPath);
 }
 
-export async function getOpenPullRequestUrls(repoPath: string): Promise<Record<string, string>> {
+export async function getOpenPullRequests(
+  repoPath: string,
+): Promise<Record<string, BranchPullRequest>> {
   await ensureRepoPath(repoPath);
 
   try {
@@ -63,7 +66,16 @@ export async function getOpenPullRequestUrls(repoPath: string): Promise<Record<s
 
   try {
     output = await runGh(
-      ["pr", "list", "--state", "open", "--limit", "200", "--json", "headRefName,url"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "200",
+        "--json",
+        "headRefName,url,mergeable,mergeStateStatus",
+      ],
       repoPath,
     );
   } catch {
@@ -74,27 +86,42 @@ export async function getOpenPullRequestUrls(repoPath: string): Promise<Record<s
     return {};
   }
 
-  let parsed: Array<{ headRefName?: string; url?: string }> = [];
+  let parsed: Array<{
+    headRefName?: string;
+    url?: string;
+    mergeable?: string;
+    mergeStateStatus?: string;
+  }> = [];
 
   try {
-    parsed = JSON.parse(output) as Array<{ headRefName?: string; url?: string }>;
+    parsed = JSON.parse(output) as Array<{
+      headRefName?: string;
+      url?: string;
+      mergeable?: string;
+      mergeStateStatus?: string;
+    }>;
   } catch {
     return {};
   }
 
-  const urls: Record<string, string> = {};
+  const pullRequests: Record<string, BranchPullRequest> = {};
 
   for (const item of parsed) {
     const headRefName = item.headRefName?.trim();
     const url = item.url?.trim();
-    if (!headRefName || !url || headRefName in urls) {
+    if (!headRefName || !url || headRefName in pullRequests) {
       continue;
     }
 
-    urls[headRefName] = url;
+    const mergeable = item.mergeable?.trim().toUpperCase() ?? "";
+    const mergeStateStatus = item.mergeStateStatus?.trim().toUpperCase() ?? "";
+    pullRequests[headRefName] = {
+      url,
+      hasConflicts: mergeable === "CONFLICTING" || mergeStateStatus === "DIRTY",
+    };
   }
 
-  return urls;
+  return pullRequests;
 }
 
 async function findExistingPullRequest(

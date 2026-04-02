@@ -15,8 +15,13 @@ export interface Branch {
   isRemoteDefault?: boolean;
 }
 
-export interface BranchPullRequestUrlsResponse {
-  urls: Record<string, string>;
+export interface BranchPullRequest {
+  url: string;
+  hasConflicts: boolean;
+}
+
+export interface BranchPullRequestsResponse {
+  pullRequests: Record<string, BranchPullRequest>;
 }
 
 export interface CommitListItem {

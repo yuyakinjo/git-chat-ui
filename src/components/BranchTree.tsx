@@ -1,5 +1,6 @@
 import {
   Archive,
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -25,7 +26,7 @@ import { createPortal } from "react-dom";
 
 import { getBranchDeleteDisabledReason } from "../lib/branchDelete";
 import { canDropBranchOnBranch } from "../lib/branchDragDrop";
-import type { Branch, BranchResponse, StashEntry } from "../types";
+import type { Branch, BranchPullRequest, BranchResponse, StashEntry } from "../types";
 
 import {
   buildTree,
@@ -41,7 +42,7 @@ import {
 
 interface BranchTreeProps {
   branches: BranchResponse | null;
-  branchPullRequestUrls: Record<string, string>;
+  branchPullRequests: Record<string, BranchPullRequest>;
   stashes: StashEntry[];
   selectedBranchName: string | null;
   stashMutationBlockedReason: string | null;
@@ -64,7 +65,7 @@ const DRAG_THRESHOLD_PX = 6;
 
 export function BranchTree({
   branches,
-  branchPullRequestUrls,
+  branchPullRequests,
   stashes,
   selectedBranchName,
   stashMutationBlockedReason,
@@ -495,9 +496,11 @@ export function BranchTree({
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
           const isLocalBranch = leaf.branch.type === "local";
-          const branchPullRequestUrl = isLocalBranch
-            ? (branchPullRequestUrls[leaf.branch.name] ?? null)
+          const branchPullRequest = isLocalBranch
+            ? (branchPullRequests[leaf.branch.name] ?? null)
             : null;
+          const branchPullRequestUrl = branchPullRequest?.url ?? null;
+          const branchPullRequestHasConflicts = branchPullRequest?.hasConflicts ?? false;
           const BranchTypeIcon = isLocalBranch ? HardDrive : Cloud;
           const branchTypeIconClass = isLocalBranch
             ? "branch-list-item__icon branch-list-item__icon--local"
@@ -580,24 +583,35 @@ export function BranchTree({
               </button>
 
               {!isDropTarget && branchPullRequestUrl ? (
-                <button
-                  type="button"
-                  className="branch-list-item__pr-link"
-                  aria-label={`${leaf.branch.name} の Pull Request を開く`}
-                  title={branchPullRequestUrl}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenBranchPullRequest(leaf.branch);
-                  }}
-                >
-                  <ExternalLink size={13} />
-                </button>
+                <div className="branch-list-item__actions">
+                  {branchPullRequestHasConflicts ? (
+                    <span
+                      className="branch-list-item__pr-warning"
+                      aria-label={`${leaf.branch.name} の Pull Request は conflict しています`}
+                      title="This pull request has conflicts"
+                    >
+                      <AlertTriangle size={13} />
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`branch-list-item__pr-link ${branchPullRequestHasConflicts ? "is-warning" : ""}`}
+                    aria-label={`${leaf.branch.name} の Pull Request を開く`}
+                    title={branchPullRequestUrl}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenBranchPullRequest(leaf.branch);
+                    }}
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </div>
               ) : null}
             </div>
           );

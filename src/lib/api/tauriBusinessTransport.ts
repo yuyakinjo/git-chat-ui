@@ -34,8 +34,8 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("get_branches", { repoPath });
     },
 
-    getBranchPullRequestUrls(repoPath) {
-      return invokeCommand("get_branch_pull_request_urls", { repoPath });
+    getBranchPullRequests(repoPath) {
+      return invokeCommand("get_branch_pull_requests", { repoPath });
     },
 
     getCommits(repoPath, ref, offset, limit = 50, compareRefs) {

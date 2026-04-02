@@ -19,6 +19,7 @@ import { describeGitError } from "../lib/errors";
 import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
+  BranchPullRequest,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
@@ -75,7 +76,9 @@ export function useControllerData({
     [repoPath],
   );
   const [branches, setBranches] = useState<BranchResponse | null>(null);
-  const [branchPullRequestUrls, setBranchPullRequestUrls] = useState<Record<string, string>>({});
+  const [branchPullRequests, setBranchPullRequests] = useState<Record<string, BranchPullRequest>>(
+    {},
+  );
   const [activeLogRef, setActiveLogRef] = useState<string>("HEAD");
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
@@ -670,31 +673,40 @@ export function useControllerData({
     }
   }, [repoPath, reportError]);
 
-  const loadBranchPullRequestUrls = useCallback(async (): Promise<void> => {
+  const loadBranchPullRequests = useCallback(async (): Promise<void> => {
     try {
-      const response = await api.getBranchPullRequestUrls(repoPath);
-      setBranchPullRequestUrls(response.urls);
+      const response = await api.getBranchPullRequests(repoPath);
+      setBranchPullRequests(response.pullRequests);
     } catch {
-      // Keep the current map on transient GitHub lookup failures.
+      // Keep the current metadata on transient GitHub lookup failures.
     }
   }, [repoPath]);
 
-  const rememberBranchPullRequestUrl = useCallback((branchName: string, url: string): void => {
-    const normalizedBranchName = branchName.trim();
-    const normalizedUrl = url.trim();
-    if (!normalizedBranchName || !normalizedUrl) {
-      return;
-    }
+  const rememberBranchPullRequest = useCallback(
+    (branchName: string, pullRequest: BranchPullRequest): void => {
+      const normalizedBranchName = branchName.trim();
+      const normalizedUrl = pullRequest.url.trim();
+      if (!normalizedBranchName || !normalizedUrl) {
+        return;
+      }
 
-    setBranchPullRequestUrls((current) =>
-      current[normalizedBranchName] === normalizedUrl
-        ? current
-        : {
-            ...current,
-            [normalizedBranchName]: normalizedUrl,
-          },
-    );
-  }, []);
+      const normalizedPullRequest: BranchPullRequest = {
+        url: normalizedUrl,
+        hasConflicts: pullRequest.hasConflicts,
+      };
+
+      setBranchPullRequests((current) =>
+        current[normalizedBranchName]?.url === normalizedPullRequest.url &&
+        current[normalizedBranchName]?.hasConflicts === normalizedPullRequest.hasConflicts
+          ? current
+          : {
+              ...current,
+              [normalizedBranchName]: normalizedPullRequest,
+            },
+      );
+    },
+    [],
+  );
 
   const loadPullStatus = useCallback(async (): Promise<void> => {
     try {
@@ -718,7 +730,7 @@ export function useControllerData({
         const targetRef = refOverride ?? activeLogRef;
         const [nextBranches] = await Promise.all([
           loadBranches(),
-          loadBranchPullRequestUrls(),
+          loadBranchPullRequests(),
           loadWorkingState(),
           loadPullStatus(),
         ]);
@@ -737,7 +749,7 @@ export function useControllerData({
     [
       activeLogRef,
       branches,
-      loadBranchPullRequestUrls,
+      loadBranchPullRequests,
       loadBranches,
       loadCommits,
       loadPullStatus,
@@ -750,7 +762,7 @@ export function useControllerData({
     async (preferredBranchName?: string): Promise<void> => {
       const [nextBranches] = await Promise.all([
         loadBranches(),
-        loadBranchPullRequestUrls(),
+        loadBranchPullRequests(),
         loadWorkingState(),
         loadPullStatus(),
       ]);
@@ -776,7 +788,7 @@ export function useControllerData({
     [
       activeLogRef,
       branches,
-      loadBranchPullRequestUrls,
+      loadBranchPullRequests,
       loadBranches,
       loadCommits,
       loadPullStatus,
@@ -895,7 +907,7 @@ export function useControllerData({
     const defaultRef = "HEAD";
     setActiveLogRef(defaultRef);
     setActiveCompareRefs([]);
-    setBranchPullRequestUrls({});
+    setBranchPullRequests({});
     setActiveCommit(null);
     setIsWipSelected(false);
     setCommitAuthorAvatars({});
@@ -951,7 +963,7 @@ export function useControllerData({
     }
 
     const refreshBranchPullRequests = (): void => {
-      void loadBranchPullRequestUrls();
+      void loadBranchPullRequests();
     };
 
     const handleVisibilityChange = (): void => {
@@ -967,7 +979,7 @@ export function useControllerData({
       window.removeEventListener("focus", refreshBranchPullRequests);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loadBranchPullRequestUrls]);
+  }, [loadBranchPullRequests]);
 
   // Clear focused diff when active commit changes
   useEffect(() => {
@@ -1092,8 +1104,8 @@ export function useControllerData({
 
   return {
     branches,
-    branchPullRequestUrls,
-    rememberBranchPullRequestUrl,
+    branchPullRequests,
+    rememberBranchPullRequest,
     currentBranchName,
     currentLocalBranch,
     branchDiffBaseBranch,

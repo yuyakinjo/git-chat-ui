@@ -188,9 +188,12 @@ describe("globals.css", () => {
 
     expect(branchBadgeSection).toContain(".branch-list-item {");
     expect(branchBadgeSection).toContain(".branch-list-item__trigger {");
+    expect(branchBadgeSection).toContain(".branch-list-item__actions {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-link {");
     expect(branchBadgeSection).toContain("width: 24px;");
     expect(branchBadgeSection).toContain("height: 24px;");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-link.is-warning {");
     expect(branchBadgeSection).toContain(".branch-list-item__icon {");
     expect(branchBadgeSection).toContain(".branch-list-item__icon--local {");
     expect(branchBadgeSection).toContain("rgb(29 78 216 / 0.92)");
@@ -199,6 +202,7 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(
       'body[data-theme-mode="dark"] .branch-list-item__icon--local {',
     );

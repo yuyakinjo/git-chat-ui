@@ -59,7 +59,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
-        branchPullRequestUrls={{}}
+        branchPullRequests={{}}
         stashes={[]}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -90,7 +90,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
-        branchPullRequestUrls={{}}
+        branchPullRequests={{}}
         stashes={stashes}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -133,7 +133,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branchesWithVisibleRemoteLeaf}
-        branchPullRequestUrls={{}}
+        branchPullRequests={{}}
         stashes={stashes}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -159,11 +159,16 @@ describe("BranchTree", () => {
     expect(html).not.toContain('aria-label="Remote ref"');
   });
 
-  test("renders a pull request icon only for local branches that have an open pull request", () => {
+  test("renders pull request actions only for local branches that have an open pull request", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branchesWithVisibleRemoteLeaf}
-        branchPullRequestUrls={{ main: "https://github.com/example/repo/pull/42" }}
+        branchPullRequests={{
+          main: {
+            url: "https://github.com/example/repo/pull/42",
+            hasConflicts: true,
+          },
+        }}
         stashes={stashes}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -182,7 +187,10 @@ describe("BranchTree", () => {
       />,
     );
 
+    expect(html).toContain("branch-list-item__actions");
+    expect(html).toContain("branch-list-item__pr-warning");
     expect(html).toContain("branch-list-item__pr-link");
+    expect(html).toContain('aria-label="main の Pull Request は conflict しています"');
     expect(html).toContain('aria-label="main の Pull Request を開く"');
     expect(html).toContain('title="https://github.com/example/repo/pull/42"');
     expect(html).not.toContain('aria-label="origin の Pull Request を開く"');

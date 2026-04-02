@@ -154,12 +154,12 @@ export function ControllerView({
     setSelectedBranchForHover,
     setPendingScrollCommitSha,
   });
-  const branchPullRequestUrls = data.branchPullRequestUrls;
+  const branchPullRequests = data.branchPullRequests;
   const reportError = data.reportError;
 
   const handleOpenBranchPullRequest = useCallback(
     async (branch: Branch): Promise<void> => {
-      const url = branchPullRequestUrls[branch.name];
+      const url = branchPullRequests[branch.name]?.url;
       if (!url) {
         return;
       }
@@ -170,7 +170,7 @@ export function ControllerView({
         reportError(error, "Pull Request を開けませんでした。");
       }
     },
-    [branchPullRequestUrls, reportError],
+    [branchPullRequests, reportError],
   );
 
   const checkedOutBranchName = data.currentLocalBranch?.name ?? null;
@@ -900,7 +900,7 @@ export function ControllerView({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
         <BranchTree
           branches={data.branches}
-          branchPullRequestUrls={data.branchPullRequestUrls}
+          branchPullRequests={data.branchPullRequests}
           stashes={data.stashes}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}

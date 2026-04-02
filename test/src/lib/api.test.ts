@@ -102,8 +102,8 @@ describe("api.getCommitAuthorAvatars", () => {
   });
 });
 
-describe("api.getBranchPullRequestUrls", () => {
-  test("loads branch pull request urls from the branches pull-requests endpoint", async () => {
+describe("api.getBranchPullRequests", () => {
+  test("loads branch pull request metadata from the branches pull-requests endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -114,8 +114,11 @@ describe("api.getBranchPullRequestUrls", () => {
 
       return new Response(
         JSON.stringify({
-          urls: {
-            "feature/pr-link": "https://github.com/example/repo/pull/42",
+          pullRequests: {
+            "feature/pr-link": {
+              url: "https://github.com/example/repo/pull/42",
+              hasConflicts: true,
+            },
           },
         }),
         {
@@ -125,9 +128,12 @@ describe("api.getBranchPullRequestUrls", () => {
       );
     }) as unknown as typeof fetch;
 
-    await expect(api.getBranchPullRequestUrls("/tmp/repo")).resolves.toEqual({
-      urls: {
-        "feature/pr-link": "https://github.com/example/repo/pull/42",
+    await expect(api.getBranchPullRequests("/tmp/repo")).resolves.toEqual({
+      pullRequests: {
+        "feature/pr-link": {
+          url: "https://github.com/example/repo/pull/42",
+          hasConflicts: true,
+        },
       },
     });
 
