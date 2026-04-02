@@ -9,6 +9,7 @@ import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
 import type { BranchResponse, CommitGraphMode, CommitListItem } from "../types";
 import {
+  buildCommitRefBadges,
   buildDefaultBranchAnchorLaneIndices,
   clampColumnWidth,
   DEFAULT_BRANCH_LANE_COLOR,
@@ -24,7 +25,6 @@ import {
   refLabelClass,
   refLabelIcon,
   refLabelIconClass,
-  resolveCommitRefScope,
   ROW_HEIGHT,
   WIP_NODE_CENTER,
   WIP_NODE_LINE_CLEARANCE,
@@ -110,10 +110,6 @@ export function CommitGraph({
     () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
     [commits, defaultBranchHeadSha, laneLayout.rows],
   );
-  const refLabelBySha = useMemo(
-    () => new Map(commits.map((commit) => [commit.sha, parseCommitRefLabels(commit.decoration)])),
-    [commits],
-  );
   const commitRefScopeContext = useMemo(
     () =>
       branchContext
@@ -126,6 +122,16 @@ export function CommitGraph({
           }
         : null,
     [branchContext],
+  );
+  const refBadgeBySha = useMemo(
+    () =>
+      new Map(
+        commits.map((commit) => [
+          commit.sha,
+          buildCommitRefBadges(parseCommitRefLabels(commit.decoration), commitRefScopeContext),
+        ]),
+      ),
+    [commits, commitRefScopeContext],
   );
   const refsAutoWidth = useMemo(() => {
     if (typeof document === "undefined") {
@@ -142,14 +148,14 @@ export function CommitGraph({
       '600 10px "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
 
     let maxRowWidth = 0;
-    for (const labels of refLabelBySha.values()) {
-      if (labels.length === 0) {
+    for (const badges of refBadgeBySha.values()) {
+      if (badges.length === 0) {
         continue;
       }
 
-      const rowWidth = labels.reduce((total, label, index) => {
-        const textWidth = Math.ceil(context.measureText(label.name).width);
-        const pillWidth = textWidth + 32; // horizontal padding + border + icon + gap
+      const rowWidth = badges.reduce((total, badge, index) => {
+        const textWidth = Math.ceil(context.measureText(badge.name).width);
+        const pillWidth = textWidth + 18 + badge.scopes.length * (REF_BADGE_ICON_SIZE + 4);
         return total + pillWidth + (index > 0 ? 4 : 0);
       }, 0);
 
@@ -158,7 +164,7 @@ export function CommitGraph({
 
     const headerWidth = Math.ceil(context.measureText("REFS").width) + 24;
     return clampColumnWidth(Math.max(REF_COLUMN_DEFAULT_WIDTH, maxRowWidth + 12, headerWidth));
-  }, [refLabelBySha]);
+  }, [refBadgeBySha]);
 
   const startRefsColumnResize = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>): void => {
@@ -414,7 +420,7 @@ export function CommitGraph({
             primaryParentLaneIndex: null,
             mergeTargetLaneIndices: [],
           };
-          const commitRefLabels = refLabelBySha.get(commit.sha) ?? [];
+          const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
 
           return (
             <div
@@ -549,37 +555,44 @@ export function CommitGraph({
               )}
 
               <div className="overflow-hidden whitespace-nowrap text-xs text-ink-soft">
-                {commitRefLabels.length > 0 ? (
+                {commitRefBadges.length > 0 ? (
                   <div className="flex items-center gap-1 overflow-hidden">
-                    {commitRefLabels.map((label) => {
-                      const refScope = resolveCommitRefScope(label, commitRefScopeContext);
-                      const RefBadgeIcon = refLabelIcon(refScope);
-
+                    {commitRefBadges.map((badge) => {
                       return (
                         <span
-                          key={`${commit.sha}-${label.type}-${label.name}`}
+                          key={`${commit.sha}-${badge.type}-${badge.name}`}
                           className={`commit-graph__ref-badge inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
-                            label.type,
-                          )} ${label.type === "tag" ? "" : "cursor-pointer"}`}
+                            badge.type,
+                          )} ${badge.type === "tag" ? "" : "cursor-pointer"}`}
                           style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
-                          title={label.name}
+                          title={badge.title}
                           onDoubleClick={(event) => {
-                            if (busy || label.type === "tag") {
+                            if (busy || badge.type === "tag") {
                               return;
                             }
 
                             event.preventDefault();
                             event.stopPropagation();
-                            onCheckoutBranchRef(label.name);
+                            onCheckoutBranchRef(badge.name);
                           }}
                         >
-                          <RefBadgeIcon
-                            size={REF_BADGE_ICON_SIZE}
-                            className={refLabelIconClass(refScope)}
+                          <span
+                            className="inline-flex shrink-0 items-center gap-0.5"
                             aria-hidden="true"
-                          />
+                          >
+                            {badge.scopes.map((scope) => {
+                              const RefBadgeIcon = refLabelIcon(scope);
+                              return (
+                                <RefBadgeIcon
+                                  key={`${badge.name}-${scope}`}
+                                  size={REF_BADGE_ICON_SIZE}
+                                  className={refLabelIconClass(scope)}
+                                />
+                              );
+                            })}
+                          </span>
                           <span className="commit-graph__ref-badge-label truncate">
-                            {label.name}
+                            {badge.name}
                           </span>
                         </span>
                       );
