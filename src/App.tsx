@@ -492,6 +492,7 @@ export default function App(): JSX.Element {
               <ControllerView
                 repository={repository}
                 appConfig={appConfig}
+                appThemeId={appTheme}
                 onNotify={setNotice}
                 onCurrentBranchChange={handleRepositoryBranchChange}
                 active={isActive}

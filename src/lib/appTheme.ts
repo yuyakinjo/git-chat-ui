@@ -1,25 +1,25 @@
 export const APP_THEME_OPTIONS = [
   {
     id: "default-light",
-    label: "Default Light",
+    label: "☀ Default Light",
     mode: "light",
     backgroundColor: [241, 243, 248, 255],
   },
   {
     id: "paper-light",
-    label: "Paper Light",
+    label: "☀ Paper Light",
     mode: "light",
     backgroundColor: [246, 241, 232, 255],
   },
   {
     id: "default-dark",
-    label: "Default Dark",
+    label: "☾ Default Dark",
     mode: "dark",
     backgroundColor: [7, 11, 18, 255],
   },
   {
     id: "graphite-dark",
-    label: "Graphite Dark",
+    label: "☾ Graphite Dark",
     mode: "dark",
     backgroundColor: [18, 21, 27, 255],
   },

@@ -2,12 +2,14 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import { api } from "../lib/api";
+import type { AppThemeId } from "../lib/appTheme";
 import type { BranchDiffDetail, BranchDiffFileDetail } from "../types";
 import { CopyableShaButton } from "./CopyableShaButton";
 import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface BranchDiffOverlayProps {
   repoPath: string;
+  appThemeId?: AppThemeId | null;
   detail: BranchDiffDetail | null;
   loading: boolean;
   baseBranchName: string | null;
@@ -18,6 +20,7 @@ interface BranchDiffOverlayProps {
 
 export function BranchDiffOverlay({
   repoPath,
+  appThemeId = null,
   detail,
   loading,
   baseBranchName,
@@ -186,6 +189,7 @@ export function BranchDiffOverlay({
           <div className="min-h-0 flex-1">
             <SplitDiffViewer
               diff={branchDiffViewerDiff}
+              appThemeId={appThemeId}
               files={detail.files}
               isDiffTruncated={branchDiffViewerTruncated}
               preferredFilePath={activeFilePath}

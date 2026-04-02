@@ -22,6 +22,7 @@ import {
 import { flushSync } from "react-dom";
 
 import { api } from "../lib/api";
+import type { AppThemeId } from "../lib/appTheme";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { isCommandPaletteShortcut } from "../lib/commandPalette";
@@ -64,6 +65,7 @@ import type { AppConfig, Branch, Repository } from "../types";
 interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
+  appThemeId?: AppThemeId | null;
   onNotify: (message: string) => void;
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
   active?: boolean;
@@ -80,6 +82,7 @@ const GIT_OPERATION_PANEL_HIDE_DURATION_MS = 320;
 export function ControllerView({
   repository,
   appConfig,
+  appThemeId = null,
   onNotify,
   onCurrentBranchChange,
   active = false,
@@ -1006,6 +1009,7 @@ export function ControllerView({
       {selectedCommitDetail && data.focusedCommitDiffFile ? (
         <CommitDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           detail={selectedCommitDetail}
           filePath={data.focusedCommitDiffFile}
           onClose={() => data.setFocusedCommitDiffFile(null)}
@@ -1015,6 +1019,7 @@ export function ControllerView({
 
       {data.focusedWorkingTreeDiff ? (
         <WorkingTreeDiffOverlay
+          appThemeId={appThemeId}
           detail={data.workingTreeDiffDetail}
           loading={data.loadingWorkingTreeDiffDetail}
           filePath={data.focusedWorkingTreeDiff.file}
@@ -1026,6 +1031,7 @@ export function ControllerView({
       {data.focusedStash ? (
         <StashDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           stash={data.focusedStash}
           detail={data.stashDiffDetail}
           loading={data.loadingStashDiffDetail}
@@ -1036,6 +1042,7 @@ export function ControllerView({
       {data.showBranchDiff ? (
         <BranchDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
           loading={data.loadingBranchDiffDetail}
           baseBranchName={data.branchDiffBaseLabel}

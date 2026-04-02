@@ -29,6 +29,7 @@ import {
   type DiffSyntaxWorkerRequestItem,
 } from "../lib/diffSyntax";
 import { buildIntralineSegments, type IntralineSegment } from "../lib/intralineDiff";
+import type { AppThemeId } from "../lib/appTheme";
 
 interface SplitDiffFileStat {
   file: string;
@@ -38,6 +39,7 @@ interface SplitDiffFileStat {
 
 interface SplitDiffViewerProps {
   diff: string;
+  appThemeId?: AppThemeId | null;
   files?: SplitDiffFileStat[];
   isDiffTruncated?: boolean;
   preferredFilePath?: string | null;
@@ -431,6 +433,7 @@ export function scrollFileTabIntoView(
 
 export function SplitDiffViewer({
   diff,
+  appThemeId = null,
   files: fileStats,
   isDiffTruncated = false,
   preferredFilePath = null,
@@ -504,9 +507,7 @@ export function SplitDiffViewer({
   const activeFileLanguage = resolveDiffSyntaxLanguage(
     activeFile?.newPath ?? activeFile?.oldPath ?? activeFile?.displayPath ?? null,
   );
-  const activeDiffSyntaxTheme = resolveDiffSyntaxTheme(
-    typeof document === "undefined" ? null : document.body.dataset.theme,
-  );
+  const activeDiffSyntaxTheme = resolveDiffSyntaxTheme(appThemeId);
   const preferAsyncSyntaxHighlighting = activeFileLanguage !== null && canUseDiffSyntaxWorker();
   const syntaxHighlightRequests = useMemo(
     () =>

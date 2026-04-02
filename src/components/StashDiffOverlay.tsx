@@ -2,12 +2,14 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import { api } from "../lib/api";
+import type { AppThemeId } from "../lib/appTheme";
 import { formatFileCountLabel } from "../lib/format";
 import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from "../types";
 import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface StashDiffOverlayProps {
   repoPath: string;
+  appThemeId?: AppThemeId | null;
   stash: StashEntry;
   detail: StashDiffDetail | null;
   loading: boolean;
@@ -16,6 +18,7 @@ interface StashDiffOverlayProps {
 
 export function StashDiffOverlay({
   repoPath,
+  appThemeId = null,
   stash,
   detail,
   loading,
@@ -183,6 +186,7 @@ export function StashDiffOverlay({
           <div className="min-h-0 flex-1">
             <SplitDiffViewer
               diff={stashDiffViewerDiff}
+              appThemeId={appThemeId}
               files={detail.files}
               isDiffTruncated={stashDiffViewerTruncated}
               preferredFilePath={activeFilePath}

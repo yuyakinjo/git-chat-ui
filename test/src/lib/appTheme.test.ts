@@ -17,10 +17,10 @@ describe("appTheme", () => {
   });
 
   test("returns labels for known theme ids", () => {
-    expect(getAppThemeLabel("default-light")).toBe("Default Light");
-    expect(getAppThemeLabel("paper-light")).toBe("Paper Light");
-    expect(getAppThemeLabel("default-dark")).toBe("Default Dark");
-    expect(getAppThemeLabel("graphite-dark")).toBe("Graphite Dark");
+    expect(getAppThemeLabel("default-light")).toBe("☀ Default Light");
+    expect(getAppThemeLabel("paper-light")).toBe("☀ Paper Light");
+    expect(getAppThemeLabel("default-dark")).toBe("☾ Default Dark");
+    expect(getAppThemeLabel("graphite-dark")).toBe("☾ Graphite Dark");
   });
 
   test("exposes two light themes and two dark themes", () => {
