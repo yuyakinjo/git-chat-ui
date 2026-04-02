@@ -209,6 +209,10 @@ export const api = {
     return getBusinessTransport().renameStash(repoPath, stashId, message);
   },
 
+  deleteStash(repoPath: string, stashId: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().deleteStash(repoPath, stashId);
+  },
+
   applyStash(repoPath: string, stashId: string): Promise<ConflictOperationResult> {
     return getBusinessTransport().applyStash(repoPath, stashId);
   },

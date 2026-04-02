@@ -7,6 +7,7 @@ import {
   Folder,
   GitBranch,
   HardDrive,
+  PackageOpen,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -30,11 +31,10 @@ import {
   clampContextMenuPosition,
   getBranchDisplayName,
   getContextMenuHeight,
-  getStashContextMenuHeight,
-  getStashContextMenuHint,
   getStashMetaLabel,
   getStashPrimaryLabel,
   SectionTitle,
+  STASH_CONTEXT_MENU_HEIGHT_PX,
   type TreeNode,
 } from "./BranchTreeHelpers";
 
@@ -49,6 +49,7 @@ interface BranchTreeProps {
   onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
   onOpenStashDiff: (stash: StashEntry) => void;
   onRequestRenameStash: (stash: StashEntry) => void;
+  onRequestDeleteStash: (stash: StashEntry) => void;
   onRequestApplyStash: (stash: StashEntry) => void;
   onRequestPopStash: (stash: StashEntry) => void;
   onRequestCreateBranch: (branch: Branch) => void;
@@ -69,6 +70,7 @@ export function BranchTree({
   onBranchDrop,
   onOpenStashDiff,
   onRequestRenameStash,
+  onRequestDeleteStash,
   onRequestApplyStash,
   onRequestPopStash,
   onRequestCreateBranch,
@@ -92,7 +94,6 @@ export function BranchTree({
     | {
         kind: "stash";
         stash: StashEntry;
-        actionBlockedReason: string | null;
         x: number;
         y: number;
       }
@@ -411,12 +412,11 @@ export function BranchTree({
     const position = clampContextMenuPosition(
       event.clientX,
       event.clientY,
-      getStashContextMenuHeight(stashMutationBlockedReason),
+      STASH_CONTEXT_MENU_HEIGHT_PX,
     );
     setContextMenu({
       kind: "stash",
       stash,
-      actionBlockedReason: stashMutationBlockedReason,
       x: position.x,
       y: position.y,
     });
@@ -440,6 +440,11 @@ export function BranchTree({
   const handleApplyStashRequestFromTree = (stash: StashEntry): void => {
     setContextMenu(null);
     onRequestApplyStash(stash);
+  };
+
+  const handleDeleteStashRequestFromTree = (stash: StashEntry): void => {
+    setContextMenu(null);
+    onRequestDeleteStash(stash);
   };
 
   const handlePopStashRequestFromTree = (stash: StashEntry): void => {
@@ -617,15 +622,11 @@ export function BranchTree({
               </>
             ) : (
               <>
-                {contextMenu.actionBlockedReason ? (
-                  <div className="branch-context-menu__hint">{contextMenu.actionBlockedReason}</div>
-                ) : null}
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item ${busy || contextMenu.actionBlockedReason ? "is-disabled" : ""}`}
-                  disabled={busy || Boolean(contextMenu.actionBlockedReason)}
-                  title={contextMenu.actionBlockedReason ?? undefined}
+                  className={`branch-context-menu__item ${busy || stashMutationBlockedReason ? "is-disabled" : ""}`}
+                  disabled={busy || Boolean(stashMutationBlockedReason)}
                   onClick={() => handleApplyStashRequestFromTree(contextMenu.stash)}
                 >
                   <Download size={14} />
@@ -634,12 +635,11 @@ export function BranchTree({
                 <button
                   type="button"
                   role="menuitem"
-                  className={`branch-context-menu__item is-danger ${busy || contextMenu.actionBlockedReason ? "is-disabled" : ""}`}
-                  disabled={busy || Boolean(contextMenu.actionBlockedReason)}
-                  title={contextMenu.actionBlockedReason ?? undefined}
+                  className={`branch-context-menu__item ${busy || stashMutationBlockedReason ? "is-disabled" : ""}`}
+                  disabled={busy || Boolean(stashMutationBlockedReason)}
                   onClick={() => handlePopStashRequestFromTree(contextMenu.stash)}
                 >
-                  <Trash2 size={14} />
+                  <PackageOpen size={14} />
                   <span>Pop stash</span>
                 </button>
                 <button
@@ -652,7 +652,16 @@ export function BranchTree({
                   <Archive size={14} />
                   <span>Rename stash</span>
                 </button>
-                <div className="branch-context-menu__hint">{getStashContextMenuHint()}</div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`branch-context-menu__item is-danger ${busy ? "is-disabled" : ""}`}
+                  disabled={busy}
+                  onClick={() => handleDeleteStashRequestFromTree(contextMenu.stash)}
+                >
+                  <Trash2 size={14} />
+                  <span>Delete stash</span>
+                </button>
               </>
             )}
           </div>,

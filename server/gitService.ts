@@ -49,6 +49,7 @@ export {
   getStashDiffFileDetail,
   appendFileToStash,
   renameStash,
+  deleteStash,
   applyStash,
   popStash,
 } from "./git/stash.js";

@@ -44,6 +44,7 @@ fn main() {
             backend::get_stash_diff_detail,
             backend::get_stash_diff_file_detail,
             backend::rename_stash,
+            backend::delete_stash,
             backend::apply_stash,
             backend::pop_stash,
             backend::checkout,

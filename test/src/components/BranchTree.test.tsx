@@ -68,6 +68,7 @@ describe("BranchTree", () => {
         onBranchDrop={() => {}}
         onOpenStashDiff={() => {}}
         onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
         onRequestCreateBranch={() => {}}
@@ -96,6 +97,7 @@ describe("BranchTree", () => {
         onBranchDrop={() => {}}
         onOpenStashDiff={() => {}}
         onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
         onRequestCreateBranch={() => {}}
@@ -136,6 +138,7 @@ describe("BranchTree", () => {
         onBranchDrop={() => {}}
         onOpenStashDiff={() => {}}
         onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
         onRequestCreateBranch={() => {}}

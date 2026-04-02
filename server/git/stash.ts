@@ -440,6 +440,14 @@ export async function applyStash(
   }
 }
 
+export async function deleteStash(repoPath: string, stashId: string): Promise<void> {
+  await ensureRepoPath(repoPath);
+
+  const normalizedStashId = stashId.trim();
+  parseStashIndex(normalizedStashId);
+  await runGit(["stash", "drop", normalizedStashId], repoPath);
+}
+
 export async function popStash(
   repoPath: string,
   stashId: string,

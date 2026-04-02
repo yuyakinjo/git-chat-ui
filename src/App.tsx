@@ -1,4 +1,4 @@
-import { Cog, ExternalLink, FolderGit2, LayoutDashboard, Palette, Plus, X } from "lucide-react";
+import { Cog, ExternalLink, FolderGit2, Palette, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 
 import { ConfigView } from "./components/ConfigView";
@@ -360,59 +360,55 @@ export default function App(): JSX.Element {
         <div className="app-tabbar__drag-region" data-tauri-drag-region />
         <div className="app-tabbar__content">
           <div className="app-tabbar__lane">
-            <button
-              type="button"
-              className={`app-tab app-tab--browser ${isDashboardActive ? "is-active" : ""}`}
-              onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}
-            >
-              <LayoutDashboard size={16} />
-              <span className="app-tab__label">Dashboard</span>
-            </button>
-
-            {openRepositories.map((repository) => {
-              const tabId = getRepositoryTabId(repository.path);
-              const isActive = activeTabId === tabId;
-              const branchLabel = repositoryBranchLabels[repository.path];
-              return (
-                <div
-                  key={repository.path}
-                  className={`app-tab app-tab--browser app-tab--repository ${isActive ? "is-active" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="app-tab__trigger"
-                    onClick={() => setActiveTabId(tabId)}
-                    title={repository.path}
-                  >
-                    <FolderGit2 size={16} className="shrink-0" />
-                    <span className="app-tab__text">
-                      <span className="app-tab__label">{repository.name}</span>
-                      {branchLabel ? (
-                        <span
-                          className="app-tab__branch"
-                          title={`現在のチェックアウトブランチ: ${branchLabel}`}
-                        >
-                          {branchLabel}
+            {openRepositories.length > 0 ? (
+              <div className="app-tab-toggle" aria-label="Open repositories">
+                {openRepositories.map((repository) => {
+                  const tabId = getRepositoryTabId(repository.path);
+                  const isActive = activeTabId === tabId;
+                  const branchLabel = repositoryBranchLabels[repository.path];
+                  return (
+                    <div
+                      key={repository.path}
+                      className={`app-tab-toggle__option ${isActive ? "is-active" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="app-tab-toggle__trigger"
+                        onClick={() => setActiveTabId(tabId)}
+                        title={repository.path}
+                        aria-pressed={isActive}
+                      >
+                        <FolderGit2 size={16} className="shrink-0" />
+                        <span className="app-tab-toggle__text">
+                          <span className="app-tab__label">{repository.name}</span>
+                          {branchLabel ? (
+                            <span
+                              className="app-tab__branch"
+                              title={`現在のチェックアウトブランチ: ${branchLabel}`}
+                            >
+                              {branchLabel}
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="app-tab__close"
-                    aria-label={`${repository.name} タブを閉じる`}
-                    title={`${repository.name} タブを閉じる`}
-                    onClick={() => handleCloseRepository(repository)}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              );
-            })}
+                      </button>
+                      <button
+                        type="button"
+                        className="app-tab__close"
+                        aria-label={`${repository.name} タブを閉じる`}
+                        title={`${repository.name} タブを閉じる`}
+                        onClick={() => handleCloseRepository(repository)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
             <button
               type="button"
-              className="app-tab app-tab--utility app-tab--action"
+              className={`app-tab app-tab--utility app-tab--action ${isDashboardActive ? "is-active" : ""}`}
               aria-label="repository を追加"
               title="repository を追加"
               onClick={() => setActiveTabId(DASHBOARD_TAB_ID)}

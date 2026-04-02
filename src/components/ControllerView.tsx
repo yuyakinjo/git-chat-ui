@@ -698,6 +698,9 @@ export function ControllerView({
             void data.loadStashDiffDetail(stash);
           }}
           onRequestRenameStash={branchOps.handleRequestRenameStash}
+          onRequestDeleteStash={(stash) => {
+            void branchOps.handleDeleteStash(stash);
+          }}
           onRequestApplyStash={(stash) => {
             void branchOps.handleApplyStash(stash);
           }}

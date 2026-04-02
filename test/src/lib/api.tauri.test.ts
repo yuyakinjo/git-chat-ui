@@ -93,6 +93,7 @@ describe("api in Tauri", () => {
     await api.completeMergeSession("/tmp/repo", "session-1");
     await api.abortMergeSession("/tmp/repo", "session-1");
     await api.mergeBranches("/tmp/repo", "feature/conflict", "main");
+    await api.deleteStash("/tmp/repo", "stash@{0}");
     await api.applyStash("/tmp/repo", "stash@{0}");
     await api.popStash("/tmp/repo", "stash@{0}");
 
@@ -124,11 +125,15 @@ describe("api in Tauri", () => {
       sourceBranch: "feature/conflict",
       targetBranch: "main",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(7, "apply_stash", {
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "delete_stash", {
       repoPath: "/tmp/repo",
       stashId: "stash@{0}",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(8, "pop_stash", {
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "apply_stash", {
+      repoPath: "/tmp/repo",
+      stashId: "stash@{0}",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(9, "pop_stash", {
       repoPath: "/tmp/repo",
       stashId: "stash@{0}",
     });

@@ -15,6 +15,40 @@ function getSection(startMarker: string, endMarker: string): string {
 }
 
 describe("globals.css", () => {
+  test("app shell keeps the header-to-panel gap aligned with panel spacing", () => {
+    const shellSection = getSection(".app-shell {", ".app-tabbar {");
+    const tabbarSection = getSection(".app-tabbar {", ".panel {");
+
+    expect(shellSection).toContain("gap: 12px;");
+    expect(tabbarSection).toContain("padding: 10px 12px 0;");
+  });
+
+  test("app tabbar uses a segmented repository selector instead of browser-style tabs", () => {
+    const tabbarSection = getSection(".app-tabbar {", ".panel {");
+
+    expect(tabbarSection).toContain(".app-tab-toggle {");
+    expect(tabbarSection).toContain("border-radius: 18px;");
+    expect(tabbarSection).toContain("gap: 0;");
+    expect(tabbarSection).toContain("overflow: hidden;");
+    expect(tabbarSection).toContain("padding: 0;");
+    expect(tabbarSection).toContain(".app-tab-toggle__option {");
+    expect(tabbarSection).toContain("gap: 8px;");
+    expect(tabbarSection).toContain("background: rgb(var(--theme-overlay-rgb) / 0.08);");
+    expect(tabbarSection).toContain(".app-tab-toggle__option.is-active {");
+    expect(tabbarSection).toContain("rgb(var(--color-accent) / 0.24)");
+    expect(tabbarSection).toContain(".app-tab-toggle__option.is-active {");
+    expect(tabbarSection).toContain(".app-tab-toggle__trigger {");
+    expect(tabbarSection).toContain("min-height: 36px;");
+    expect(tabbarSection).toContain(".app-tab-toggle__text {");
+    expect(tabbarSection).toContain(".app-tab__close {");
+    expect(tabbarSection).toContain("margin-right: 6px;");
+    expect(tabbarSection).not.toContain("border-bottom:");
+    expect(tabbarSection).not.toContain(".app-tabbar__actions::before {");
+    expect(tabbarSection).not.toContain("0 0 0 1px rgb(var(--theme-border-rgb) / 0.18)");
+    expect(tabbarSection).not.toContain(".app-tab--browser {");
+    expect(tabbarSection).not.toContain(".app-tab--repository {");
+  });
+
   test("controller panel rows give git operations more height at medium widths", () => {
     const controllerPanelSection = getSection(
       ".controller-panels-grid {",

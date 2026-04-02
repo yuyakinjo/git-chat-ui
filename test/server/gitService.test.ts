@@ -10,6 +10,7 @@ import {
   appendFileToStash,
   completeMergeSession,
   createBranch,
+  deleteStash,
   discardFile,
   deleteBranch,
   getBranches,
@@ -883,6 +884,23 @@ describe("applyStash", () => {
       const stashes = await getStashes(fixture.repoPath);
       expect(stashes.map((stash) => stash.id)).toEqual(["stash@{0}", "stash@{1}"]);
       expect(await runGit(["status", "--porcelain"], fixture.repoPath)).toContain("alpha.txt");
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("deleteStash", () => {
+  test("removes only the selected stash from the stack", async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      await deleteStash(fixture.repoPath, "stash@{1}");
+
+      const stashes = await getStashes(fixture.repoPath);
+      expect(stashes.map((stash) => stash.id)).toEqual(["stash@{0}"]);
+      expect(stashes.map((stash) => stash.message)).toEqual(["On main: second stash"]);
+      expect(stashes[0]?.files).toEqual(["beta.txt"]);
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }

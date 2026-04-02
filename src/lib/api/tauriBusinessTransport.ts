@@ -148,6 +148,10 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("rename_stash", { repoPath, stashId, message });
     },
 
+    deleteStash(repoPath, stashId) {
+      return invokeCommand("delete_stash", { repoPath, stashId });
+    },
+
     applyStash(repoPath, stashId) {
       return invokeCommand("apply_stash", { repoPath, stashId });
     },

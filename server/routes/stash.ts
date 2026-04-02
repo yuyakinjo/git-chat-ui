@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
   applyStash,
   appendFileToStash,
+  deleteStash,
   getStashDiffDetail,
   getStashDiffFileDetail,
   getStashes,
@@ -77,6 +78,17 @@ router.post("/api/stashes/rename", async (request, response, next) => {
     const stashId = getRequiredString(request.body.stashId, "stashId");
     const message = getRequiredString(request.body.message, "message");
     await renameStash(repoPath, stashId, message);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/api/stashes/delete", async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, "repoPath");
+    const stashId = getRequiredString(request.body.stashId, "stashId");
+    await deleteStash(repoPath, stashId);
     response.json({ ok: true });
   } catch (error) {
     next(error);

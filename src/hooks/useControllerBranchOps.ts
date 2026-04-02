@@ -43,6 +43,7 @@ export interface UseControllerBranchOpsResult {
   handleRequestDeleteBranch: (branch: Branch) => void;
   handleRequestCreateBranch: (branch: Branch) => void;
   handleRequestRenameStash: (stash: StashEntry) => void;
+  handleDeleteStash: (stash: StashEntry) => Promise<void>;
   handleApplyStash: (stash: StashEntry) => Promise<void>;
   handlePopStash: (stash: StashEntry) => Promise<void>;
   handleCreateBranch: (newBranchName: string) => Promise<void>;
@@ -240,6 +241,28 @@ export function useControllerBranchOps({
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setStashRenameTarget(stash);
+  };
+
+  const handleDeleteStash = async (stash: StashEntry): Promise<void> => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`${stash.id} を削除しますか？\n\nこの操作は元に戻せません。`)
+    ) {
+      return;
+    }
+
+    data.setOperationBusy(true);
+
+    try {
+      await api.deleteStash(repoPath, stash.id);
+      data.setInlineError(null);
+      onNotify(`${stash.id} を削除しました。`);
+      await data.refreshAll();
+    } catch (error) {
+      data.reportError(error, "stash の削除に失敗しました。");
+    } finally {
+      data.setOperationBusy(false);
+    }
   };
 
   const handleCreateBranch = async (newBranchName: string): Promise<void> => {
@@ -570,6 +593,7 @@ export function useControllerBranchOps({
     handleRequestDeleteBranch,
     handleRequestCreateBranch,
     handleRequestRenameStash,
+    handleDeleteStash,
     handleApplyStash,
     handlePopStash,
     handleCreateBranch,

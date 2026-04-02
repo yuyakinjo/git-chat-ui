@@ -187,7 +187,7 @@ body.is-working-tree-dragging {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   padding: 22px;
 }
 
@@ -204,17 +204,16 @@ body.is-working-tree-dragging {
 .app-tabbar__content {
   display: flex;
   flex-wrap: nowrap;
-  align-items: flex-end;
+  align-items: center;
   gap: 12px;
   min-width: 0;
   padding: 10px 12px 0;
-  border-bottom: 1px solid rgb(var(--theme-border-rgb) / 0.18);
 }
 
 .app-tabbar__lane {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
@@ -229,22 +228,11 @@ body.is-working-tree-dragging {
 .app-tabbar__actions {
   position: relative;
   display: flex;
-  align-items: flex-end;
-  align-self: flex-end;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
-  padding: 0 0 5px 14px;
-}
-
-.app-tabbar__actions::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 1px;
-  background: rgb(var(--theme-border-rgb) / 0.18);
+  padding: 0 0 0 14px;
 }
 
 body[data-window-chrome="overlay-titlebar"] .app-shell {
@@ -282,20 +270,18 @@ body[data-window-chrome="overlay-titlebar"] .app-tabbar__actions {
   gap: 10px;
   min-height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--tab-border);
+  border: none;
   border-radius: 10px;
   background: rgb(var(--theme-elevated-strong-rgb) / 0.82);
   color: var(--text-secondary);
   box-shadow: none;
   cursor: pointer;
   transition:
-    border-color 180ms ease,
     background 180ms ease,
     color 180ms ease;
 }
 
 .app-theme-picker:hover {
-  border-color: var(--tab-border-hover);
   background: rgb(var(--theme-elevated-strong-rgb) / 0.94);
 }
 
@@ -343,68 +329,27 @@ body[data-window-chrome="overlay-titlebar"] .app-tabbar__actions {
   gap: 10px;
   min-width: 0;
   min-height: 36px;
-  border: 1px solid transparent;
+  border: none;
+  border-radius: 12px;
   background: transparent;
   color: var(--text-secondary);
   box-shadow: none;
   transition:
-    border-color 180ms ease,
     background 180ms ease,
     color 180ms ease;
 }
 
 button.app-tab {
   appearance: none;
-  border-width: 1px;
   padding: 0 12px;
   cursor: pointer;
-}
-
-.app-tab:hover {
-  border-color: var(--tab-border-hover);
 }
 
 .app-tab.is-active {
   color: var(--tab-active-text);
 }
 
-.app-tab--browser {
-  min-height: 40px;
-  margin-bottom: -1px;
-  border-color: rgb(var(--theme-border-rgb) / 0.12);
-  border-bottom-color: transparent;
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(
-    180deg,
-    rgb(var(--theme-elevated-strong-rgb) / 0.72),
-    rgb(var(--theme-elevated-rgb) / 0.52)
-  );
-}
-
-.app-tab--browser:hover {
-  border-color: rgb(var(--theme-border-rgb) / 0.18);
-  border-bottom-color: transparent;
-  background: linear-gradient(
-    180deg,
-    rgb(var(--theme-elevated-strong-rgb) / 0.84),
-    rgb(var(--theme-elevated-rgb) / 0.62)
-  );
-}
-
-.app-tab--browser.is-active {
-  border-color: rgb(var(--theme-border-rgb) / 0.24);
-  border-bottom-color: transparent;
-  background: linear-gradient(
-    180deg,
-    rgb(var(--theme-elevated-rgb) / 0.98),
-    rgb(var(--theme-elevated-strong-rgb) / 0.94)
-  );
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
-}
-
 .app-tab--utility {
-  border-color: rgb(var(--theme-border-rgb) / 0.12);
-  border-radius: 10px;
   background: rgb(var(--theme-elevated-strong-rgb) / 0.82);
 }
 
@@ -418,51 +363,66 @@ button.app-tab {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 
-.app-tab--repository {
-  position: relative;
-  max-width: min(360px, 46vw);
-  padding-right: 4px;
-}
-
-.app-tab--repository::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 9999px;
-  opacity: 0;
-  pointer-events: none;
+.app-tab-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-width: max-content;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  border-radius: 18px;
   background: linear-gradient(
-    90deg,
-    rgb(var(--color-accent) / 0) 0%,
-    rgb(var(--color-accent) / 0.82) 18%,
-    rgb(var(--color-accent) / 1) 50%,
-    rgb(var(--color-accent) / 0.82) 82%,
-    rgb(var(--color-accent) / 0) 100%
+    180deg,
+    rgb(var(--theme-elevated-strong-rgb) / 0.86),
+    rgb(var(--theme-elevated-rgb) / 0.78)
   );
   box-shadow:
-    0 0 10px rgb(var(--color-accent) / 0.5),
-    0 0 20px rgb(var(--color-accent) / 0.24);
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 12px 24px rgb(0 0 0 / 0.08);
+}
+
+.app-tab-toggle__option {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(340px, 44vw);
+  padding: 0;
+  border-radius: 18px;
+  background: rgb(var(--theme-overlay-rgb) / 0.08);
+  color: var(--text-subtle);
   transition:
-    opacity 180ms ease,
+    background 180ms ease,
+    color 180ms ease,
     box-shadow 180ms ease;
 }
 
-.app-tab--repository.is-active::after {
-  opacity: 1;
-  box-shadow:
-    0 0 12px rgb(var(--color-accent) / 0.62),
-    0 0 26px rgb(var(--color-accent) / 0.32);
+.app-tab-toggle__option:hover {
+  background: rgb(var(--theme-overlay-rgb) / 0.14);
+  color: var(--text-secondary);
 }
 
-.app-tab__trigger {
+.app-tab-toggle__option.is-active {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-accent) / 0.24),
+    rgb(var(--color-accent) / 0.16)
+  );
+  color: var(--tab-active-text);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    0 8px 18px rgb(var(--color-accent) / 0.14);
+}
+
+.app-tab-toggle__trigger {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  height: 100%;
+  min-height: 36px;
   padding: 0 10px 0 12px;
   border: none;
   background: transparent;
@@ -470,7 +430,7 @@ button.app-tab {
   cursor: pointer;
 }
 
-.app-tab__text {
+.app-tab-toggle__text {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -506,9 +466,10 @@ button.app-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
+  margin-right: 6px;
   border: none;
   border-radius: 8px;
   background: transparent;

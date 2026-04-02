@@ -224,6 +224,13 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       });
     },
 
+    deleteStash(repoPath, stashId) {
+      return request(baseUrl, "/stashes/delete", {
+        method: "POST",
+        body: JSON.stringify({ repoPath, stashId }),
+      });
+    },
+
     applyStash(repoPath, stashId) {
       return request(baseUrl, "/stashes/apply", {
         method: "POST",

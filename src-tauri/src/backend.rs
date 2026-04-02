@@ -4715,6 +4715,17 @@ pub fn rename_stash(
 }
 
 #[tauri::command]
+pub fn delete_stash(repo_path: String, stash_id: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let stash_id = stash_id.trim().to_string();
+    parse_stash_index(&stash_id)?;
+    run_git(&["stash", "drop", stash_id.as_str()], &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
 pub fn apply_stash(repo_path: String, stash_id: String) -> Result<ConflictOperationResult, String> {
     ensure_repo_path(&repo_path)?;
 
@@ -6297,6 +6308,23 @@ mod tests {
         assert!(detail.diff.contains("+appended line"));
         assert!(detail.diff.contains("diff --git a/alpha.txt b/alpha.txt"));
         assert!(detail.diff.contains("+alpha updated"));
+    }
+
+    #[test]
+    fn delete_stash_removes_only_the_selected_entry() {
+        let fixture = create_stash_fixture();
+
+        delete_stash(fixture.repo_path.clone(), "stash@{1}".to_string())
+            .expect("stash delete should succeed");
+
+        let stashes = get_stashes(fixture.repo_path.clone()).expect("stashes should be returned");
+        let messages: Vec<String> = stashes
+            .stashes
+            .iter()
+            .map(|stash| stash.message.clone())
+            .collect();
+        assert_eq!(messages, vec!["On main: second stash".to_string()]);
+        assert_eq!(stashes.stashes[0].files, vec!["beta.txt".to_string()]);
     }
 
     #[test]

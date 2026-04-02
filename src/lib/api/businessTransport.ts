@@ -99,6 +99,7 @@ export interface BusinessTransport {
     file: string,
   ): Promise<StashDiffFileDetail>;
   renameStash(repoPath: string, stashId: string, message: string): Promise<{ ok: boolean }>;
+  deleteStash(repoPath: string, stashId: string): Promise<{ ok: boolean }>;
   applyStash(repoPath: string, stashId: string): Promise<ConflictOperationResult>;
   popStash(repoPath: string, stashId: string): Promise<ConflictOperationResult>;
   checkout(repoPath: string, ref: string): Promise<{ ok: boolean }>;

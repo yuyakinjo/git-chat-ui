@@ -180,6 +180,33 @@ describe("api.renameStash", () => {
   });
 });
 
+describe("api.deleteStash", () => {
+  test("posts stash delete payload to the stash delete endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.deleteStash("/tmp/repo", "stash@{1}");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/stashes/delete");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      stashId: "stash@{1}",
+    });
+  });
+});
+
 describe("api.appendFileToStash", () => {
   test("posts append payload to the stash append endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];

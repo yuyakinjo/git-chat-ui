@@ -12,7 +12,6 @@ export const CONTEXT_MENU_WIDTH_PX = 232;
 export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 60;
 export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 96;
 export const STASH_CONTEXT_MENU_HEIGHT_PX = 188;
-export const BLOCKED_STASH_CONTEXT_MENU_HEIGHT_PX = 280;
 
 export function clampContextMenuPosition(
   x: number,
@@ -31,14 +30,6 @@ export function clampContextMenuPosition(
 
 export function getContextMenuHeight(branch: Branch): number {
   return branch.type === "local" ? LOCAL_CONTEXT_MENU_HEIGHT_PX : REMOTE_CONTEXT_MENU_HEIGHT_PX;
-}
-
-export function getStashContextMenuHeight(blockedReason: string | null): number {
-  return blockedReason ? BLOCKED_STASH_CONTEXT_MENU_HEIGHT_PX : STASH_CONTEXT_MENU_HEIGHT_PX;
-}
-
-export function getStashContextMenuHint(): string {
-  return "Apply は stash を残し、Pop は適用後に取り除きます。Rename は message だけを更新します。";
 }
 
 export function getBranchDisplayName(branchName: string): string {
