@@ -311,6 +311,8 @@ describe("globals.css", () => {
 
     expect(refBadgeSection).toContain("gap: 4px;");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge-icon {");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-icons {");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-done {");
     expect(refBadgeSection).toContain("flex-shrink: 0;");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge-label {");
     expect(refBadgeSection).toContain("min-width: 0;");

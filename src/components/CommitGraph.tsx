@@ -1,4 +1,5 @@
 import { animate, stagger } from "animejs";
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { useContainerWidth } from "../hooks/useContainerWidth";
@@ -20,6 +21,7 @@ import {
   LINE_OVERDRAW,
   parseCommitRefLabels,
   REF_BADGE_ICON_SIZE,
+  REF_BADGE_DONE_ICON_SIZE,
   REF_COLUMN_DEFAULT_WIDTH,
   REF_COLUMN_STORAGE_KEY,
   refLabelClass,
@@ -155,7 +157,11 @@ export function CommitGraph({
 
       const rowWidth = badges.reduce((total, badge, index) => {
         const textWidth = Math.ceil(context.measureText(badge.name).width);
-        const pillWidth = textWidth + 18 + badge.scopes.length * (REF_BADGE_ICON_SIZE + 4);
+        const pillWidth =
+          textWidth +
+          18 +
+          badge.scopes.length * (REF_BADGE_ICON_SIZE + 4) +
+          (badge.type === "head" ? REF_BADGE_DONE_ICON_SIZE + 4 : 0);
         return total + pillWidth + (index > 0 ? 4 : 0);
       }, 0);
 
@@ -558,6 +564,22 @@ export function CommitGraph({
                 {commitRefBadges.length > 0 ? (
                   <div className="flex items-center gap-1 overflow-hidden">
                     {commitRefBadges.map((badge) => {
+                      const isCheckedOutRefBadge = badge.type === "head";
+                      const badgeScopeIcons = (
+                        <span className="commit-graph__ref-badge-icons" aria-hidden="true">
+                          {badge.scopes.map((scope) => {
+                            const RefBadgeIcon = refLabelIcon(scope);
+                            return (
+                              <RefBadgeIcon
+                                key={`${badge.name}-${scope}`}
+                                size={REF_BADGE_ICON_SIZE}
+                                className={refLabelIconClass(scope)}
+                              />
+                            );
+                          })}
+                        </span>
+                      );
+
                       return (
                         <span
                           key={`${commit.sha}-${badge.type}-${badge.name}`}
@@ -576,24 +598,19 @@ export function CommitGraph({
                             onCheckoutBranchRef(badge.name);
                           }}
                         >
-                          <span
-                            className="inline-flex shrink-0 items-center gap-0.5"
-                            aria-hidden="true"
-                          >
-                            {badge.scopes.map((scope) => {
-                              const RefBadgeIcon = refLabelIcon(scope);
-                              return (
-                                <RefBadgeIcon
-                                  key={`${badge.name}-${scope}`}
-                                  size={REF_BADGE_ICON_SIZE}
-                                  className={refLabelIconClass(scope)}
-                                />
-                              );
-                            })}
-                          </span>
+                          {isCheckedOutRefBadge ? (
+                            <Check
+                              size={REF_BADGE_DONE_ICON_SIZE}
+                              className="commit-graph__ref-badge-done"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            badgeScopeIcons
+                          )}
                           <span className="commit-graph__ref-badge-label truncate">
                             {badge.name}
                           </span>
+                          {isCheckedOutRefBadge ? badgeScopeIcons : null}
                         </span>
                       );
                     })}

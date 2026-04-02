@@ -19,6 +19,7 @@ export const REF_COLUMN_MAX_WIDTH = 900;
 export const REF_COLUMN_DEFAULT_WIDTH = 230;
 export const REF_COLUMN_STORAGE_KEY = "git-chat-ui.commit-refs-column-width";
 export const REF_BADGE_ICON_SIZE = 10;
+export const REF_BADGE_DONE_ICON_SIZE = 12;
 
 export const LANE_COLORS = [
   "#0071e3",

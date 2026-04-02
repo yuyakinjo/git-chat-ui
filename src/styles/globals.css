@@ -1916,6 +1916,19 @@ body[data-theme-mode="dark"] .branch-list-item__icon--remote {
   opacity: 0.92;
 }
 
+.commit-graph__ref-badge-icons {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.commit-graph__ref-badge-done {
+  flex-shrink: 0;
+  opacity: 0.96;
+  stroke-width: 2.6;
+}
+
 .commit-graph__ref-badge-label {
   min-width: 0;
 }

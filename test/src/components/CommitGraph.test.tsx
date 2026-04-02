@@ -178,13 +178,18 @@ describe("CommitGraph", () => {
     expect(html).toContain("commit-graph__ref-badge--head");
     expect(html).toContain("commit-graph__ref-badge--tag");
     expect(html).toContain("commit-graph__ref-badge-icon");
+    expect(html).toContain("commit-graph__ref-badge-icons");
+    expect(html).toContain("commit-graph__ref-badge-done");
     expect(html).toContain("commit-graph__ref-badge-label");
     expect(html.match(/class="commit-graph__ref-badge /g)?.length ?? 0).toBe(3);
+    expect(html.match(/commit-graph__ref-badge-done/g)?.length ?? 0).toBe(1);
     expect(html.match(/commit-graph__ref-badge-icon--local/g)?.length ?? 0).toBe(1);
     expect(html.match(/commit-graph__ref-badge-icon--remote/g)?.length ?? 0).toBe(2);
     expect(html.match(/commit-graph__ref-badge-icon--tag/g)?.length ?? 0).toBe(1);
     expect(html).toContain('title="main, origin/main"');
-    expect(html).toContain("main</span></span>");
+    expect(html).toMatch(
+      /commit-graph__ref-badge-done[\s\S]*commit-graph__ref-badge-label truncate">main<\/span>[\s\S]*commit-graph__ref-badge-icons/,
+    );
     expect(html).not.toContain(">origin/main</span>");
     expect(html).toContain("origin/HEAD");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
