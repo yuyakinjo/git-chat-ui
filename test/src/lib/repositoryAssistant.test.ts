@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { isRepositoryAssistantSubmitShortcut } from "../../../src/lib/repositoryAssistant";
+import {
+  createRepositoryAssistantSettingsFromConfig,
+  isRepositoryAssistantSubmitShortcut,
+  toRepositoryAssistantConfigPatch,
+} from "../../../src/lib/repositoryAssistant";
 
 describe("isRepositoryAssistantSubmitShortcut", () => {
   test("matches Cmd/Ctrl + Enter without extra modifiers", () => {
@@ -40,5 +44,47 @@ describe("isRepositoryAssistantSubmitShortcut", () => {
         shiftKey: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("createRepositoryAssistantSettingsFromConfig", () => {
+  test("prefers the dedicated assistant config values", () => {
+    expect(
+      createRepositoryAssistantSettingsFromConfig({
+        openAiModel: "gpt-4.1-mini",
+        repositoryAssistantOpenAiModel: "gpt-5.4",
+        repositoryAssistantReasoningEffort: "high",
+      }),
+    ).toEqual({
+      openAiModel: "gpt-5.4",
+      reasoningEffort: "high",
+    });
+  });
+
+  test("falls back to the commit model when the dedicated assistant model is blank", () => {
+    expect(
+      createRepositoryAssistantSettingsFromConfig({
+        openAiModel: "gpt-4.1",
+        repositoryAssistantOpenAiModel: "   ",
+        repositoryAssistantReasoningEffort: "default",
+      }),
+    ).toEqual({
+      openAiModel: "gpt-4.1",
+      reasoningEffort: "default",
+    });
+  });
+});
+
+describe("toRepositoryAssistantConfigPatch", () => {
+  test("maps chat settings to the dedicated config fields", () => {
+    expect(
+      toRepositoryAssistantConfigPatch({
+        openAiModel: "gpt-5.4",
+        reasoningEffort: "xhigh",
+      }),
+    ).toEqual({
+      repositoryAssistantOpenAiModel: "gpt-5.4",
+      repositoryAssistantReasoningEffort: "xhigh",
+    });
   });
 });

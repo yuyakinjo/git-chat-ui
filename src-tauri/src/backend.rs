@@ -131,6 +131,8 @@ pub struct RecentRepository {
 pub struct AppConfig {
     pub open_ai_token: String,
     pub open_ai_model: String,
+    pub repository_assistant_open_ai_model: String,
+    pub repository_assistant_reasoning_effort: OpenAiReasoningEffort,
     pub claude_code_token: String,
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
@@ -156,6 +158,8 @@ impl Default for AppConfig {
         Self {
             open_ai_token: String::new(),
             open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
+            repository_assistant_open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
+            repository_assistant_reasoning_effort: OpenAiReasoningEffort::Default,
             claude_code_token: String::new(),
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
@@ -602,6 +606,8 @@ pub struct OpenAiModelsResponse {
 pub struct SaveConfigInput {
     pub open_ai_token: Option<String>,
     pub open_ai_model: Option<String>,
+    pub repository_assistant_open_ai_model: Option<String>,
+    pub repository_assistant_reasoning_effort: Option<OpenAiReasoningEffort>,
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
@@ -651,10 +657,8 @@ pub struct RepositoryAssistantMessage {
 pub struct ChatWithRepositoryAssistantInput {
     pub repo_path: String,
     pub messages: Vec<RepositoryAssistantMessage>,
-    #[serde(default)]
-    pub open_ai_model: String,
-    #[serde(default)]
-    pub reasoning_effort: OpenAiReasoningEffort,
+    pub open_ai_model: Option<String>,
+    pub reasoning_effort: Option<OpenAiReasoningEffort>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1080,6 +1084,30 @@ fn normalize_open_ai_model(value: Option<&Value>) -> String {
     }
 }
 
+fn normalize_repository_assistant_open_ai_model(
+    value: Option<&Value>,
+    fallback_open_ai_model: &str,
+) -> String {
+    let fallback = resolve_open_ai_model(fallback_open_ai_model);
+    let normalized = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    if normalized.is_empty() {
+        fallback
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn normalize_open_ai_reasoning_effort_value(value: Option<&Value>) -> OpenAiReasoningEffort {
+    value
+        .cloned()
+        .and_then(|candidate| serde_json::from_value::<OpenAiReasoningEffort>(candidate).ok())
+        .unwrap_or_default()
+}
+
 fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -1147,6 +1175,12 @@ fn normalize_config_value(value: Value) -> AppConfig {
         .unwrap_or_default()
         .to_string();
     let open_ai_model = normalize_open_ai_model(value.get("openAiModel"));
+    let repository_assistant_open_ai_model = normalize_repository_assistant_open_ai_model(
+        value.get("repositoryAssistantOpenAiModel"),
+        &open_ai_model,
+    );
+    let repository_assistant_reasoning_effort =
+        normalize_open_ai_reasoning_effort_value(value.get("repositoryAssistantReasoningEffort"));
 
     let claude_code_token = value
         .get("claudeCodeToken")
@@ -1185,6 +1219,8 @@ fn normalize_config_value(value: Value) -> AppConfig {
     AppConfig {
         open_ai_token,
         open_ai_model,
+        repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort,
         claude_code_token,
         selected_ai_provider,
         commit_title_prompt,
@@ -1227,9 +1263,19 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
             .map_err(|error| format!("Failed to create config dir: {error}"))?;
     }
 
+    let open_ai_model = normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone())));
+    let repository_assistant_open_ai_model = normalize_repository_assistant_open_ai_model(
+        Some(&Value::String(
+            config.repository_assistant_open_ai_model.clone(),
+        )),
+        &open_ai_model,
+    );
+
     let normalized = AppConfig {
         open_ai_token: config.open_ai_token.clone(),
-        open_ai_model: normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone()))),
+        open_ai_model,
+        repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort: config.repository_assistant_reasoning_effort,
         claude_code_token: config.claude_code_token.clone(),
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
@@ -5859,6 +5905,12 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
     let next_config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
         open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
+        repository_assistant_open_ai_model: input
+            .repository_assistant_open_ai_model
+            .unwrap_or(current.repository_assistant_open_ai_model),
+        repository_assistant_reasoning_effort: input
+            .repository_assistant_reasoning_effort
+            .unwrap_or(current.repository_assistant_reasoning_effort),
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
         selected_ai_provider: input
             .selected_ai_provider
@@ -5892,6 +5944,8 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
     let config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
         open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
+        repository_assistant_open_ai_model: current.repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort: current.repository_assistant_reasoning_effort,
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
         selected_ai_provider: input
             .selected_ai_provider
@@ -5922,15 +5976,18 @@ pub fn chat_with_repository_assistant(
     let system_prompt = build_repository_assistant_system_prompt(
         &build_repository_assistant_context(&input.repo_path)?,
     );
-    let open_ai_model = if input.open_ai_model.trim().is_empty() {
-        config.open_ai_model.clone()
-    } else {
-        input.open_ai_model.clone()
-    };
+    let open_ai_model = input
+        .open_ai_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(config.repository_assistant_open_ai_model.as_str())
+        .to_string();
     let message = chat_with_openai(
         &config.open_ai_token,
         &open_ai_model,
-        input.reasoning_effort,
+        input.reasoning_effort
+            .unwrap_or(config.repository_assistant_reasoning_effort),
         &system_prompt,
         &input.messages,
     )?;
@@ -6488,6 +6545,8 @@ mod tests {
         let config = normalize_config_value(json!({
             "openAiToken": "sk-openai",
             "openAiModel": "gpt-4.1",
+            "repositoryAssistantOpenAiModel": "gpt-5.4",
+            "repositoryAssistantReasoningEffort": "high",
             "claudeCodeToken": "cc-token",
             "selectedAiProvider": "claudeCode",
             "commitTitlePrompt": "Write a short Japanese commit message.",
@@ -6497,6 +6556,11 @@ mod tests {
 
         assert_eq!(config.open_ai_token, "sk-openai");
         assert_eq!(config.open_ai_model, "gpt-4.1");
+        assert_eq!(config.repository_assistant_open_ai_model, "gpt-5.4");
+        assert_eq!(
+            config.repository_assistant_reasoning_effort,
+            OpenAiReasoningEffort::High
+        );
         assert_eq!(config.claude_code_token, "cc-token");
         assert_eq!(config.selected_ai_provider, AiProvider::ClaudeCode);
         assert_eq!(
@@ -6523,6 +6587,20 @@ mod tests {
         assert_eq!(
             blank_prompt.commit_title_prompt,
             DEFAULT_COMMIT_TITLE_PROMPT
+        );
+    }
+
+    #[test]
+    fn normalize_config_value_falls_back_to_commit_model_for_repository_assistant() {
+        let config = normalize_config_value(json!({
+            "openAiModel": "gpt-4.1",
+            "repositoryAssistantOpenAiModel": "   "
+        }));
+
+        assert_eq!(config.repository_assistant_open_ai_model, "gpt-4.1");
+        assert_eq!(
+            config.repository_assistant_reasoning_effort,
+            OpenAiReasoningEffort::Default
         );
     }
 

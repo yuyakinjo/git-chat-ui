@@ -1,5 +1,5 @@
 import { Bot, Cog, ExternalLink, FolderGit2, Plus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
 import { ConfigView } from "./components/ConfigView";
@@ -20,6 +20,7 @@ import {
   serializeAppSession,
   type AppTabId,
   type PersistedAppSession,
+  type PersistedRepositoryAssistantConversation,
   upsertRepositoryTab,
 } from "./lib/appTabs";
 import { api } from "./lib/api";
@@ -38,13 +39,15 @@ import {
   getInitialPersistedAppSession,
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
+import { isConfigShortcut } from "./lib/configShortcut";
 import {
   createRepositoryAssistantMessage,
   createDefaultRepositoryAssistantSettings,
+  createRepositoryAssistantSettingsFromConfig,
   isEditableShortcutTarget,
   isRepositoryAssistantShortcut,
   normalizeRepositoryAssistantSettings,
-  REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY,
+  toRepositoryAssistantConfigPatch,
 } from "./lib/repositoryAssistant";
 import type {
   AiGenerationConfig,
@@ -77,6 +80,46 @@ function getRepositoryAssistantConversationState(
   return conversations[repoPath] ?? createEmptyRepositoryAssistantConversationState();
 }
 
+function createRepositoryAssistantConversationStateFromPersisted(
+  conversation: PersistedRepositoryAssistantConversation,
+): RepositoryAssistantConversationState {
+  return {
+    messages: conversation.messages,
+    draft: conversation.draft,
+    pending: false,
+    error: null,
+  };
+}
+
+function createInitialRepositoryAssistantConversations(
+  session: PersistedAppSession,
+): Record<string, RepositoryAssistantConversationState> {
+  return Object.fromEntries(
+    Object.entries(session.repositoryAssistantConversations).map(([repoPath, conversation]) => [
+      repoPath,
+      createRepositoryAssistantConversationStateFromPersisted(conversation),
+    ]),
+  );
+}
+
+function createPersistedRepositoryAssistantConversations(
+  conversations: Record<string, RepositoryAssistantConversationState>,
+): Record<string, PersistedRepositoryAssistantConversation> {
+  return Object.entries(conversations).reduce<
+    Record<string, PersistedRepositoryAssistantConversation>
+  >((accumulator, [repoPath, conversation]) => {
+    if (conversation.messages.length === 0 && conversation.draft.length === 0) {
+      return accumulator;
+    }
+
+    accumulator[repoPath] = {
+      messages: conversation.messages,
+      draft: conversation.draft,
+    };
+    return accumulator;
+  }, {});
+}
+
 export default function App(): JSX.Element {
   const [initialPersistedAppSession] = useState<PersistedAppSession>(getInitialPersistedAppSession);
   const [activeTabId, setActiveTabId] = useState<AppTabId>(DASHBOARD_TAB_ID);
@@ -96,12 +139,15 @@ export default function App(): JSX.Element {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
   const [commandPaletteOpenRequestId, setCommandPaletteOpenRequestId] = useState(0);
-  const [isRepositoryAssistantOpen, setRepositoryAssistantOpen] = useState(false);
+  const [isRepositoryAssistantOpen, setRepositoryAssistantOpen] = useState(
+    initialPersistedAppSession.isRepositoryAssistantOpen,
+  );
   const [repositoryAssistantConversations, setRepositoryAssistantConversations] = useState<
     Record<string, RepositoryAssistantConversationState>
-  >({});
+  >(() => createInitialRepositoryAssistantConversations(initialPersistedAppSession));
   const [repositoryAssistantSettings, setRepositoryAssistantSettings] =
     useState<RepositoryAssistantSettings>(() => createDefaultRepositoryAssistantSettings(null));
+  const repositoryAssistantSettingsSaveRequestIdRef = useRef(0);
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -117,6 +163,7 @@ export default function App(): JSX.Element {
     () => resolveConfigEscapeTabId(openRepositories, lastRepositoryPath),
     [lastRepositoryPath, openRepositories],
   );
+  const configReturnTabId = configEscapeTabId ?? DASHBOARD_TAB_ID;
   const activeThemeLabel = getAppThemeLabel(appTheme);
   const isTauriDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const activeRepositoryAssistantConversation = useMemo(
@@ -240,26 +287,18 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !appConfig) {
+    if (!appConfig) {
       return;
     }
 
-    try {
-      const storedValue = window.localStorage.getItem(REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY);
-      const parsedValue = storedValue ? JSON.parse(storedValue) : null;
-      setRepositoryAssistantSettings((current) => {
-        const normalized = normalizeRepositoryAssistantSettings(parsedValue, appConfig.openAiModel);
+    setRepositoryAssistantSettings((current) => {
+      const normalized = createRepositoryAssistantSettingsFromConfig(appConfig);
 
-        return current.openAiModel === normalized.openAiModel &&
-          current.reasoningEffort === normalized.reasoningEffort
-          ? current
-          : normalized;
-      });
-    } catch {
-      setRepositoryAssistantSettings((current) =>
-        normalizeRepositoryAssistantSettings(current, appConfig.openAiModel),
-      );
-    }
+      return current.openAiModel === normalized.openAiModel &&
+        current.reasoningEffort === normalized.reasoningEffort
+        ? current
+        : normalized;
+    });
   }, [appConfig]);
 
   useEffect(() => {
@@ -321,12 +360,12 @@ export default function App(): JSX.Element {
   }, [configEscapeTabId, isConfigActive]);
 
   useEffect(() => {
-    if (activeRepository) {
+    if (!hasInitializedSession || activeRepository) {
       return;
     }
 
     setRepositoryAssistantOpen(false);
-  }, [activeRepository]);
+  }, [activeRepository, hasInitializedSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -353,6 +392,27 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [activeRepository]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || !isConfigShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveTabId((current) => (current === CONFIG_TAB_ID ? configReturnTabId : CONFIG_TAB_ID));
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [configReturnTabId]);
 
   useEffect(() => {
     if (!isDashboardActive) {
@@ -413,27 +473,26 @@ export default function App(): JSX.Element {
     try {
       window.localStorage.setItem(
         APP_SESSION_STORAGE_KEY,
-        JSON.stringify(serializeAppSession(openRepositories, activeTabId, appTheme)),
+        JSON.stringify(
+          serializeAppSession(openRepositories, activeTabId, appTheme, {
+            isRepositoryAssistantOpen,
+            repositoryAssistantConversations: createPersistedRepositoryAssistantConversations(
+              repositoryAssistantConversations,
+            ),
+          }),
+        ),
       );
     } catch {
       // Ignore storage failures and keep the in-memory session.
     }
-  }, [activeTabId, appTheme, hasInitializedSession, openRepositories]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(
-        REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY,
-        JSON.stringify(repositoryAssistantSettings),
-      );
-    } catch {
-      // Ignore storage failures and keep the in-memory settings.
-    }
-  }, [repositoryAssistantSettings]);
+  }, [
+    activeTabId,
+    appTheme,
+    hasInitializedSession,
+    isRepositoryAssistantOpen,
+    openRepositories,
+    repositoryAssistantConversations,
+  ]);
 
   const handleSelectRepository = (repository: Repository): void => {
     void api.markRecentRepository(repository.path);
@@ -514,6 +573,48 @@ export default function App(): JSX.Element {
       },
     }));
   };
+
+  const handleRepositoryAssistantSettingsChange = useCallback(
+    (value: RepositoryAssistantSettings): void => {
+      const normalized = normalizeRepositoryAssistantSettings(
+        value,
+        appConfig?.repositoryAssistantOpenAiModel ?? appConfig?.openAiModel ?? null,
+      );
+
+      if (
+        repositoryAssistantSettings.openAiModel === normalized.openAiModel &&
+        repositoryAssistantSettings.reasoningEffort === normalized.reasoningEffort
+      ) {
+        return;
+      }
+
+      setRepositoryAssistantSettings(normalized);
+
+      repositoryAssistantSettingsSaveRequestIdRef.current += 1;
+      const requestId = repositoryAssistantSettingsSaveRequestIdRef.current;
+
+      void api
+        .saveConfig(toRepositoryAssistantConfigPatch(normalized))
+        .then((response) => {
+          if (
+            requestId !== repositoryAssistantSettingsSaveRequestIdRef.current ||
+            !response.config
+          ) {
+            return;
+          }
+
+          setAppConfig(response.config);
+        })
+        .catch((error) => {
+          if (requestId !== repositoryAssistantSettingsSaveRequestIdRef.current) {
+            return;
+          }
+
+          setNotice(error instanceof Error ? error.message : "AI chat 設定の保存に失敗しました。");
+        });
+    },
+    [appConfig, repositoryAssistantSettings],
+  );
 
   const handleClearAssistantConversation = (): void => {
     if (!activeRepository) {
@@ -716,8 +817,8 @@ export default function App(): JSX.Element {
               type="button"
               className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? "is-active" : ""}`}
               aria-label="Config"
-              title="Config"
-              onClick={() => setActiveTabId(CONFIG_TAB_ID)}
+              title="Config (Cmd/Ctrl + ,)"
+              onClick={handleOpenConfig}
             >
               <Cog size={18} />
             </button>
@@ -796,7 +897,7 @@ export default function App(): JSX.Element {
                 ? activeRepositoryAssistantConversation.error
                 : "AI sidebar には Config の OpenAI token が必要です。"
             }
-            onSettingsChange={setRepositoryAssistantSettings}
+            onSettingsChange={handleRepositoryAssistantSettingsChange}
             onDraftChange={handleAssistantDraftChange}
             onSubmit={handleSubmitAssistantConversation}
             onClearConversation={handleClearAssistantConversation}

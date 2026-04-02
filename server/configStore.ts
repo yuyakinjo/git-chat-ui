@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { resolveCommitTitlePrompt } from "../shared/ai.js";
+import { normalizeOpenAiReasoningEffort, resolveCommitTitlePrompt } from "../shared/ai.js";
 import { DEFAULT_APP_CONFIG } from "../shared/config.js";
 import type { AppConfig, CommitGraphMode } from "./types.js";
 
@@ -102,15 +102,36 @@ function normalizeOpenAiModel(value: unknown): string {
   return normalized.length > 0 ? normalized : DEFAULT_CONFIG.openAiModel;
 }
 
+function normalizeRepositoryAssistantOpenAiModel(
+  value: unknown,
+  fallbackOpenAiModel: string,
+): string {
+  if (typeof value !== "string") {
+    return fallbackOpenAiModel;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : fallbackOpenAiModel;
+}
+
 function normalizeCommitTitlePrompt(value: unknown): string {
   return resolveCommitTitlePrompt(typeof value === "string" ? value : undefined);
 }
 
 function normalizeConfig(value: Partial<AppConfig>): AppConfig {
+  const openAiModel = normalizeOpenAiModel(value.openAiModel);
+
   return {
     openAiToken:
       typeof value.openAiToken === "string" ? value.openAiToken : DEFAULT_CONFIG.openAiToken,
-    openAiModel: normalizeOpenAiModel(value.openAiModel),
+    openAiModel,
+    repositoryAssistantOpenAiModel: normalizeRepositoryAssistantOpenAiModel(
+      value.repositoryAssistantOpenAiModel,
+      openAiModel,
+    ),
+    repositoryAssistantReasoningEffort: normalizeOpenAiReasoningEffort(
+      value.repositoryAssistantReasoningEffort,
+    ),
     claudeCodeToken:
       typeof value.claudeCodeToken === "string"
         ? value.claudeCodeToken

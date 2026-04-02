@@ -107,12 +107,46 @@ describe("appTabs", () => {
       [alphaRepository, betaRepository, alphaRepository],
       getRepositoryTabId(betaRepository.path),
       "default-dark",
+      {
+        isRepositoryAssistantOpen: true,
+        repositoryAssistantConversations: {
+          [alphaRepository.path]: {
+            messages: [
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content: "Check the conflicted files first.",
+                createdAt: "2026-04-03T00:00:00.000Z",
+              },
+            ],
+            draft: "Next, should I rebase?",
+          },
+          "/repos/empty": {
+            messages: [],
+            draft: "",
+          },
+        },
+      },
     );
 
     expect(serialized).toEqual({
       openRepositoryPaths: [alphaRepository.path, betaRepository.path],
       activeTabId: getRepositoryTabId(betaRepository.path),
       appThemeId: "default-dark",
+      isRepositoryAssistantOpen: true,
+      repositoryAssistantConversations: {
+        [alphaRepository.path]: {
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Check the conflicted files first.",
+              createdAt: "2026-04-03T00:00:00.000Z",
+            },
+          ],
+          draft: "Next, should I rebase?",
+        },
+      },
     });
 
     expect(
@@ -125,6 +159,24 @@ describe("appTabs", () => {
             alphaRepository.path,
           ],
           activeTabId: getRepositoryTabId("/repos/missing"),
+          isRepositoryAssistantOpen: true,
+          repositoryAssistantConversations: {
+            [alphaRepository.path]: {
+              messages: [
+                {
+                  id: "assistant-1",
+                  role: "assistant",
+                  content: "Check the conflicted files first.",
+                  createdAt: "2026-04-03T00:00:00.000Z",
+                },
+              ],
+              draft: "Next, should I rebase?",
+            },
+            " ": {
+              messages: [],
+              draft: "ignored",
+            },
+          },
         }),
         "default-dark",
       ),
@@ -132,12 +184,28 @@ describe("appTabs", () => {
       openRepositoryPaths: [alphaRepository.path, betaRepository.path],
       activeTabId: getRepositoryTabId(alphaRepository.path),
       appThemeId: "default-dark",
+      isRepositoryAssistantOpen: true,
+      repositoryAssistantConversations: {
+        [alphaRepository.path]: {
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Check the conflicted files first.",
+              createdAt: "2026-04-03T00:00:00.000Z",
+            },
+          ],
+          draft: "Next, should I rebase?",
+        },
+      },
     });
 
     expect(parsePersistedAppSession("not-json", "default-dark")).toEqual({
       openRepositoryPaths: [],
       activeTabId: DASHBOARD_TAB_ID,
       appThemeId: "default-dark",
+      isRepositoryAssistantOpen: false,
+      repositoryAssistantConversations: {},
     });
   });
 
@@ -155,6 +223,8 @@ describe("appTabs", () => {
       openRepositoryPaths: [alphaRepository.path],
       activeTabId: getRepositoryTabId(alphaRepository.path),
       appThemeId: "default-dark",
+      isRepositoryAssistantOpen: false,
+      repositoryAssistantConversations: {},
     });
 
     expect(
@@ -170,6 +240,8 @@ describe("appTabs", () => {
       openRepositoryPaths: [alphaRepository.path],
       activeTabId: getRepositoryTabId(alphaRepository.path),
       appThemeId: "default-dark",
+      isRepositoryAssistantOpen: false,
+      repositoryAssistantConversations: {},
     });
   });
 

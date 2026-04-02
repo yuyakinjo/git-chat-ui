@@ -89,8 +89,11 @@ export function createAiRouter({
       const openAiModel =
         typeof request.body.openAiModel === "string"
           ? request.body.openAiModel
-          : config.openAiModel;
-      const reasoningEffort = normalizeOpenAiReasoningEffort(request.body.reasoningEffort);
+          : config.repositoryAssistantOpenAiModel;
+      const reasoningEffort =
+        request.body.reasoningEffort === undefined
+          ? config.repositoryAssistantReasoningEffort
+          : normalizeOpenAiReasoningEffort(request.body.reasoningEffort);
       const assistantMessage = await generateRepositoryAssistantReplyImpl({
         repoPath,
         messages,

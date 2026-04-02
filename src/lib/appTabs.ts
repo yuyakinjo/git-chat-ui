@@ -1,4 +1,4 @@
-import type { Repository } from "../types";
+import type { Repository, RepositoryAssistantMessage } from "../types";
 
 import { DEFAULT_APP_THEME, normalizeAppTheme, type AppThemeId } from "./appTheme";
 
@@ -9,10 +9,17 @@ export const CONFIG_TAB_ID = "config";
 
 export type AppTabId = typeof DASHBOARD_TAB_ID | typeof CONFIG_TAB_ID | `repository:${string}`;
 
+export interface PersistedRepositoryAssistantConversation {
+  messages: RepositoryAssistantMessage[];
+  draft: string;
+}
+
 export interface PersistedAppSession {
   openRepositoryPaths: string[];
   activeTabId: AppTabId;
   appThemeId: AppThemeId;
+  isRepositoryAssistantOpen: boolean;
+  repositoryAssistantConversations: Record<string, PersistedRepositoryAssistantConversation>;
 }
 
 function createDefaultPersistedAppSession(
@@ -22,6 +29,8 @@ function createDefaultPersistedAppSession(
     openRepositoryPaths: [],
     activeTabId: DASHBOARD_TAB_ID,
     appThemeId,
+    isRepositoryAssistantOpen: false,
+    repositoryAssistantConversations: {},
   };
 }
 
@@ -88,6 +97,87 @@ function normalizeOpenRepositoryPaths(value: unknown): string[] {
   return normalized;
 }
 
+function normalizeRepositoryAssistantMessage(
+  value: unknown,
+): PersistedRepositoryAssistantConversation["messages"][number] | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const candidate = value as Partial<RepositoryAssistantMessage>;
+  if (
+    typeof candidate.id !== "string" ||
+    (candidate.role !== "user" && candidate.role !== "assistant") ||
+    typeof candidate.content !== "string" ||
+    typeof candidate.createdAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id,
+    role: candidate.role,
+    content: candidate.content,
+    createdAt: candidate.createdAt,
+  };
+}
+
+function normalizeRepositoryAssistantMessages(value: unknown): RepositoryAssistantMessage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((message) => normalizeRepositoryAssistantMessage(message))
+    .filter((message): message is RepositoryAssistantMessage => message !== null);
+}
+
+function normalizeRepositoryAssistantConversation(
+  value: unknown,
+): PersistedRepositoryAssistantConversation | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const candidate = value as Partial<PersistedRepositoryAssistantConversation>;
+  const messages = normalizeRepositoryAssistantMessages(candidate.messages);
+  const draft = typeof candidate.draft === "string" ? candidate.draft : "";
+
+  if (messages.length === 0 && draft.length === 0) {
+    return null;
+  }
+
+  return {
+    messages,
+    draft,
+  };
+}
+
+function normalizeRepositoryAssistantConversations(
+  value: unknown,
+): Record<string, PersistedRepositoryAssistantConversation> {
+  if (typeof value !== "object" || value === null) {
+    return {};
+  }
+
+  const normalized: Record<string, PersistedRepositoryAssistantConversation> = {};
+  for (const [repoPath, conversation] of Object.entries(value)) {
+    const trimmedRepoPath = repoPath.trim();
+    if (!trimmedRepoPath) {
+      continue;
+    }
+
+    const normalizedConversation = normalizeRepositoryAssistantConversation(conversation);
+    if (!normalizedConversation) {
+      continue;
+    }
+
+    normalized[trimmedRepoPath] = normalizedConversation;
+  }
+
+  return normalized;
+}
+
 function resolveActiveTabIdFromPaths(
   openRepositoryPaths: string[],
   activeTabId: string | null | undefined,
@@ -116,6 +206,10 @@ export function serializeAppSession(
   openRepositories: Repository[],
   activeTabId: AppTabId,
   appThemeId: AppThemeId,
+  repositoryAssistantSession?: {
+    isRepositoryAssistantOpen: boolean;
+    repositoryAssistantConversations: Record<string, PersistedRepositoryAssistantConversation>;
+  },
 ): PersistedAppSession {
   const openRepositoryPaths = normalizeOpenRepositoryPaths(
     openRepositories.map((repository) => repository.path),
@@ -124,6 +218,10 @@ export function serializeAppSession(
     openRepositoryPaths,
     activeTabId: resolveActiveTabIdFromPaths(openRepositoryPaths, activeTabId),
     appThemeId: normalizeAppTheme(appThemeId),
+    isRepositoryAssistantOpen: repositoryAssistantSession?.isRepositoryAssistantOpen === true,
+    repositoryAssistantConversations: normalizeRepositoryAssistantConversations(
+      repositoryAssistantSession?.repositoryAssistantConversations,
+    ),
   };
 }
 
@@ -142,6 +240,8 @@ export function parsePersistedAppSession(
       openRepositoryPaths?: unknown;
       activeTabId?: unknown;
       appThemeId?: unknown;
+      isRepositoryAssistantOpen?: unknown;
+      repositoryAssistantConversations?: unknown;
     };
     const openRepositoryPaths = normalizeOpenRepositoryPaths(parsed.openRepositoryPaths);
 
@@ -152,6 +252,10 @@ export function parsePersistedAppSession(
         typeof parsed.activeTabId === "string" ? parsed.activeTabId : null,
       ),
       appThemeId: parsePersistedAppThemeId(parsed.appThemeId, normalizedFallbackThemeId),
+      isRepositoryAssistantOpen: parsed.isRepositoryAssistantOpen === true,
+      repositoryAssistantConversations: normalizeRepositoryAssistantConversations(
+        parsed.repositoryAssistantConversations,
+      ),
     };
   } catch {
     return createDefaultPersistedAppSession(normalizedFallbackThemeId);

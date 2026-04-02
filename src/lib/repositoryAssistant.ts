@@ -1,11 +1,10 @@
 import { DEFAULT_OPENAI_MODEL, normalizeOpenAiReasoningEffort } from "../../shared/ai.js";
 import type {
+  AppConfig,
   RepositoryAssistantMessage,
   RepositoryAssistantMessageRole,
   RepositoryAssistantSettings,
 } from "../types";
-
-const REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY = "git-chat-ui.repository-assistant-settings";
 
 interface RepositoryAssistantShortcutLike {
   key: string;
@@ -62,8 +61,6 @@ export function createRepositoryAssistantMessage(
   };
 }
 
-export { REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY };
-
 export function createDefaultRepositoryAssistantSettings(
   fallbackOpenAiModel: string | null | undefined,
 ): RepositoryAssistantSettings {
@@ -93,5 +90,32 @@ export function normalizeRepositoryAssistantSettings(
         ? candidate.openAiModel.trim()
         : fallback.openAiModel,
     reasoningEffort: normalizeOpenAiReasoningEffort(candidate.reasoningEffort),
+  };
+}
+
+export function createRepositoryAssistantSettingsFromConfig(
+  config: Pick<
+    AppConfig,
+    "openAiModel" | "repositoryAssistantOpenAiModel" | "repositoryAssistantReasoningEffort"
+  >,
+): RepositoryAssistantSettings {
+  return normalizeRepositoryAssistantSettings(
+    {
+      openAiModel: config.repositoryAssistantOpenAiModel,
+      reasoningEffort: config.repositoryAssistantReasoningEffort,
+    },
+    config.openAiModel,
+  );
+}
+
+export function toRepositoryAssistantConfigPatch(
+  settings: RepositoryAssistantSettings,
+): Pick<AppConfig, "repositoryAssistantOpenAiModel" | "repositoryAssistantReasoningEffort"> {
+  return {
+    repositoryAssistantOpenAiModel:
+      typeof settings.openAiModel === "string" && settings.openAiModel.trim().length > 0
+        ? settings.openAiModel.trim()
+        : DEFAULT_OPENAI_MODEL,
+    repositoryAssistantReasoningEffort: normalizeOpenAiReasoningEffort(settings.reasoningEffort),
   };
 }

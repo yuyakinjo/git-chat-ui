@@ -1,4 +1,4 @@
-import type { AiProvider } from "./ai.js";
+import type { AiProvider, OpenAiReasoningEffort } from "./ai.js";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "./ai.js";
 
 export type CommitGraphMode = "simple" | "detailed";
@@ -14,6 +14,8 @@ export interface WindowState {
 export interface AppConfig {
   openAiToken: string;
   openAiModel: string;
+  repositoryAssistantOpenAiModel: string;
+  repositoryAssistantReasoningEffort: OpenAiReasoningEffort;
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
@@ -34,6 +36,8 @@ export type AiGenerationConfig = Pick<
 export const DEFAULT_APP_CONFIG: AppConfig = {
   openAiToken: "",
   openAiModel: DEFAULT_OPENAI_MODEL,
+  repositoryAssistantOpenAiModel: DEFAULT_OPENAI_MODEL,
+  repositoryAssistantReasoningEffort: "default",
   claudeCodeToken: "",
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,

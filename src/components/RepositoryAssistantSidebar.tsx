@@ -1,5 +1,15 @@
 import { ChevronDown, LoaderCircle, PanelRightClose, SendHorizonal, Trash2 } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type JSX,
+  type KeyboardEvent,
+} from "react";
+import ReactMarkdown from "react-markdown";
 
 import { api } from "../lib/api";
 import {
@@ -41,6 +51,32 @@ const REASONING_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
   high: "高い",
   xhigh: "非常に高い",
 };
+
+type RepositoryAssistantMarkdownLinkProps = ComponentProps<"a"> & { node?: unknown };
+
+function RepositoryAssistantMarkdownLink({
+  href,
+  children,
+  ...props
+}: RepositoryAssistantMarkdownLinkProps): JSX.Element {
+  return (
+    <a
+      {...props}
+      href={href}
+      rel="noreferrer"
+      onClick={(event) => {
+        if (!href) {
+          return;
+        }
+
+        event.preventDefault();
+        void api.openExternalUrl(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 
 function formatTimestamp(value: string): string {
   const numericValue = Number(value);
@@ -438,7 +474,11 @@ export function RepositoryAssistantSidebar({
                 <span>{message.role === "assistant" ? "Assistant" : "You"}</span>
                 <span>{formatTimestamp(message.createdAt)}</span>
               </div>
-              <div className="repository-assistant__message-body">{message.content}</div>
+              <div className="repository-assistant__message-body">
+                <ReactMarkdown components={{ a: RepositoryAssistantMarkdownLink }}>
+                  {message.content}
+                </ReactMarkdown>
+              </div>
             </article>
           ))
         ) : (

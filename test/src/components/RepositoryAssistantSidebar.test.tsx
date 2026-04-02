@@ -88,6 +88,45 @@ describe("RepositoryAssistantSidebar", () => {
     expect(html).toContain('aria-label="2 messages"');
   });
 
+  test("renders markdown for both user and assistant messages", () => {
+    const html = renderToStaticMarkup(
+      <RepositoryAssistantSidebar
+        open
+        openAiToken=""
+        settings={repositoryAssistantSettings}
+        messages={[
+          {
+            id: "user-1",
+            role: "user",
+            content: "Please review **feature/login** before merge.",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content:
+              "1. Run `git status`\n2. Open [the PR](https://example.com/pr/1)\n\n```bash\ngit rebase origin/main\n```",
+            createdAt: "2026-04-03T00:01:00.000Z",
+          },
+        ]}
+        draft=""
+        pending={false}
+        error={null}
+        onSettingsChange={() => {}}
+        onDraftChange={() => {}}
+        onSubmit={() => {}}
+        onClearConversation={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(html).toContain("<strong>feature/login</strong>");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("<code>git status</code>");
+    expect(html).toContain("<pre><code");
+    expect(html).toContain('href="https://example.com/pr/1"');
+  });
+
   test("hides the reasoning effort selector for models that do not support it", () => {
     const html = renderToStaticMarkup(
       <RepositoryAssistantSidebar

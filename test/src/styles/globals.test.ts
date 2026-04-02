@@ -226,6 +226,9 @@ describe("globals.css", () => {
     expect(assistantSection).toContain(".repository-assistant__setting .config-view__combobox-menu {");
     expect(assistantSection).toContain("bottom: calc(100% + 6px);");
     expect(assistantSection).toContain(".repository-assistant__textarea {");
+    expect(assistantSection).toContain(".repository-assistant__message-body pre {");
+    expect(assistantSection).toContain(".repository-assistant__message-body code {");
+    expect(assistantSection).toContain(".repository-assistant__message-body a {");
     expect(globalsCss).toContain("@keyframes repository-assistant-spin {");
   });
 
@@ -235,9 +238,20 @@ describe("globals.css", () => {
     expect(commitDetailSection).toContain(".commit-detail-panel__summary {");
     expect(commitDetailSection).toContain("flex: 0 0 auto;");
     expect(commitDetailSection).toContain(".commit-detail-panel__content--split {");
-    expect(commitDetailSection).toContain("align-items: start;");
+    expect(commitDetailSection).toContain("align-items: stretch;");
     expect(commitDetailSection).toContain(
       "grid-template-columns: minmax(280px, 0.78fr) minmax(340px, 1.22fr);",
+    );
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__summary {",
+    );
+    expect(commitDetailSection).toContain("align-self: stretch;");
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__summary .commit-detail-panel__card {",
+    );
+    expect(commitDetailSection).toContain("flex: 1 1 auto;");
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__files {",
     );
   });
 

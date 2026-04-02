@@ -15,6 +15,8 @@ import type { AppConfig } from "../../../src/types";
 const config: AppConfig = {
   openAiToken: "",
   openAiModel: "gpt-4.1-mini",
+  repositoryAssistantOpenAiModel: "gpt-5.4",
+  repositoryAssistantReasoningEffort: "high",
   claudeCodeToken: "",
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,

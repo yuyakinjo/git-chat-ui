@@ -59,6 +59,7 @@ describe("createAiRouter", () => {
       ...DEFAULT_APP_CONFIG,
       openAiToken: "sk-config-token",
       openAiModel: "gpt-4.1-mini",
+      repositoryAssistantOpenAiModel: "gpt-4.1-mini",
     }));
     const generateRepositoryAssistantReply = mock(async () => "Check the conflicted files first.");
 
@@ -109,6 +110,40 @@ describe("createAiRouter", () => {
       openAiToken: "sk-config-token",
       openAiModel: "gpt-5.4",
       reasoningEffort: "high",
+    });
+  });
+
+  test("uses saved repository assistant settings when the request omits them", async () => {
+    const readConfig = mock(async () => ({
+      ...DEFAULT_APP_CONFIG,
+      openAiToken: "sk-config-token",
+      repositoryAssistantOpenAiModel: "gpt-5.4",
+      repositoryAssistantReasoningEffort: "medium" as const,
+    }));
+    const generateRepositoryAssistantReply = mock(async () => "Use the saved assistant model.");
+
+    const result = await invokeJsonRoute(
+      createAiRouter({
+        readConfig,
+        generateRepositoryAssistantReply,
+      }),
+      "post",
+      "/api/ai/chat",
+      {
+        body: {
+          repoPath: "/tmp/repo",
+          messages: [],
+        },
+      },
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(generateRepositoryAssistantReply).toHaveBeenCalledWith({
+      repoPath: "/tmp/repo",
+      messages: [],
+      openAiToken: "sk-config-token",
+      openAiModel: "gpt-5.4",
+      reasoningEffort: "medium",
     });
   });
 });
