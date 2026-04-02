@@ -5,6 +5,7 @@ import {
   createBranch,
   deleteBranch,
   getBranches,
+  getOpenPullRequestUrls,
   getPullStatus,
   mergeBranches,
   pullCurrentBranch,
@@ -19,6 +20,16 @@ router.get("/api/branches", async (request, response, next) => {
     const repoPath = getRepoPathFromQuery(request);
     const branches = await getBranches(repoPath);
     response.json(branches);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/api/branches/pull-requests", async (request, response, next) => {
+  try {
+    const repoPath = getRepoPathFromQuery(request);
+    const urls = await getOpenPullRequestUrls(repoPath);
+    response.json({ urls });
   } catch (error) {
     next(error);
   }

@@ -31,6 +31,10 @@ export interface BranchResponse {
   remote: Branch[];
 }
 
+export interface BranchPullRequestUrlsResponse {
+  urls: Record<string, string>;
+}
+
 export interface CommitListItem {
   sha: string;
   parentShas: string[];

@@ -15,6 +15,10 @@ export interface Branch {
   isRemoteDefault?: boolean;
 }
 
+export interface BranchPullRequestUrlsResponse {
+  urls: Record<string, string>;
+}
+
 export interface CommitListItem {
   sha: string;
   parentShas: string[];

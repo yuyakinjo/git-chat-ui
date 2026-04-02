@@ -30,6 +30,7 @@ describe("ControllerView", () => {
     expect(html).toContain(">Commit</span>");
     expect(html).not.toContain("git-operation-panel__commit-actions");
     expect(html).not.toContain("controller-panel-slot__handle");
+    expect(html).not.toContain("branch-list-item__pr-link");
     expect(html).not.toContain("右上の handle をドラッグしてパネル位置を入れ替えます。");
   });
 });

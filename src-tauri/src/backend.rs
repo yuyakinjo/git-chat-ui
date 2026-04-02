@@ -462,6 +462,12 @@ pub struct RepositoryGithubUrlResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BranchPullRequestUrlsResponse {
+    pub urls: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RepositoryMutationSafetyResponse {
     pub is_self_repository: bool,
 }
@@ -2309,6 +2315,65 @@ fn find_existing_pull_request(
     Ok(url)
 }
 
+fn get_open_pull_request_urls(repo_path: &str) -> Result<HashMap<String, String>, String> {
+    if resolve_repository_github_url(repo_path).is_none() {
+        return Ok(HashMap::new());
+    }
+
+    if ensure_github_auth(repo_path).is_err() {
+        return Ok(HashMap::new());
+    }
+
+    let args = vec![
+        "pr".to_string(),
+        "list".to_string(),
+        "--state".to_string(),
+        "open".to_string(),
+        "--limit".to_string(),
+        "200".to_string(),
+        "--json".to_string(),
+        "headRefName,url".to_string(),
+    ];
+    let output = match run_gh_owned(&args, repo_path) {
+        Ok(output) => output,
+        Err(_) => return Ok(HashMap::new()),
+    };
+
+    if output.trim().is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let parsed = serde_json::from_str::<Value>(&output).unwrap_or(Value::Null);
+    let mut urls = HashMap::new();
+
+    if let Some(items) = parsed.as_array() {
+        for item in items {
+            let Some(head_ref_name) = item.get("headRefName").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(url) = item.get("url").and_then(Value::as_str) else {
+                continue;
+            };
+
+            let normalized_head_ref_name = head_ref_name.trim();
+            let normalized_url = url.trim();
+            if normalized_head_ref_name.is_empty()
+                || normalized_url.is_empty()
+                || urls.contains_key(normalized_head_ref_name)
+            {
+                continue;
+            }
+
+            urls.insert(
+                normalized_head_ref_name.to_string(),
+                normalized_url.to_string(),
+            );
+        }
+    }
+
+    Ok(urls)
+}
+
 fn extract_url_from_text(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|token| token.starts_with("https://") || token.starts_with("http://"))
@@ -3507,6 +3572,16 @@ pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUr
     ensure_repo_path(&repo_path)?;
     Ok(RepositoryGithubUrlResponse {
         url: resolve_repository_github_url(&repo_path),
+    })
+}
+
+#[tauri::command]
+pub fn get_branch_pull_request_urls(
+    repo_path: String,
+) -> Result<BranchPullRequestUrlsResponse, String> {
+    ensure_repo_path(&repo_path)?;
+    Ok(BranchPullRequestUrlsResponse {
+        urls: get_open_pull_request_urls(&repo_path)?,
     })
 }
 

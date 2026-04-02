@@ -3,6 +3,7 @@ import type {
   AppConfig,
   BranchDiffDetail,
   BranchDiffFileDetail,
+  BranchPullRequestUrlsResponse,
   BranchResponse,
   CommitAuthorAvatarResponse,
   CommitDetail,
@@ -36,6 +37,7 @@ export interface BusinessTransport {
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }>;
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety>;
   getBranches(repoPath: string): Promise<BranchResponse>;
+  getBranchPullRequestUrls(repoPath: string): Promise<BranchPullRequestUrlsResponse>;
   getCommits(
     repoPath: string,
     ref: string | undefined,

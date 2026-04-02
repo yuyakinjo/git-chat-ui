@@ -59,6 +59,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
+        branchPullRequestUrls={{}}
         stashes={[]}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -71,6 +72,7 @@ describe("BranchTree", () => {
         onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
       />,
@@ -88,6 +90,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
+        branchPullRequestUrls={{}}
         stashes={stashes}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -100,6 +103,7 @@ describe("BranchTree", () => {
         onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
       />,
@@ -129,6 +133,7 @@ describe("BranchTree", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branchesWithVisibleRemoteLeaf}
+        branchPullRequestUrls={{}}
         stashes={stashes}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
@@ -141,6 +146,7 @@ describe("BranchTree", () => {
         onRequestDeleteStash={() => {}}
         onRequestApplyStash={() => {}}
         onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
       />,
@@ -151,5 +157,34 @@ describe("BranchTree", () => {
     expect(html).not.toContain("branch-list-item__ref-badge");
     expect(html).not.toContain('aria-label="Local ref"');
     expect(html).not.toContain('aria-label="Remote ref"');
+  });
+
+  test("renders a pull request icon only for local branches that have an open pull request", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branchesWithVisibleRemoteLeaf}
+        branchPullRequestUrls={{ main: "https://github.com/example/repo/pull/42" }}
+        stashes={stashes}
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("branch-list-item__pr-link");
+    expect(html).toContain('aria-label="main の Pull Request を開く"');
+    expect(html).toContain('title="https://github.com/example/repo/pull/42"');
+    expect(html).not.toContain('aria-label="origin の Pull Request を開く"');
   });
 });

@@ -27,6 +27,7 @@ export interface UseControllerDataParams {
 
 export interface UseControllerDataResult {
   branches: BranchResponse | null;
+  branchPullRequestUrls: Record<string, string>;
   currentBranchName: string | null;
   currentLocalBranch: Branch | null;
   branchDiffBaseBranch: Branch | null;

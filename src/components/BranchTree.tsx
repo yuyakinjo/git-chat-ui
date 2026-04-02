@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Cloud,
   Download,
+  ExternalLink,
   Folder,
   GitBranch,
   HardDrive,
@@ -40,6 +41,7 @@ import {
 
 interface BranchTreeProps {
   branches: BranchResponse | null;
+  branchPullRequestUrls: Record<string, string>;
   stashes: StashEntry[];
   selectedBranchName: string | null;
   stashMutationBlockedReason: string | null;
@@ -52,6 +54,7 @@ interface BranchTreeProps {
   onRequestDeleteStash: (stash: StashEntry) => void;
   onRequestApplyStash: (stash: StashEntry) => void;
   onRequestPopStash: (stash: StashEntry) => void;
+  onOpenBranchPullRequest: (branch: Branch) => void;
   onRequestCreateBranch: (branch: Branch) => void;
   onRequestDeleteBranch: (branch: Branch) => void;
 }
@@ -61,6 +64,7 @@ const DRAG_THRESHOLD_PX = 6;
 
 export function BranchTree({
   branches,
+  branchPullRequestUrls,
   stashes,
   selectedBranchName,
   stashMutationBlockedReason,
@@ -73,6 +77,7 @@ export function BranchTree({
   onRequestDeleteStash,
   onRequestApplyStash,
   onRequestPopStash,
+  onOpenBranchPullRequest,
   onRequestCreateBranch,
   onRequestDeleteBranch,
 }: BranchTreeProps): JSX.Element {
@@ -371,7 +376,7 @@ export function BranchTree({
   };
 
   const handleBranchContextMenu = (
-    event: ReactMouseEvent<HTMLButtonElement>,
+    event: ReactMouseEvent<HTMLDivElement>,
     branch: Branch,
   ): void => {
     event.preventDefault();
@@ -490,6 +495,9 @@ export function BranchTree({
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
           const isLocalBranch = leaf.branch.type === "local";
+          const branchPullRequestUrl = isLocalBranch
+            ? (branchPullRequestUrls[leaf.branch.name] ?? null)
+            : null;
           const BranchTypeIcon = isLocalBranch ? HardDrive : Cloud;
           const branchTypeIconClass = isLocalBranch
             ? "branch-list-item__icon branch-list-item__icon--local"
@@ -520,53 +528,78 @@ export function BranchTree({
             : "";
 
           return (
-            <button
+            <div
               key={`${prefix}/${leaf.branch.name}`}
-              type="button"
               data-branch-drop-name={isLocalBranch ? leaf.branch.name : undefined}
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
-              className={`list-item w-full text-left ${isCurrent ? "active" : ""} ${isLocalBranch ? "is-draggable" : ""} ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target is-split-preview" : ""} ${isDragSource ? "is-drag-source" : ""}`}
-              onClick={() => handleBranchClick(leaf.branch)}
-              onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
-              onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
+              className={`list-item branch-list-item w-full text-left ${isCurrent ? "active" : ""} ${isLocalBranch ? "is-draggable" : ""} ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target is-split-preview" : ""} ${isDragSource ? "is-drag-source" : ""}`}
               onContextMenu={(event) => handleBranchContextMenu(event, leaf.branch)}
             >
-              {isDropTarget && draggedBranchName ? (
-                <div className="branch-drop-split">
-                  <div className="branch-drop-split__pane branch-drop-split__pane--source">
-                    <div className="branch-drop-split__eyebrow">From</div>
-                    <div className="branch-drop-split__branch" title={draggedBranchName}>
-                      <GitBranch size={12} />
-                      <span className="truncate">{draggedDisplayName}</span>
-                    </div>
-                  </div>
-                  <div className="branch-drop-split__flow" aria-hidden="true">
-                    <span className="branch-drop-split__arrow">→</span>
-                  </div>
-                  <div className="branch-drop-split__pane branch-drop-split__pane--target">
-                    <div className="branch-drop-split__eyebrow">Into</div>
-                    <div className="branch-drop-split__branch" title={leaf.branch.name}>
-                      <GitBranch size={12} />
-                      <span className="truncate">{leaf.displayName}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <BranchTypeIcon size={13} className={branchTypeIconClass} aria-hidden="true" />
-                  <div className="branch-list-item__content">
-                    <div className="branch-list-item__header">
-                      <div className="branch-list-item__title truncate text-[13px] font-medium">
-                        {leaf.displayName}
+              <button
+                type="button"
+                className="branch-list-item__trigger"
+                onClick={() => handleBranchClick(leaf.branch)}
+                onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
+                onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
+              >
+                {isDropTarget && draggedBranchName ? (
+                  <div className="branch-drop-split">
+                    <div className="branch-drop-split__pane branch-drop-split__pane--source">
+                      <div className="branch-drop-split__eyebrow">From</div>
+                      <div className="branch-drop-split__branch" title={draggedBranchName}>
+                        <GitBranch size={12} />
+                        <span className="truncate">{draggedDisplayName}</span>
                       </div>
                     </div>
-                    {statusLabel ? (
-                      <div className="branch-list-item__status">{statusLabel}</div>
-                    ) : null}
+                    <div className="branch-drop-split__flow" aria-hidden="true">
+                      <span className="branch-drop-split__arrow">→</span>
+                    </div>
+                    <div className="branch-drop-split__pane branch-drop-split__pane--target">
+                      <div className="branch-drop-split__eyebrow">Into</div>
+                      <div className="branch-drop-split__branch" title={leaf.branch.name}>
+                        <GitBranch size={12} />
+                        <span className="truncate">{leaf.displayName}</span>
+                      </div>
+                    </div>
                   </div>
-                </>
-              )}
-            </button>
+                ) : (
+                  <>
+                    <BranchTypeIcon size={13} className={branchTypeIconClass} aria-hidden="true" />
+                    <div className="branch-list-item__content">
+                      <div className="branch-list-item__header">
+                        <div className="branch-list-item__title truncate text-[13px] font-medium">
+                          {leaf.displayName}
+                        </div>
+                      </div>
+                      {statusLabel ? (
+                        <div className="branch-list-item__status">{statusLabel}</div>
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </button>
+
+              {!isDropTarget && branchPullRequestUrl ? (
+                <button
+                  type="button"
+                  className="branch-list-item__pr-link"
+                  aria-label={`${leaf.branch.name} の Pull Request を開く`}
+                  title={branchPullRequestUrl}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenBranchPullRequest(leaf.branch);
+                  }}
+                >
+                  <ExternalLink size={13} />
+                </button>
+              ) : null}
+            </div>
           );
         })}
       </div>

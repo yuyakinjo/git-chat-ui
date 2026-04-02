@@ -61,6 +61,11 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/branches?${params.toString()}`);
     },
 
+    getBranchPullRequestUrls(repoPath) {
+      const params = new URLSearchParams({ repoPath });
+      return request(baseUrl, `/branches/pull-requests?${params.toString()}`);
+    },
+
     getCommits(repoPath, ref, offset, limit = 50, compareRefs) {
       const params = new URLSearchParams({
         repoPath,

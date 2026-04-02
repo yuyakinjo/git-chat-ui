@@ -75,6 +75,7 @@ export function useControllerData({
     [repoPath],
   );
   const [branches, setBranches] = useState<BranchResponse | null>(null);
+  const [branchPullRequestUrls, setBranchPullRequestUrls] = useState<Record<string, string>>({});
   const [activeLogRef, setActiveLogRef] = useState<string>("HEAD");
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
@@ -669,6 +670,15 @@ export function useControllerData({
     }
   }, [repoPath, reportError]);
 
+  const loadBranchPullRequestUrls = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.getBranchPullRequestUrls(repoPath);
+      setBranchPullRequestUrls(response.urls);
+    } catch {
+      setBranchPullRequestUrls({});
+    }
+  }, [repoPath]);
+
   const loadPullStatus = useCallback(async (): Promise<void> => {
     try {
       const response = await api.getPullStatus(repoPath);
@@ -691,6 +701,7 @@ export function useControllerData({
         const targetRef = refOverride ?? activeLogRef;
         const [nextBranches] = await Promise.all([
           loadBranches(),
+          loadBranchPullRequestUrls(),
           loadWorkingState(),
           loadPullStatus(),
         ]);
@@ -706,13 +717,23 @@ export function useControllerData({
         refreshLockRef.current = false;
       }
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
+    [
+      activeLogRef,
+      branches,
+      loadBranchPullRequestUrls,
+      loadBranches,
+      loadCommits,
+      loadPullStatus,
+      loadWorkingState,
+      repoPath,
+    ],
   );
 
   const reloadAfterBranchMutation = useCallback(
     async (preferredBranchName?: string): Promise<void> => {
       const [nextBranches] = await Promise.all([
         loadBranches(),
+        loadBranchPullRequestUrls(),
         loadWorkingState(),
         loadPullStatus(),
       ]);
@@ -735,7 +756,16 @@ export function useControllerData({
       const fingerprintResponse = await api.getFingerprint(repoPath);
       setFingerprint(fingerprintResponse.fingerprint);
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
+    [
+      activeLogRef,
+      branches,
+      loadBranchPullRequestUrls,
+      loadBranches,
+      loadCommits,
+      loadPullStatus,
+      loadWorkingState,
+      repoPath,
+    ],
   );
 
   const completeActiveMergeSession = useCallback(async (): Promise<void> => {
@@ -848,6 +878,7 @@ export function useControllerData({
     const defaultRef = "HEAD";
     setActiveLogRef(defaultRef);
     setActiveCompareRefs([]);
+    setBranchPullRequestUrls({});
     setActiveCommit(null);
     setIsWipSelected(false);
     setCommitAuthorAvatars({});
@@ -1020,6 +1051,7 @@ export function useControllerData({
 
   return {
     branches,
+    branchPullRequestUrls,
     currentBranchName,
     currentLocalBranch,
     branchDiffBaseBranch,

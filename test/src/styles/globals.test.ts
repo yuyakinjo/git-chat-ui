@@ -176,6 +176,11 @@ describe("globals.css", () => {
   test("branch rows expose dedicated local and remote icon styles with dark-theme overrides", () => {
     const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
 
+    expect(branchBadgeSection).toContain(".branch-list-item {");
+    expect(branchBadgeSection).toContain(".branch-list-item__trigger {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain("width: 24px;");
+    expect(branchBadgeSection).toContain("height: 24px;");
     expect(branchBadgeSection).toContain(".branch-list-item__icon {");
     expect(branchBadgeSection).toContain(".branch-list-item__icon--local {");
     expect(branchBadgeSection).toContain("rgb(29 78 216 / 0.92)");
@@ -183,6 +188,7 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain("rgb(15 118 110 / 0.96)");
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-link {");
     expect(branchBadgeSection).toContain(
       'body[data-theme="default-dark"] .branch-list-item__icon--local {',
     );

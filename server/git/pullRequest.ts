@@ -1,4 +1,4 @@
-import { ensureRepoPath, runGh } from "./command.js";
+import { ensureRepoPath, runGh, runGit } from "./command.js";
 import {
   ensureBranchPair,
   ensureOriginRemote,
@@ -39,6 +39,62 @@ export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
 
 async function ensureGithubAuth(repoPath: string): Promise<void> {
   await runGh(["auth", "status", "-h", "github.com"], repoPath);
+}
+
+export async function getOpenPullRequestUrls(repoPath: string): Promise<Record<string, string>> {
+  await ensureRepoPath(repoPath);
+
+  try {
+    const remoteUrl = await runGit(["remote", "get-url", "origin"], repoPath);
+    if (!normalizeGithubRemoteUrl(remoteUrl)) {
+      return {};
+    }
+  } catch {
+    return {};
+  }
+
+  try {
+    await ensureGithubAuth(repoPath);
+  } catch {
+    return {};
+  }
+
+  let output = "";
+
+  try {
+    output = await runGh(
+      ["pr", "list", "--state", "open", "--limit", "200", "--json", "headRefName,url"],
+      repoPath,
+    );
+  } catch {
+    return {};
+  }
+
+  if (!output.trim()) {
+    return {};
+  }
+
+  let parsed: Array<{ headRefName?: string; url?: string }> = [];
+
+  try {
+    parsed = JSON.parse(output) as Array<{ headRefName?: string; url?: string }>;
+  } catch {
+    return {};
+  }
+
+  const urls: Record<string, string> = {};
+
+  for (const item of parsed) {
+    const headRefName = item.headRefName?.trim();
+    const url = item.url?.trim();
+    if (!headRefName || !url || headRefName in urls) {
+      continue;
+    }
+
+    urls[headRefName] = url;
+  }
+
+  return urls;
 }
 
 async function findExistingPullRequest(

@@ -102,6 +102,43 @@ describe("api.getCommitAuthorAvatars", () => {
   });
 });
 
+describe("api.getBranchPullRequestUrls", () => {
+  test("loads branch pull request urls from the branches pull-requests endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          urls: {
+            "feature/pr-link": "https://github.com/example/repo/pull/42",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(api.getBranchPullRequestUrls("/tmp/repo")).resolves.toEqual({
+      urls: {
+        "feature/pr-link": "https://github.com/example/repo/pull/42",
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/branches/pull-requests?repoPath=%2Ftmp%2Frepo",
+    );
+    expect(requests[0]?.body).toBeNull();
+  });
+});
+
 describe("api.validateOpenAiToken", () => {
   test("posts the token to the OpenAI validation endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];

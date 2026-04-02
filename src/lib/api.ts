@@ -4,6 +4,7 @@ import type {
   AppConfig,
   BranchDiffDetail,
   BranchDiffFileDetail,
+  BranchPullRequestUrlsResponse,
   BranchResponse,
   CommitAuthorAvatarResponse,
   CommitDetail,
@@ -78,6 +79,10 @@ export const api = {
 
   getBranches(repoPath: string): Promise<BranchResponse> {
     return getBusinessTransport().getBranches(repoPath);
+  },
+
+  getBranchPullRequestUrls(repoPath: string): Promise<BranchPullRequestUrlsResponse> {
+    return getBusinessTransport().getBranchPullRequestUrls(repoPath);
   },
 
   getCommits(

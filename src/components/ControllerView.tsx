@@ -2,6 +2,7 @@ import { AlertTriangle, GitCommitHorizontal, GripVertical, UploadCloud, X } from
 import {
   startTransition,
   useActionState,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -132,6 +133,24 @@ export function ControllerView({
     setSelectedBranchForHover,
     setPendingScrollCommitSha,
   });
+  const branchPullRequestUrls = data.branchPullRequestUrls;
+  const reportError = data.reportError;
+
+  const handleOpenBranchPullRequest = useCallback(
+    async (branch: Branch): Promise<void> => {
+      const url = branchPullRequestUrls[branch.name];
+      if (!url) {
+        return;
+      }
+
+      try {
+        await api.openExternalUrl(url);
+      } catch (error) {
+        reportError(error, "Pull Request を開けませんでした。");
+      }
+    },
+    [branchPullRequestUrls, reportError],
+  );
 
   useEffect(() => {
     if (generatingCommitMessage) {
@@ -686,6 +705,7 @@ export function ControllerView({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
         <BranchTree
           branches={data.branches}
+          branchPullRequestUrls={data.branchPullRequestUrls}
           stashes={data.stashes}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}
@@ -707,6 +727,9 @@ export function ControllerView({
           }}
           onRequestPopStash={(stash) => {
             void branchOps.handlePopStash(stash);
+          }}
+          onOpenBranchPullRequest={(branch) => {
+            void handleOpenBranchPullRequest(branch);
           }}
           onRequestCreateBranch={branchOps.handleRequestCreateBranch}
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
