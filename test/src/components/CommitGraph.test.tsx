@@ -6,6 +6,7 @@ import {
   buildDefaultBranchAnchorLaneIndices,
   DEFAULT_BRANCH_LANE_COLOR,
   LEFT_BRANCH_LANE_COLORS,
+  laneX,
   parseCommitRefLabels,
   RIGHT_BRANCH_LANE_COLORS,
   laneColor,
@@ -63,7 +64,159 @@ const commitRefScopeContext = {
   ),
 };
 
+const nonHeadFirstCommits: CommitListItem[] = [
+  {
+    sha: "main-tip",
+    parentShas: ["base"],
+    author: "kinjo",
+    date: "2026-03-30T12:00:00.000Z",
+    subject: "chore: main tip",
+    decoration: "(main, origin/main, origin/HEAD)",
+  },
+  {
+    sha: "feature-tip",
+    parentShas: ["base"],
+    author: "kinjo",
+    date: "2026-03-29T12:00:00.000Z",
+    subject: "feat: current branch tip",
+    decoration: "(HEAD -> fix-merge-dialog)",
+  },
+  {
+    sha: "base",
+    parentShas: [],
+    author: "kinjo",
+    date: "2026-03-28T12:00:00.000Z",
+    subject: "chore: base commit",
+    decoration: "",
+  },
+];
+
+const nonHeadFirstBranchContext: BranchResponse = {
+  current: "fix-merge-dialog",
+  local: [
+    {
+      name: "fix-merge-dialog",
+      fullRef: "refs/heads/fix-merge-dialog",
+      type: "local",
+      commit: "feature-tip",
+    },
+    {
+      name: "main",
+      fullRef: "refs/heads/main",
+      type: "local",
+      commit: "main-tip",
+    },
+  ],
+  remote: [
+    {
+      name: "origin/main",
+      fullRef: "refs/remotes/origin/main",
+      type: "remote",
+      commit: "main-tip",
+      isRemoteDefault: true,
+    },
+  ],
+};
+
+const continuedDefaultBranchCommits: CommitListItem[] = [
+  {
+    sha: "main-tip",
+    parentShas: ["base"],
+    author: "kinjo",
+    date: "2026-03-31T12:00:00.000Z",
+    subject: "chore: main tip",
+    decoration: "(HEAD -> main, origin/main, origin/HEAD)",
+  },
+  {
+    sha: "feature-3",
+    parentShas: ["feature-2"],
+    author: "kinjo",
+    date: "2026-03-30T12:00:00.000Z",
+    subject: "feat: side branch 3",
+    decoration: "",
+  },
+  {
+    sha: "feature-2",
+    parentShas: ["feature-1"],
+    author: "kinjo",
+    date: "2026-03-29T12:00:00.000Z",
+    subject: "feat: side branch 2",
+    decoration: "",
+  },
+  {
+    sha: "feature-1",
+    parentShas: ["base"],
+    author: "kinjo",
+    date: "2026-03-28T12:00:00.000Z",
+    subject: "feat: side branch 1",
+    decoration: "",
+  },
+  {
+    sha: "base",
+    parentShas: ["root"],
+    author: "kinjo",
+    date: "2026-03-27T12:00:00.000Z",
+    subject: "chore: base",
+    decoration: "",
+  },
+  {
+    sha: "root",
+    parentShas: [],
+    author: "kinjo",
+    date: "2026-03-26T12:00:00.000Z",
+    subject: "chore: root",
+    decoration: "",
+  },
+];
+
+const continuedDefaultBranchContext: BranchResponse = {
+  current: "main",
+  local: [
+    {
+      name: "main",
+      fullRef: "refs/heads/main",
+      type: "local",
+      commit: "main-tip",
+    },
+  ],
+  remote: [
+    {
+      name: "origin/main",
+      fullRef: "refs/remotes/origin/main",
+      type: "remote",
+      commit: "main-tip",
+      isRemoteDefault: true,
+    },
+  ],
+};
+
+function extractCommitRowMarkup(html: string, sha: string): string {
+  const startToken = `data-commit-sha="${sha}"`;
+  const startIndex = html.indexOf(startToken);
+  if (startIndex === -1) {
+    throw new Error(`Commit row not found for ${sha}`);
+  }
+
+  const nextIndex = html.indexOf('data-commit-sha="', startIndex + startToken.length);
+  return html.slice(startIndex, nextIndex === -1 ? html.length : nextIndex);
+}
+
+function extractWipRowMarkup(html: string): string {
+  const startToken = 'class="wip-row commit-row"';
+  const startIndex = html.indexOf(startToken);
+  if (startIndex === -1) {
+    throw new Error("WIP row not found");
+  }
+
+  const nextIndex = html.indexOf('data-commit-sha="', startIndex + startToken.length);
+  return html.slice(startIndex, nextIndex === -1 ? html.length : nextIndex);
+}
+
 describe("CommitGraph", () => {
+  test("uses the widened lane spacing", () => {
+    expect(laneX(1) - laneX(0)).toBe(27);
+  });
+
   test("anchors lane colors around the default branch lane", () => {
     const branchyCommits: CommitListItem[] = [
       {
@@ -151,7 +304,7 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
-        branchContext={branchContext}
+        branchContext={continuedDefaultBranchContext}
       />,
     );
 
@@ -219,12 +372,87 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
-        branchContext={branchContext}
+        branchContext={continuedDefaultBranchContext}
       />,
     );
 
     expect(html).toContain("// WIP");
     expect(html).toContain("2 conflicted");
+  });
+
+  test("anchors the WIP row above the checked out commit even when it is not the first visible row", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={nonHeadFirstCommits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="feature-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={1}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={nonHeadFirstBranchContext}
+      />,
+    );
+
+    const wipConnectorMatch = html.match(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="([^"]+)"/,
+    );
+    const firstCommitLaneMatch = html.match(
+      /data-commit-sha="main-tip"[\s\S]*?class="commit-graph__lane-line"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"/,
+    );
+
+    expect(html.indexOf("chore: main tip")).toBeLessThan(html.indexOf("// WIP"));
+    expect(html.indexOf("// WIP")).toBeLessThan(html.indexOf("feat: current branch tip"));
+    expect(wipConnectorMatch?.[1]).toBe(String(laneX(1)));
+    expect(firstCommitLaneMatch?.[2]).toBe("17.1");
+  });
+
+  test("keeps sibling lanes continuous through an inserted WIP row", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={nonHeadFirstCommits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="feature-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={1}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={nonHeadFirstBranchContext}
+      />,
+    );
+
+    const wipRowHtml = extractWipRowMarkup(html);
+    const passthroughLanePattern = new RegExp(
+      `class="wip-row__lane-line wip-row__lane-line--passthrough"[^>]*x1="${laneX(0)}"[^>]*y1="-1"[^>]*x2="${laneX(0)}"[^>]*y2="33"[^>]*stroke="${DEFAULT_BRANCH_LANE_COLOR}"`,
+    );
+
+    expect(wipRowHtml).toMatch(passthroughLanePattern);
   });
 
   test("renders the SHA column as a copyable button", () => {
@@ -257,6 +485,76 @@ describe("CommitGraph", () => {
     expect(html).toContain('title="abc1234 をコピー"');
     expect(html).toContain('aria-label="abc1234 をクリップボードにコピー"');
     expect(html).toContain(">abc1234</span></button>");
+  });
+
+  test("keeps the default branch lane emphasized through sibling branch rows", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={continuedDefaultBranchCommits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="main-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={continuedDefaultBranchContext}
+      />,
+    );
+
+    const featureRowHtml = extractCommitRowMarkup(html, "feature-3");
+    const defaultLanePattern = new RegExp(
+      `class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*x2="${laneX(0)}"[^>]*stroke="${DEFAULT_BRANCH_LANE_COLOR}"[^>]*stroke-width="2.2"[^>]*opacity="0.85"`,
+    );
+
+    expect(featureRowHtml).toMatch(defaultLanePattern);
+  });
+
+  test("keeps a branched lane at full strength after the split point", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={continuedDefaultBranchCommits}
+        mode="detailed"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="main-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={continuedDefaultBranchContext}
+      />,
+    );
+
+    const baseRowHtml = extractCommitRowMarkup(html, "base");
+    const branchedLanePattern = new RegExp(
+      `class="commit-graph__lane-line"[^>]*x1="${laneX(1)}"[^>]*x2="${laneX(1)}"[^>]*stroke="${RIGHT_BRANCH_LANE_COLORS[0]}"[^>]*stroke-width="2.2"[^>]*opacity="0.85"`,
+    );
+
+    expect(baseRowHtml).toMatch(branchedLanePattern);
   });
 
   test("renders author avatars on commit nodes when cached sources are available", () => {

@@ -52,6 +52,10 @@ describe("globals.css", () => {
     expect(tabbarSection).toContain(".app-tab-toggle__text {");
     expect(tabbarSection).toContain(".app-tab__close {");
     expect(tabbarSection).toContain("margin-right: 6px;");
+    expect(tabbarSection).toContain(".app-tab__branch-viewport {");
+    expect(tabbarSection).toContain(".app-tab__branch-track {");
+    expect(tabbarSection).toContain(".app-tab__branch.is-overflowing .app-tab__branch-track {");
+    expect(tabbarSection).toContain("@keyframes app-tab-branch-marquee {");
     expect(tabbarSection).not.toContain("border-bottom:");
     expect(tabbarSection).not.toContain(".app-tabbar__actions::before {");
     expect(tabbarSection).not.toContain("0 0 0 1px rgb(var(--theme-border-rgb) / 0.18)");
@@ -206,6 +210,8 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain(".branch-list-item__actions {");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pull-link {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pull-count {");
     expect(branchBadgeSection).toContain("width: 24px;");
     expect(branchBadgeSection).toContain("height: 24px;");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-link.is-warning {");
@@ -216,6 +222,7 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain("rgb(15 118 110 / 0.96)");
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pull-link {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-link {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(

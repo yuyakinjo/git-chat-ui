@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   canDropWorkingTreeFile,
+  getWorkingTreeDragFileCount,
   getWorkingTreeDropZoneLabel,
 } from "../../../src/lib/workingTreeDragDrop";
 
@@ -10,7 +11,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "src/App.tsx", source: "unstaged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "unstaged" },
         target: "staged",
       }),
     ).toBe(true);
@@ -20,7 +21,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "src/App.tsx", source: "staged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "staged" },
         target: "unstaged",
       }),
     ).toBe(true);
@@ -30,7 +31,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "src/App.tsx", source: "unstaged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "unstaged" },
         target: "stash",
       }),
     ).toBe(true);
@@ -38,7 +39,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "src/App.tsx", source: "staged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "staged" },
         target: "stash",
       }),
     ).toBe(true);
@@ -48,7 +49,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: true,
-        payload: { file: "src/App.tsx", source: "unstaged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "unstaged" },
         target: "staged",
       }),
     ).toBe(false);
@@ -56,7 +57,7 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "src/App.tsx", source: "unstaged" },
+        payload: { file: "src/App.tsx", files: ["src/App.tsx"], source: "unstaged" },
         target: "unstaged",
       }),
     ).toBe(false);
@@ -64,10 +65,20 @@ describe("workingTreeDragDrop", () => {
     expect(
       canDropWorkingTreeFile({
         busy: false,
-        payload: { file: "   ", source: "staged" },
+        payload: { file: "   ", files: [], source: "staged" },
         target: "unstaged",
       }),
     ).toBe(false);
+  });
+
+  test("counts unique non-blank files from multi-file drag payloads", () => {
+    expect(
+      getWorkingTreeDragFileCount({
+        file: "src/App.tsx",
+        files: ["src/App.tsx", "src/lib/api.ts", "src/App.tsx", "  "],
+        source: "unstaged",
+      }),
+    ).toBe(2);
   });
 
   test("returns stable labels for target zone copy", () => {

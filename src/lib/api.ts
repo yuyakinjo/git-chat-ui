@@ -238,12 +238,12 @@ export const api = {
     return getBusinessTransport().mergeBranches(repoPath, sourceBranch, targetBranch);
   },
 
-  getPullStatus(repoPath: string): Promise<PullStatus> {
-    return getBusinessTransport().getPullStatus(repoPath);
+  getPullStatus(repoPath: string, branchName?: string): Promise<PullStatus> {
+    return getBusinessTransport().getPullStatus(repoPath, branchName);
   },
 
-  pull(repoPath: string): Promise<{ ok: boolean }> {
-    return getBusinessTransport().pull(repoPath);
+  pull(repoPath: string, branchName?: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().pull(repoPath, branchName);
   },
 
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }> {

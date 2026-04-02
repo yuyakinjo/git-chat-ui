@@ -27,12 +27,23 @@ import {
 } from "../lib/workingTreeDiscard";
 import {
   canDropWorkingTreeFile,
+  getWorkingTreeDragFileCount,
+  getWorkingTreeDragFiles,
   getWorkingTreeDropActionLabel,
   getWorkingTreeDropZoneLabel,
   type WorkingTreeDragPayload,
   type WorkingTreeDragSource,
   type WorkingTreeDropZone,
 } from "../lib/workingTreeDragDrop";
+import {
+  EMPTY_WORKING_TREE_SELECTION,
+  getWorkingTreeDragFiles as getSelectedWorkingTreeDragFiles,
+  isWorkingTreeFileSelected,
+  isWorkingTreeMultiSelectModifier,
+  shouldClearWorkingTreeInteractionOnEscape,
+  resolveWorkingTreeSelection,
+  type WorkingTreeSelectionState,
+} from "../lib/workingTreeSelection";
 import type {
   PullStatus,
   StashEntry,
@@ -57,9 +68,12 @@ interface GitOperationPanelProps {
   onCommitDescriptionChange: (value: string) => void;
   onStageFile: (file: string) => void;
   onUnstageFile: (file: string) => void;
+  onStageFiles?: (files: string[]) => void;
+  onUnstageFiles?: (files: string[]) => void;
   onStageAll: () => void;
   onUnstageAll: () => void;
   onStashFile: (file: string) => void;
+  onStashFiles?: (files: string[]) => void;
   onDiscardFileRequest?: (item: WorkingFile, source: WorkingTreeDragSource) => void;
   onOpenWorkingTreeDiff: (file: string, area: WorkingTreeDiffArea) => void;
   onOpenConflict?: (file: string) => void;
@@ -78,6 +92,26 @@ function isWorkingTreeDropZone(value: string | undefined): value is WorkingTreeD
   return value === "staged" || value === "unstaged" || value === "stash";
 }
 
+function applyWorkingTreeAction(
+  files: string[],
+  onSingle: (file: string) => void,
+  onMany?: (items: string[]) => void,
+): void {
+  const normalizedFiles = files.map((file) => file.trim()).filter((file) => file.length > 0);
+  if (normalizedFiles.length === 0) {
+    return;
+  }
+
+  if (normalizedFiles.length === 1 || !onMany) {
+    for (const file of normalizedFiles) {
+      onSingle(file);
+    }
+    return;
+  }
+
+  onMany(normalizedFiles);
+}
+
 export function GitOperationPanel({
   status,
   stashes,
@@ -92,9 +126,12 @@ export function GitOperationPanel({
   onCommitDescriptionChange,
   onStageFile,
   onUnstageFile,
+  onStageFiles,
+  onUnstageFiles,
   onStageAll,
   onUnstageAll,
   onStashFile,
+  onStashFiles,
   onDiscardFileRequest,
   activeWorkingTreeDiff,
   onOpenWorkingTreeDiff,
@@ -110,6 +147,7 @@ export function GitOperationPanel({
   const [dropZone, setDropZone] = useState<WorkingTreeDropZone | null>(null);
   const [localCommitMessagePending, setLocalCommitMessagePending] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [selection, setSelection] = useState<WorkingTreeSelectionState>(EMPTY_WORKING_TREE_SELECTION);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -123,6 +161,8 @@ export function GitOperationPanel({
   const draggedFileRef = useRef<WorkingTreeDragPayload | null>(null);
   const dropZoneRef = useRef<WorkingTreeDropZone | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const selectionRef = useRef<WorkingTreeSelectionState>(EMPTY_WORKING_TREE_SELECTION);
+  const suppressRowClickRef = useRef<string | null>(null);
   const dragPointerRef = useRef<{
     payload: WorkingTreeDragPayload;
     pointerId: number;
@@ -163,6 +203,11 @@ export function GitOperationPanel({
   const updateDropZone = (value: WorkingTreeDropZone | null): void => {
     dropZoneRef.current = value;
     setDropZone(value);
+  };
+
+  const updateSelection = (value: WorkingTreeSelectionState): void => {
+    selectionRef.current = value;
+    setSelection(value);
   };
 
   const clearDragState = (): void => {
@@ -217,6 +262,7 @@ export function GitOperationPanel({
   useEffect(() => {
     clearDragState();
     setContextMenu(null);
+    updateSelection(EMPTY_WORKING_TREE_SELECTION);
   }, [status, stashes]);
 
   useEffect(() => {
@@ -266,6 +312,40 @@ export function GitOperationPanel({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (
+        !shouldClearWorkingTreeInteractionOnEscape({
+          selection: selectionRef.current,
+          isDragging:
+            dragPointerRef.current !== null ||
+            draggedFileRef.current !== null ||
+            dropZoneRef.current !== null,
+        })
+      ) {
+        return;
+      }
+
+      suppressRowClickRef.current = null;
+      dragPointerRef.current = null;
+      draggedFileRef.current = null;
+      dropZoneRef.current = null;
+      setDraggedFile(null);
+      setDropZone(null);
+      setDragPreviewPosition(null);
+      updateSelection(EMPTY_WORKING_TREE_SELECTION);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent): void => {
@@ -321,6 +401,7 @@ export function GitOperationPanel({
       const didDrag =
         draggedFileRef.current?.file === dragPointer.payload.file &&
         draggedFileRef.current?.source === dragPointer.payload.source;
+      const dragFiles = getWorkingTreeDragFiles(dragPointer.payload);
 
       if (
         didDrag &&
@@ -331,12 +412,13 @@ export function GitOperationPanel({
           target,
         })
       ) {
+        suppressRowClickRef.current = `${dragPointer.payload.source}:${dragPointer.payload.file}`;
         if (target === "staged") {
-          onStageFile(dragPointer.payload.file);
+          applyWorkingTreeAction(dragFiles, onStageFile, onStageFiles);
         } else if (target === "unstaged") {
-          onUnstageFile(dragPointer.payload.file);
+          applyWorkingTreeAction(dragFiles, onUnstageFile, onUnstageFiles);
         } else {
-          onStashFile(dragPointer.payload.file);
+          applyWorkingTreeAction(dragFiles, onStashFile, onStashFiles);
         }
       }
 
@@ -352,7 +434,15 @@ export function GitOperationPanel({
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [busy, onStageFile, onStashFile, onUnstageFile]);
+  }, [
+    busy,
+    onStageFile,
+    onStageFiles,
+    onStashFile,
+    onStashFiles,
+    onUnstageFile,
+    onUnstageFiles,
+  ]);
 
   const handleFilePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -371,9 +461,36 @@ export function GitOperationPanel({
 
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
+    suppressRowClickRef.current = null;
+
+    const items = payload.source === "unstaged" ? unstaged : staged;
+    const multiSelectKey = isWorkingTreeMultiSelectModifier(event);
+    const nextSelection =
+      event.shiftKey || multiSelectKey
+        ? resolveWorkingTreeSelection({
+            items,
+            source: payload.source,
+            clickedFile: payload.file,
+            currentSelection: selectionRef.current,
+            shiftKey: event.shiftKey,
+            multiSelectKey,
+          })
+        : selectionRef.current;
+
+    if (event.shiftKey || multiSelectKey) {
+      updateSelection(nextSelection);
+    }
 
     dragPointerRef.current = {
-      payload,
+      payload: {
+        ...payload,
+        files: getSelectedWorkingTreeDragFiles({
+          items,
+          source: payload.source,
+          clickedFile: payload.file,
+          currentSelection: nextSelection,
+        }),
+      },
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -420,14 +537,25 @@ export function GitOperationPanel({
       return null;
     }
 
+    const draggedFileCount = getWorkingTreeDragFileCount(draggedFile);
+    const draggedFileDetail =
+      draggedFileCount > 1 ? `${draggedFile.file} +${draggedFileCount - 1} more` : null;
+
     return (
       <div className="working-tree-drop-split">
         <div className="working-tree-drop-split__pane working-tree-drop-split__pane--source">
           <div className="working-tree-drop-split__eyebrow">From</div>
-          <div className="working-tree-drop-split__file" title={draggedFile.file}>
+          <div className="working-tree-drop-split__file" title={draggedFileDetail ?? draggedFile.file}>
             <GripVertical size={12} />
-            <GitFilePathLabel path={draggedFile.file} />
+            {draggedFileCount === 1 ? (
+              <GitFilePathLabel path={draggedFile.file} />
+            ) : (
+              <span>{draggedFileCount} files</span>
+            )}
           </div>
+          {draggedFileDetail ? (
+            <div className="working-tree-drop-split__meta">{draggedFileDetail}</div>
+          ) : null}
         </div>
         <div className="working-tree-drop-split__flow" aria-hidden="true">
           <span className="working-tree-drop-split__arrow">→</span>
@@ -455,6 +583,7 @@ export function GitOperationPanel({
     const area: WorkingTreeDiffArea = source === "unstaged" ? "unstaged" : "staged";
     const isActive =
       activeWorkingTreeDiff?.file === item.file && activeWorkingTreeDiff.area === area;
+    const isSelected = isWorkingTreeFileSelected(selection, source, item.file);
     const statusPresentation = getWorkingFileStatusPresentation(item);
     const discardTarget = resolveWorkingTreeDiscardTarget(item, source);
 
@@ -466,12 +595,32 @@ export function GitOperationPanel({
         tabIndex={0}
         aria-haspopup={discardTarget ? "menu" : undefined}
         data-working-tree-context-menu={discardTarget ? "true" : undefined}
+        data-working-tree-selected={isSelected ? "true" : undefined}
         className={`git-operation-panel__file-row commit-detail-panel__file-button mb-1 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${
           isDragSource ? "is-drag-source" : ""
-        } ${isActive ? "is-active text-white" : ""}`}
-        onPointerDown={(event) => handleFilePointerDown(event, { file: item.file, source })}
+        } ${isSelected ? "is-selected" : ""} ${isActive ? "is-active text-white" : ""}`}
+        onPointerDown={(event) =>
+          handleFilePointerDown(event, { file: item.file, files: [item.file], source })
+        }
         onContextMenu={(event) => handleFileContextMenu(event, item, source)}
-        onClick={() => onOpenWorkingTreeDiff(item.file, area)}
+        onClick={(event) => {
+          const rowKey = `${source}:${item.file}`;
+          if (suppressRowClickRef.current === rowKey) {
+            suppressRowClickRef.current = null;
+            return;
+          }
+
+          if (event.shiftKey || isWorkingTreeMultiSelectModifier(event)) {
+            return;
+          }
+
+          updateSelection({
+            source,
+            files: [item.file],
+            anchorFile: item.file,
+          });
+          onOpenWorkingTreeDiff(item.file, area);
+        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) {
             return;
@@ -479,6 +628,11 @@ export function GitOperationPanel({
 
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            updateSelection({
+              source,
+              files: [item.file],
+              anchorFile: item.file,
+            });
             onOpenWorkingTreeDiff(item.file, area);
           }
         }}
@@ -530,10 +684,15 @@ export function GitOperationPanel({
   const stashDropCandidate = draggedFile
     ? canDropWorkingTreeFile({ busy, payload: draggedFile, target: "stash" })
     : false;
+  const draggedFileCount = draggedFile ? getWorkingTreeDragFileCount(draggedFile) : 0;
+  const draggedFileLabel =
+    draggedFileCount > 1 ? `${draggedFileCount} files` : (draggedFile?.file ?? "");
+  const draggedFileDetail =
+    draggedFile && draggedFileCount > 1 ? `${draggedFile.file} +${draggedFileCount - 1} more` : null;
 
   const dragHint = draggedFile
     ? dropZone
-      ? `${draggedFile.file} を ${getWorkingTreeDropActionLabel(dropZone)} へドロップ`
+      ? `${draggedFileLabel} を ${getWorkingTreeDropActionLabel(dropZone)} へドロップ`
       : draggedFile.source === "unstaged"
         ? "Staged Files または Stash Area にドロップ"
         : "Unstaged Files または Stash Area にドロップ"
@@ -551,8 +710,15 @@ export function GitOperationPanel({
           >
             <div className="working-tree-drag-preview__title">
               <GripVertical size={13} />
-              <GitFilePathLabel path={draggedFile.file} />
+              {draggedFileCount === 1 ? (
+                <GitFilePathLabel path={draggedFile.file} />
+              ) : (
+                <span>{draggedFileLabel}</span>
+              )}
             </div>
+            {draggedFileDetail ? (
+              <div className="working-tree-drag-preview__detail">{draggedFileDetail}</div>
+            ) : null}
             <div className="working-tree-drag-preview__hint">{dragHint}</div>
           </div>,
           document.body,

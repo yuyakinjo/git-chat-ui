@@ -1,6 +1,7 @@
-import { Cog, ExternalLink, FolderGit2, Palette, Plus, X } from "lucide-react";
+import { Cog, ExternalLink, FolderGit2, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 
+import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
 import { ConfigView } from "./components/ConfigView";
 import { ControllerView } from "./components/ControllerView";
 import { DashboardView } from "./components/DashboardView";
@@ -384,12 +385,10 @@ export default function App(): JSX.Element {
                         <span className="app-tab-toggle__text">
                           <span className="app-tab__label">{repository.name}</span>
                           {branchLabel ? (
-                            <span
-                              className="app-tab__branch"
+                            <AppTabBranchBadge
+                              label={branchLabel}
                               title={`現在のチェックアウトブランチ: ${branchLabel}`}
-                            >
-                              {branchLabel}
-                            </span>
+                            />
                           ) : null}
                         </span>
                       </button>
@@ -424,7 +423,6 @@ export default function App(): JSX.Element {
               className="app-theme-picker app-tab--utility"
               title={`Theme: ${activeThemeLabel}`}
             >
-              <Palette size={15} className="app-theme-picker__icon" />
               <select
                 className="app-theme-picker__select"
                 aria-label="Application theme"

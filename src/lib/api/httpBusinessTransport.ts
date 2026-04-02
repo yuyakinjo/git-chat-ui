@@ -264,15 +264,21 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       });
     },
 
-    getPullStatus(repoPath) {
+    getPullStatus(repoPath, branchName) {
       const params = new URLSearchParams({ repoPath });
+      if (branchName?.trim()) {
+        params.set("branchName", branchName.trim());
+      }
       return request(baseUrl, `/pull/status?${params.toString()}`);
     },
 
-    pull(repoPath) {
+    pull(repoPath, branchName) {
       return request(baseUrl, "/pull", {
         method: "POST",
-        body: JSON.stringify({ repoPath }),
+        body: JSON.stringify({
+          repoPath,
+          branchName: branchName?.trim() ? branchName.trim() : undefined,
+        }),
       });
     },
 

@@ -110,8 +110,8 @@ export interface BusinessTransport {
     sourceBranch: string,
     targetBranch: string,
   ): Promise<ConflictOperationResult>;
-  getPullStatus(repoPath: string): Promise<PullStatus>;
-  pull(repoPath: string): Promise<{ ok: boolean }>;
+  getPullStatus(repoPath: string, branchName?: string): Promise<PullStatus>;
+  pull(repoPath: string, branchName?: string): Promise<{ ok: boolean }>;
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }>;
   deleteBranch(
     repoPath: string,

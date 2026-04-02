@@ -5,12 +5,18 @@ function formatSelfMutationBlockedReason(actionLabel: string): string {
 }
 
 const SELF_MUTATION_BLOCKED_REASON = formatSelfMutationBlockedReason("checkout / merge / pull");
+const SELF_PULL_CONFIRMATION_MESSAGE =
+  "開発モードでアプリ自身のリポジトリを pull すると、dev server や tauri dev が再起動して UI が切れる場合があります。\n\nこのまま pull しますか？";
 
 export function getSelfMutationBlockedReason(
   isDev: boolean,
   repositoryMutationSafety: RepositoryMutationSafety,
 ): string | null {
   return isDev && repositoryMutationSafety.isSelfRepository ? SELF_MUTATION_BLOCKED_REASON : null;
+}
+
+export function getSelfPullConfirmationMessage(): string {
+  return SELF_PULL_CONFIRMATION_MESSAGE;
 }
 
 export function getSelfStashMutationBlockedReason(

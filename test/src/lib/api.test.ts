@@ -373,6 +373,41 @@ describe("api.getPullStatus", () => {
     expect(requests[0]?.url).toBe("http://localhost:4141/api/pull/status?repoPath=%2Ftmp%2Frepo");
     expect(requests[0]?.body).toBeNull();
   });
+
+  test("passes branchName when requesting pull status for a specific local branch", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          branchName: "main",
+          upstreamName: "origin/main",
+          remoteName: "origin",
+          remoteBranchName: "main",
+          aheadCount: 0,
+          behindCount: 1,
+          canPull: true,
+          state: "behind",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.getPullStatus("/tmp/repo", "main");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/pull/status?repoPath=%2Ftmp%2Frepo&branchName=main",
+    );
+  });
 });
 
 describe("api.pull", () => {
@@ -396,6 +431,31 @@ describe("api.pull", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("http://localhost:4141/api/pull");
     expect(requests[0]?.body).toEqual({ repoPath: "/tmp/repo" });
+  });
+
+  test("posts branchName when pulling a specific local branch", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.pull("/tmp/repo", "main");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/pull");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      branchName: "main",
+    });
   });
 });
 

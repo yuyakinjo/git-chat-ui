@@ -515,6 +515,32 @@ pub struct PullStatusResponse {
     pub state: String,
 }
 
+fn detached_pull_status_response() -> PullStatusResponse {
+    PullStatusResponse {
+        branch_name: None,
+        upstream_name: None,
+        remote_name: None,
+        remote_branch_name: None,
+        ahead_count: 0,
+        behind_count: 0,
+        can_pull: false,
+        state: "detached".to_string(),
+    }
+}
+
+fn no_upstream_pull_status_response(branch_name: String) -> PullStatusResponse {
+    PullStatusResponse {
+        branch_name: Some(branch_name),
+        upstream_name: None,
+        remote_name: None,
+        remote_branch_name: None,
+        ahead_count: 0,
+        behind_count: 0,
+        can_pull: false,
+        state: "noUpstream".to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveConfigResponse {
@@ -2202,6 +2228,26 @@ fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
     .filter(|value| !value.trim().is_empty())
 }
 
+fn resolve_pull_status_branch_name(
+    repo_path: &str,
+    branch_name: Option<&str>,
+) -> Result<Option<String>, String> {
+    if let Some(branch_name) = branch_name {
+        let normalized = branch_name.trim();
+        if !normalized.is_empty() {
+            ensure_local_branch(repo_path, normalized)?;
+            return Ok(Some(normalized.to_string()));
+        }
+    }
+
+    let current_branch = get_current_branch(repo_path)?;
+    if current_branch.trim().is_empty() || current_branch == "HEAD" {
+        return Ok(None);
+    }
+
+    Ok(Some(current_branch))
+}
+
 fn parse_commit_count(value: &str) -> usize {
     value.trim().parse::<usize>().unwrap_or(0)
 }
@@ -2220,6 +2266,151 @@ fn resolve_pull_status_state(ahead_count: usize, behind_count: usize) -> &'stati
     }
 
     "upToDate"
+}
+
+fn get_pull_status_for_branch(
+    repo_path: &str,
+    branch_name: Option<&str>,
+) -> Result<PullStatusResponse, String> {
+    ensure_repo_path(repo_path)?;
+
+    let Some(resolved_branch_name) = resolve_pull_status_branch_name(repo_path, branch_name)? else {
+        return Ok(detached_pull_status_response());
+    };
+
+    let Some(upstream_name) = get_branch_upstream(repo_path, &resolved_branch_name) else {
+        return Ok(no_upstream_pull_status_response(resolved_branch_name));
+    };
+
+    let ahead_count = parse_commit_count(&run_git(
+        &[
+            "rev-list",
+            "--count",
+            &format!("{upstream_name}..{resolved_branch_name}"),
+        ],
+        repo_path,
+    )?);
+    let behind_count = parse_commit_count(&run_git(
+        &[
+            "rev-list",
+            "--count",
+            &format!("{resolved_branch_name}..{upstream_name}"),
+        ],
+        repo_path,
+    )?);
+    let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
+    let (remote_name, remote_branch_name) = parse_remote_branch_name(&upstream_name)
+        .map(|(remote_name, remote_branch_name)| (Some(remote_name), Some(remote_branch_name)))
+        .unwrap_or((None, None));
+
+    Ok(PullStatusResponse {
+        branch_name: Some(resolved_branch_name),
+        upstream_name: Some(upstream_name),
+        remote_name,
+        remote_branch_name,
+        ahead_count,
+        behind_count,
+        can_pull: state == "behind",
+        state,
+    })
+}
+
+fn fast_forward_branch_to_upstream(
+    repo_path: &str,
+    branch_name: &str,
+    upstream_name: &str,
+) -> Result<(), String> {
+    let branch_head = run_git(
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch_name}"),
+        ],
+        repo_path,
+    )?;
+    let upstream_head = run_git(&["rev-parse", "--verify", upstream_name], repo_path)?;
+
+    if branch_head == upstream_head {
+        return Ok(());
+    }
+
+    if run_git(&["merge-base", "--is-ancestor", &branch_head, &upstream_head], repo_path).is_err() {
+        return Err(format!(
+            "Not possible to fast-forward, aborting. Local branch '{branch_name}' and upstream '{upstream_name}' have diverged."
+        ));
+    }
+
+    let args = vec![
+        "update-ref".to_string(),
+        "-m".to_string(),
+        format!("pull branch {branch_name} from {upstream_name}"),
+        format!("refs/heads/{branch_name}"),
+        upstream_head,
+        branch_head,
+    ];
+    run_git_owned(&args, repo_path).map(|_| ())
+}
+
+fn pull_branch(repo_path: &str, branch_name: Option<&str>) -> Result<(), String> {
+    ensure_repo_path(repo_path)?;
+
+    let normalized_branch_name = branch_name.map(str::trim).filter(|value| !value.is_empty());
+    let current_branch_name = get_current_branch(repo_path)?;
+    let target_branch_name = normalized_branch_name.unwrap_or(current_branch_name.as_str());
+
+    if target_branch_name.trim().is_empty() || target_branch_name == "HEAD" {
+        return Err("Cannot pull while HEAD is detached.".to_string());
+    }
+
+    ensure_local_branch(repo_path, target_branch_name)?;
+
+    let Some(upstream) = get_branch_upstream(repo_path, target_branch_name) else {
+        return Err(format!(
+            "Current branch '{target_branch_name}' has no upstream branch."
+        ));
+    };
+
+    if current_branch_name == target_branch_name {
+        let args = vec!["pull".to_string(), "--ff-only".to_string()];
+        run_git_owned_with_env(
+            &args,
+            repo_path,
+            &[("GIT_TERMINAL_PROMPT", "0".to_string())],
+        )?;
+        return Ok(());
+    }
+
+    if let Ok((remote_name, remote_branch_name)) = parse_remote_branch_name(&upstream) {
+        let args = vec![
+            "fetch".to_string(),
+            remote_name,
+            remote_branch_name,
+        ];
+        run_git_owned_with_env(
+            &args,
+            repo_path,
+            &[("GIT_TERMINAL_PROMPT", "0".to_string())],
+        )?;
+    }
+
+    let refreshed_status = get_pull_status_for_branch(repo_path, Some(target_branch_name))?;
+    let Some(refreshed_upstream) = refreshed_status.upstream_name else {
+        return Err(format!(
+            "Current branch '{target_branch_name}' has no upstream branch."
+        ));
+    };
+
+    if refreshed_status.state == "diverged" {
+        return Err(format!(
+            "Not possible to fast-forward, aborting. Local branch '{target_branch_name}' and upstream '{refreshed_upstream}' have diverged."
+        ));
+    }
+
+    if refreshed_status.state != "behind" {
+        return Ok(());
+    }
+
+    fast_forward_branch_to_upstream(repo_path, target_branch_name, &refreshed_upstream)
 }
 
 fn sync_upstream_tracking_ref_to_branch_head(
@@ -4929,67 +5120,11 @@ pub fn create_branch(
 }
 
 #[tauri::command]
-pub fn get_pull_status(repo_path: String) -> Result<PullStatusResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
-    let branch_name = get_current_branch(&repo_path)?;
-    if branch_name.trim().is_empty() || branch_name == "HEAD" {
-        return Ok(PullStatusResponse {
-            branch_name: None,
-            upstream_name: None,
-            remote_name: None,
-            remote_branch_name: None,
-            ahead_count: 0,
-            behind_count: 0,
-            can_pull: false,
-            state: "detached".to_string(),
-        });
-    }
-
-    let Some(upstream_name) = get_branch_upstream(&repo_path, &branch_name) else {
-        return Ok(PullStatusResponse {
-            branch_name: Some(branch_name),
-            upstream_name: None,
-            remote_name: None,
-            remote_branch_name: None,
-            ahead_count: 0,
-            behind_count: 0,
-            can_pull: false,
-            state: "noUpstream".to_string(),
-        });
-    };
-
-    let ahead_count = parse_commit_count(&run_git(
-        &[
-            "rev-list",
-            "--count",
-            &format!("{upstream_name}..{branch_name}"),
-        ],
-        &repo_path,
-    )?);
-    let behind_count = parse_commit_count(&run_git(
-        &[
-            "rev-list",
-            "--count",
-            &format!("{branch_name}..{upstream_name}"),
-        ],
-        &repo_path,
-    )?);
-    let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
-    let (remote_name, remote_branch_name) = parse_remote_branch_name(&upstream_name)
-        .map(|(remote_name, remote_branch_name)| (Some(remote_name), Some(remote_branch_name)))
-        .unwrap_or((None, None));
-
-    Ok(PullStatusResponse {
-        branch_name: Some(branch_name),
-        upstream_name: Some(upstream_name),
-        remote_name,
-        remote_branch_name,
-        ahead_count,
-        behind_count,
-        can_pull: state == "behind",
-        state,
-    })
+pub fn get_pull_status(
+    repo_path: String,
+    branch_name: Option<String>,
+) -> Result<PullStatusResponse, String> {
+    get_pull_status_for_branch(&repo_path, branch_name.as_deref())
 }
 
 #[tauri::command]
@@ -5131,27 +5266,11 @@ pub fn abort_merge_session(repo_path: String, session_id: String) -> Result<OkRe
 }
 
 #[tauri::command]
-pub fn pull_current_branch(repo_path: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
-    let branch_name = get_current_branch(&repo_path)?;
-    if branch_name.trim().is_empty() || branch_name == "HEAD" {
-        return Err("Cannot pull while HEAD is detached.".to_string());
-    }
-
-    if get_branch_upstream(&repo_path, &branch_name).is_none() {
-        return Err(format!(
-            "Current branch '{branch_name}' has no upstream branch."
-        ));
-    }
-
-    let args = vec!["pull".to_string(), "--ff-only".to_string()];
-    run_git_owned_with_env(
-        &args,
-        &repo_path,
-        &[("GIT_TERMINAL_PROMPT", "0".to_string())],
-    )?;
-
+pub fn pull_current_branch(
+    repo_path: String,
+    branch_name: Option<String>,
+) -> Result<OkResponse, String> {
+    pull_branch(&repo_path, branch_name.as_deref())?;
     Ok(OkResponse { ok: true })
 }
 
@@ -6808,8 +6927,47 @@ mod tests {
         run_command("git", &["fetch", "origin"], &fixture.repo_path)
             .expect("local fetch should succeed");
 
-        let status =
-            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+        let status = get_pull_status(fixture.repo_path.clone(), None)
+            .expect("pull status should resolve");
+
+        assert_eq!(status.branch_name.as_deref(), Some("main"));
+        assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
+        assert_eq!(status.remote_name.as_deref(), Some("origin"));
+        assert_eq!(status.remote_branch_name.as_deref(), Some("main"));
+        assert_eq!(status.ahead_count, 0);
+        assert_eq!(status.behind_count, 1);
+        assert!(status.can_pull);
+        assert_eq!(status.state, "behind");
+    }
+
+    #[test]
+    fn get_pull_status_can_target_a_non_current_local_branch() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/current"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch should be created");
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+        run_command("git", &["fetch", "origin"], &fixture.repo_path)
+            .expect("local fetch should succeed");
+
+        let status = get_pull_status(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("targeted pull status should resolve");
 
         assert_eq!(status.branch_name.as_deref(), Some("main"));
         assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
@@ -6839,7 +6997,7 @@ mod tests {
         run_command("git", &["push", "origin", "main"], &collaborator_path)
             .expect("remote push should succeed");
 
-        pull_current_branch(fixture.repo_path.clone()).expect("pull should succeed");
+        pull_current_branch(fixture.repo_path.clone(), None).expect("pull should succeed");
 
         let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
             .expect("current branch should resolve");
@@ -6849,12 +7007,62 @@ mod tests {
             .expect("upstream head should resolve");
         let readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
             .expect("README should be readable");
-        let status =
-            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+        let status = get_pull_status(fixture.repo_path.clone(), None)
+            .expect("pull status should resolve");
 
         assert_eq!(current_branch, "main");
         assert_eq!(head, upstream_head);
         assert!(readme.contains("remote update"));
+        assert_eq!(status.behind_count, 0);
+        assert!(!status.can_pull);
+        assert_eq!(status.state, "upToDate");
+    }
+
+    #[test]
+    fn pull_current_branch_can_fast_forward_a_non_current_branch() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/current"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch should be created");
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+
+        pull_current_branch(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("targeted pull should succeed");
+
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let local_main_head =
+            run_command("git", &["rev-parse", "refs/heads/main"], &fixture.repo_path)
+                .expect("main head should resolve");
+        let upstream_head = run_command("git", &["rev-parse", "origin/main"], &fixture.repo_path)
+            .expect("upstream head should resolve");
+        let worktree_readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
+            .expect("README should be readable");
+        let main_readme = run_command("git", &["show", "main:README.md"], &fixture.repo_path)
+            .expect("main README should resolve");
+        let status = get_pull_status(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("pull status should resolve");
+
+        assert_eq!(current_branch, "feature/current");
+        assert_eq!(local_main_head, upstream_head);
+        assert_eq!(worktree_readme, "root\n");
+        assert!(main_readme.contains("remote update"));
         assert_eq!(status.behind_count, 0);
         assert!(!status.can_pull);
         assert_eq!(status.state, "upToDate");

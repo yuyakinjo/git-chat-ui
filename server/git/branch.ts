@@ -33,6 +33,50 @@ async function getBranchHeadSha(repoPath: string, branchName: string): Promise<s
   return runGit(["rev-parse", "--verify", `refs/heads/${branchName}`], repoPath);
 }
 
+function createDetachedPullStatus(): PullStatus {
+  return {
+    branchName: null,
+    upstreamName: null,
+    remoteName: null,
+    remoteBranchName: null,
+    aheadCount: 0,
+    behindCount: 0,
+    canPull: false,
+    state: "detached",
+  };
+}
+
+function createNoUpstreamPullStatus(branchName: string): PullStatus {
+  return {
+    branchName,
+    upstreamName: null,
+    remoteName: null,
+    remoteBranchName: null,
+    aheadCount: 0,
+    behindCount: 0,
+    canPull: false,
+    state: "noUpstream",
+  };
+}
+
+async function resolvePullStatusBranchName(
+  repoPath: string,
+  branchName?: string,
+): Promise<string | null> {
+  const normalizedBranchName = branchName?.trim() ?? "";
+  if (normalizedBranchName) {
+    await ensureLocalBranch(repoPath, normalizedBranchName);
+    return normalizedBranchName;
+  }
+
+  const currentBranch = await getCurrentBranch(repoPath);
+  if (!currentBranch.trim() || currentBranch === "HEAD") {
+    return null;
+  }
+
+  return currentBranch;
+}
+
 export async function ensureBranchPair(
   repoPath: string,
   sourceBranch: string,
@@ -296,40 +340,22 @@ export async function checkoutRef(repoPath: string, ref: string): Promise<void> 
   await runGit(["checkout", ref], repoPath);
 }
 
-export async function getPullStatus(repoPath: string): Promise<PullStatus> {
+export async function getPullStatus(repoPath: string, branchName?: string): Promise<PullStatus> {
   await ensureRepoPath(repoPath);
 
-  const branchName = await getCurrentBranch(repoPath);
-  if (!branchName.trim() || branchName === "HEAD") {
-    return {
-      branchName: null,
-      upstreamName: null,
-      remoteName: null,
-      remoteBranchName: null,
-      aheadCount: 0,
-      behindCount: 0,
-      canPull: false,
-      state: "detached",
-    };
+  const resolvedBranchName = await resolvePullStatusBranchName(repoPath, branchName);
+  if (!resolvedBranchName) {
+    return createDetachedPullStatus();
   }
 
-  const upstreamName = await getBranchUpstream(repoPath, branchName);
+  const upstreamName = await getBranchUpstream(repoPath, resolvedBranchName);
   if (!upstreamName) {
-    return {
-      branchName,
-      upstreamName: null,
-      remoteName: null,
-      remoteBranchName: null,
-      aheadCount: 0,
-      behindCount: 0,
-      canPull: false,
-      state: "noUpstream",
-    };
+    return createNoUpstreamPullStatus(resolvedBranchName);
   }
 
   const [aheadCountOutput, behindCountOutput] = await Promise.all([
-    runGit(["rev-list", "--count", `${upstreamName}..${branchName}`], repoPath),
-    runGit(["rev-list", "--count", `${branchName}..${upstreamName}`], repoPath),
+    runGit(["rev-list", "--count", `${upstreamName}..${resolvedBranchName}`], repoPath),
+    runGit(["rev-list", "--count", `${resolvedBranchName}..${upstreamName}`], repoPath),
   ]);
   const aheadCount = parseCommitCount(aheadCountOutput);
   const behindCount = parseCommitCount(behindCountOutput);
@@ -344,7 +370,7 @@ export async function getPullStatus(repoPath: string): Promise<PullStatus> {
   }
 
   return {
-    branchName,
+    branchName: resolvedBranchName,
     upstreamName,
     remoteName,
     remoteBranchName,
@@ -553,22 +579,89 @@ export async function syncCurrentBranchUpstreamTrackingRef(repoPath: string): Pr
   await syncUpstreamTrackingRefToBranchHead(repoPath, branchName);
 }
 
-export async function pullCurrentBranch(repoPath: string): Promise<void> {
+async function fastForwardBranchToUpstream(
+  repoPath: string,
+  branchName: string,
+  upstreamName: string,
+): Promise<void> {
+  const [branchHead, upstreamHead] = await Promise.all([
+    getBranchHeadSha(repoPath, branchName),
+    runGit(["rev-parse", "--verify", upstreamName], repoPath),
+  ]);
+
+  if (branchHead === upstreamHead) {
+    return;
+  }
+
+  try {
+    await runGit(["merge-base", "--is-ancestor", branchHead, upstreamHead], repoPath);
+  } catch {
+    throw new Error(
+      `Not possible to fast-forward, aborting. Local branch '${branchName}' and upstream '${upstreamName}' have diverged.`,
+    );
+  }
+
+  await runGit(
+    [
+      "update-ref",
+      "-m",
+      `pull branch ${branchName} from ${upstreamName}`,
+      `refs/heads/${branchName}`,
+      upstreamHead,
+      branchHead,
+    ],
+    repoPath,
+  );
+}
+
+export async function pullCurrentBranch(repoPath: string, branchName?: string): Promise<void> {
   await ensureRepoPath(repoPath);
 
-  const branchName = await getCurrentBranch(repoPath);
-  if (!branchName.trim() || branchName === "HEAD") {
+  const normalizedBranchName = branchName?.trim() ?? "";
+  const currentBranchName = await getCurrentBranch(repoPath);
+  const targetBranchName = normalizedBranchName || currentBranchName;
+
+  if (!targetBranchName.trim() || targetBranchName === "HEAD") {
     throw new Error("Cannot pull while HEAD is detached.");
   }
 
-  const upstream = await getBranchUpstream(repoPath, branchName);
+  await ensureLocalBranch(repoPath, targetBranchName);
+
+  const upstream = await getBranchUpstream(repoPath, targetBranchName);
   if (!upstream) {
-    throw new Error(`Current branch '${branchName}' has no upstream branch.`);
+    throw new Error(`Current branch '${targetBranchName}' has no upstream branch.`);
   }
 
-  await runGit(["pull", "--ff-only"], repoPath, {
-    GIT_TERMINAL_PROMPT: "0",
-  });
+  if (currentBranchName === targetBranchName) {
+    await runGit(["pull", "--ff-only"], repoPath, {
+      GIT_TERMINAL_PROMPT: "0",
+    });
+    return;
+  }
+
+  const initialStatus = await getPullStatus(repoPath, targetBranchName);
+  if (initialStatus.remoteName && initialStatus.remoteBranchName) {
+    await runGit(["fetch", initialStatus.remoteName, initialStatus.remoteBranchName], repoPath, {
+      GIT_TERMINAL_PROMPT: "0",
+    });
+  }
+
+  const refreshedStatus = await getPullStatus(repoPath, targetBranchName);
+  if (!refreshedStatus.upstreamName) {
+    throw new Error(`Current branch '${targetBranchName}' has no upstream branch.`);
+  }
+
+  if (refreshedStatus.state === "diverged") {
+    throw new Error(
+      `Not possible to fast-forward, aborting. Local branch '${targetBranchName}' and upstream '${refreshedStatus.upstreamName}' have diverged.`,
+    );
+  }
+
+  if (refreshedStatus.state !== "behind") {
+    return;
+  }
+
+  await fastForwardBranchToUpstream(repoPath, targetBranchName, refreshedStatus.upstreamName);
 }
 
 export async function pushBranchToOrigin(repoPath: string, branchName: string): Promise<void> {

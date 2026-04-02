@@ -408,11 +408,6 @@ body[data-window-chrome="overlay-titlebar"] .app-tabbar__actions {
   color: var(--tab-active-text);
 }
 
-.app-theme-picker__icon {
-  flex-shrink: 0;
-  color: var(--accent);
-}
-
 .app-theme-picker__select {
   min-width: 132px;
   border: none;
@@ -562,12 +557,14 @@ button.app-tab {
 }
 
 .app-tab__branch {
+  --app-tab-branch-marquee-distance: 0px;
+  --app-tab-branch-marquee-duration: 9s;
+  --app-tab-branch-marquee-gap: 18px;
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   max-width: 112px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   padding: 3px 8px;
   border-radius: 9999px;
   background: rgb(var(--color-accent) / 0.1);
@@ -575,6 +572,48 @@ button.app-tab {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.01em;
+}
+
+.app-tab__branch-viewport {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-tab__branch-track {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.app-tab__branch-copy {
+  flex-shrink: 0;
+}
+
+.app-tab__branch-gap {
+  flex: 0 0 var(--app-tab-branch-marquee-gap);
+}
+
+.app-tab__branch.is-overflowing .app-tab__branch-track {
+  animation: app-tab-branch-marquee var(--app-tab-branch-marquee-duration) linear infinite;
+  will-change: transform;
+}
+
+.app-tab__branch.is-overflowing:hover .app-tab__branch-track {
+  animation-play-state: paused;
+}
+
+@keyframes app-tab-branch-marquee {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+
+  86%,
+  100% {
+    transform: translateX(calc(-1 * var(--app-tab-branch-marquee-distance)));
+  }
 }
 
 .app-tab__close {
@@ -848,16 +887,6 @@ button.app-tab {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.command-palette__item-hint {
-  flex-shrink: 0;
-  align-self: center;
-  color: var(--text-subtle);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .command-palette__empty {
@@ -1358,6 +1387,45 @@ body[data-theme-mode="dark"] .text-slate-700 {
   color: rgb(180 83 9 / 0.98);
 }
 
+.branch-list-item__pull-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 24px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 6px;
+  color: rgb(37 99 235 / 0.96);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.branch-list-item__pull-link:hover,
+.branch-list-item__pull-link:focus-visible {
+  background: rgb(var(--theme-overlay-rgb) / 0.12);
+  color: rgb(29 78 216 / 0.98);
+}
+
+.branch-list-item__pull-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(var(--color-accent) / 0.26);
+}
+
+.branch-list-item__pull-count {
+  min-width: 0;
+}
+
 .branch-list-item__icon {
   flex-shrink: 0;
 }
@@ -1397,6 +1465,10 @@ body[data-theme-mode="dark"] .text-slate-700 {
 }
 
 .list-item.active .branch-list-item__pr-link {
+  color: currentColor;
+}
+
+.list-item.active .branch-list-item__pull-link {
   color: currentColor;
 }
 
@@ -2374,6 +2446,20 @@ body[data-theme-mode="dark"] .branch-action-dialog__ref-pill {
   cursor: grab;
 }
 
+.git-operation-panel__file-row.is-selected:not(.is-active) {
+  border-color: rgb(var(--color-accent) / 0.24);
+  background: linear-gradient(
+    160deg,
+    rgb(var(--theme-elevated-strong-rgb) / 0.86),
+    rgb(var(--color-accent-soft) / 0.34)
+  );
+}
+
+body[data-theme-mode="dark"] .git-operation-panel__file-row.is-selected:not(.is-active) {
+  border-color: rgb(148 163 184 / 0.24);
+  background: linear-gradient(160deg, rgb(30 41 59 / 0.82), rgb(59 130 246 / 0.18));
+}
+
 .git-operation-panel__file-row:focus-visible {
   outline: 2px solid rgba(0, 113, 227, 0.35);
   outline-offset: 2px;
@@ -2702,6 +2788,14 @@ body[data-theme-mode="dark"] .branch-action-dialog__ref-pill {
   margin-top: 5px;
   font-size: 11px;
   line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.working-tree-drag-preview__detail,
+.working-tree-drop-split__meta {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-secondary);
 }
 

@@ -27,10 +27,12 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { isCommandPaletteShortcut } from "../lib/commandPalette";
 import { describeGitError, type UiError } from "../lib/errors";
+import { getPullCommandDisabledReason } from "../lib/pullCommand";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
 import {
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
 } from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
@@ -60,7 +62,7 @@ import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
 import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
 import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
-import type { AppConfig, Branch, Repository } from "../types";
+import type { AppConfig, Branch, PullStatus, Repository } from "../types";
 
 interface ControllerViewProps {
   repository: Repository;
@@ -99,6 +101,12 @@ export function ControllerView({
     "visible" | "hiding" | "hidden"
   >("visible");
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [branchPullStatuses, setBranchPullStatuses] = useState<Record<string, PullStatus | null>>(
+    {},
+  );
+  const [branchPullStatusLoading, setBranchPullStatusLoading] = useState<Record<string, boolean>>(
+    {},
+  );
   const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
@@ -211,26 +219,129 @@ export function ControllerView({
     );
   }, [data, repoPath]);
 
+  const pullBranch = useCallback(
+    (branch: Branch): void => {
+      if (branch.type !== "local") {
+        return;
+      }
+
+      const isCurrentBranch = data.currentLocalBranch?.name === branch.name;
+
+      if (
+        isCurrentBranch &&
+        data.selfMutationBlockedReason &&
+        typeof window !== "undefined" &&
+        !window.confirm(getSelfPullConfirmationMessage())
+      ) {
+        return;
+      }
+
+      data.setOperationBusy(true);
+      void (async () => {
+        try {
+          await api.pull(repoPath, branch.name);
+          data.setInlineError(null);
+          await data.refreshAll();
+          onNotify(
+            isCurrentBranch
+              ? "upstream の変更を取り込みました。"
+              : `${branch.name} に upstream の変更を取り込みました。`,
+          );
+        } catch (error) {
+          reportError(error, "pull に失敗しました。");
+        } finally {
+          data.setOperationBusy(false);
+        }
+      })();
+    },
+    [data, onNotify, repoPath, reportError],
+  );
+
   const pullCurrentBranch = useCallback((): void => {
     if (!data.currentLocalBranch) {
       return;
     }
 
-    if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
+    pullBranch(data.currentLocalBranch);
+  }, [data.currentLocalBranch, pullBranch]);
+
+  const loadBranchPullStatus = useCallback(
+    async (branch: Branch): Promise<PullStatus | null> => {
+      if (branch.type !== "local") {
+        return null;
+      }
+
+      if (data.pullStatus?.branchName === branch.name) {
+        return data.pullStatus;
+      }
+
+      try {
+        return await api.getPullStatus(repoPath, branch.name);
+      } catch (error) {
+        reportError(error, "pull 状態の取得に失敗しました。");
+        return null;
+      }
+    },
+    [data.pullStatus, repoPath, reportError],
+  );
+
+  useEffect(() => {
+    const localBranches = data.branches?.local ?? [];
+    if (localBranches.length === 0) {
+      setBranchPullStatuses({});
+      setBranchPullStatusLoading({});
       return;
     }
 
-    void data.mutateAndReload(
-      async () => {
-        await api.pull(repoPath);
-      },
-      {
-        onSuccess: () => {
-          onNotify("upstream の変更を取り込みました。");
-        },
-      },
+    let isMounted = true;
+    const currentPullStatus = data.pullStatus;
+    const branchNames = new Set(localBranches.map((branch) => branch.name));
+
+    setBranchPullStatuses((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([branchName]) => branchNames.has(branchName)),
+      );
+
+      if (currentPullStatus?.branchName) {
+        next[currentPullStatus.branchName] = currentPullStatus;
+      }
+
+      return next;
+    });
+
+    setBranchPullStatusLoading(
+      Object.fromEntries(
+        localBranches.map((branch) => [branch.name, currentPullStatus?.branchName !== branch.name]),
+      ),
     );
-  }, [data, onNotify, repoPath]);
+
+    void Promise.all(
+      localBranches.map(async (branch) => {
+        if (currentPullStatus?.branchName === branch.name) {
+          return [branch.name, currentPullStatus] as const;
+        }
+
+        try {
+          return [branch.name, await api.getPullStatus(repoPath, branch.name)] as const;
+        } catch {
+          return [branch.name, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setBranchPullStatuses(Object.fromEntries(entries));
+      setBranchPullStatusLoading(
+        Object.fromEntries(entries.map(([branchName]) => [branchName, false])),
+      );
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [data.branches, data.pullStatus, repoPath]);
 
   const openRepositoryGithubPage = useCallback(async (): Promise<void> => {
     if (!repositoryGithubUrl) {
@@ -300,10 +411,11 @@ export function ControllerView({
           : "Pull upstream changes into the current local branch.",
         keywords: ["pull", "fetch", "branch", "remote", "現在", "ブランチ", "プル"],
         icon: Download,
-        disabledReason: data.operationBusy
-          ? "Git 操作の完了を待ってから実行してください。"
-          : (data.selfMutationBlockedReason ??
-            (data.currentLocalBranch ? null : "local branch を checkout 中のときだけ使えます。")),
+        disabledReason: getPullCommandDisabledReason(
+          data.operationBusy,
+          data.currentLocalBranch,
+          data.pullStatus,
+        ),
         onSelect: pullCurrentBranch,
       },
       {
@@ -336,7 +448,7 @@ export function ControllerView({
       copyCurrentBranchName,
       data.currentLocalBranch,
       data.operationBusy,
-      data.selfMutationBlockedReason,
+      data.pullStatus,
       openCreateBranchDialog,
       openRepositoryGithubPage,
       pullCurrentBranch,
@@ -662,6 +774,26 @@ export function ControllerView({
           { reloadCommits: false },
         );
       }}
+      onStageFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.stageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false },
+        );
+      }}
+      onUnstageFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.unstageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false },
+        );
+      }}
       onStageAll={() => {
         void data.mutateAndReload(
           async () => {
@@ -688,6 +820,16 @@ export function ControllerView({
         void data.mutateAndReload(
           async () => {
             await api.stashFile(repoPath, file);
+          },
+          { reloadCommits: false },
+        );
+      }}
+      onStashFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.stashFile(repoPath, file);
+            }
           },
           { reloadCommits: false },
         );
@@ -901,6 +1043,8 @@ export function ControllerView({
         <BranchTree
           branches={data.branches}
           branchPullRequests={data.branchPullRequests}
+          branchPullStatuses={branchPullStatuses}
+          branchPullStatusLoading={branchPullStatusLoading}
           stashes={data.stashes}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}
@@ -928,6 +1072,8 @@ export function ControllerView({
           }}
           onRequestCreateBranch={branchOps.handleRequestCreateBranch}
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
+          loadBranchPullStatus={loadBranchPullStatus}
+          onRequestPullBranch={pullBranch}
         />
 
         <div className={controllerPanelsGridClassName}>

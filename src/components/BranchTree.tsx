@@ -1,6 +1,7 @@
 import {
   Archive,
   AlertTriangle,
+  ArrowDown,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -26,7 +27,8 @@ import { createPortal } from "react-dom";
 
 import { getBranchDeleteDisabledReason } from "../lib/branchDelete";
 import { canDropBranchOnBranch } from "../lib/branchDragDrop";
-import type { Branch, BranchPullRequest, BranchResponse, StashEntry } from "../types";
+import { getBranchPullDisabledReason, shouldShowBranchPullAction } from "../lib/pullCommand";
+import type { Branch, BranchPullRequest, BranchResponse, PullStatus, StashEntry } from "../types";
 
 import {
   buildTree,
@@ -43,6 +45,8 @@ import {
 interface BranchTreeProps {
   branches: BranchResponse | null;
   branchPullRequests: Record<string, BranchPullRequest>;
+  branchPullStatuses: Record<string, PullStatus | null>;
+  branchPullStatusLoading: Record<string, boolean>;
   stashes: StashEntry[];
   selectedBranchName: string | null;
   stashMutationBlockedReason: string | null;
@@ -58,6 +62,8 @@ interface BranchTreeProps {
   onOpenBranchPullRequest: (branch: Branch) => void;
   onRequestCreateBranch: (branch: Branch) => void;
   onRequestDeleteBranch: (branch: Branch) => void;
+  loadBranchPullStatus: (branch: Branch) => Promise<PullStatus | null>;
+  onRequestPullBranch: (branch: Branch) => void;
 }
 
 const SINGLE_CLICK_DELAY_MS = 400;
@@ -66,6 +72,8 @@ const DRAG_THRESHOLD_PX = 6;
 export function BranchTree({
   branches,
   branchPullRequests,
+  branchPullStatuses,
+  branchPullStatusLoading,
   stashes,
   selectedBranchName,
   stashMutationBlockedReason,
@@ -81,6 +89,8 @@ export function BranchTree({
   onOpenBranchPullRequest,
   onRequestCreateBranch,
   onRequestDeleteBranch,
+  loadBranchPullStatus,
+  onRequestPullBranch,
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [isStashesExpanded, setIsStashesExpanded] = useState(true);
@@ -96,6 +106,8 @@ export function BranchTree({
         x: number;
         y: number;
         disabledReason: string | null;
+        pullStatus: PullStatus | null;
+        pullStatusLoading: boolean;
       }
     | {
         kind: "stash";
@@ -402,6 +414,43 @@ export function BranchTree({
       x: position.x,
       y: position.y,
       disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName),
+      pullStatus: branch.type === "local" ? (branchPullStatuses[branch.name] ?? null) : null,
+      pullStatusLoading:
+        branch.type === "local"
+          ? (branchPullStatusLoading[branch.name] ??
+            !Object.prototype.hasOwnProperty.call(branchPullStatuses, branch.name))
+          : false,
+    });
+
+    if (branch.type !== "local") {
+      return;
+    }
+
+    const hasKnownPullStatus = Object.prototype.hasOwnProperty.call(
+      branchPullStatuses,
+      branch.name,
+    );
+    if (hasKnownPullStatus && !branchPullStatusLoading[branch.name]) {
+      return;
+    }
+
+    void loadBranchPullStatus(branch).then((pullStatus) => {
+      setContextMenu((current) => {
+        if (
+          !current ||
+          current.kind !== "branch" ||
+          current.branch.name !== branch.name ||
+          current.branch.type !== branch.type
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          pullStatus,
+          pullStatusLoading: false,
+        };
+      });
     });
   };
 
@@ -436,6 +485,11 @@ export function BranchTree({
   const handleCreateRequestFromTree = (branch: Branch): void => {
     setContextMenu(null);
     onRequestCreateBranch(branch);
+  };
+
+  const handlePullRequestFromTree = (branch: Branch): void => {
+    setContextMenu(null);
+    onRequestPullBranch(branch);
   };
 
   const handleRenameStashRequestFromTree = (stash: StashEntry): void => {
@@ -496,6 +550,13 @@ export function BranchTree({
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
           const isLocalBranch = leaf.branch.type === "local";
+          const branchPullStatus = isLocalBranch
+            ? (branchPullStatuses[leaf.branch.name] ?? null)
+            : null;
+          const branchBehindCount =
+            branchPullStatus?.branchName === leaf.branch.name && branchPullStatus.state === "behind"
+              ? branchPullStatus.behindCount
+              : 0;
           const branchPullRequest = isLocalBranch
             ? (branchPullRequests[leaf.branch.name] ?? null)
             : null;
@@ -584,6 +645,27 @@ export function BranchTree({
 
               {!isDropTarget && branchPullRequestUrl ? (
                 <div className="branch-list-item__actions">
+                  {branchBehindCount > 0 ? (
+                    <button
+                      type="button"
+                      className="branch-list-item__pull-link"
+                      aria-label={`${leaf.branch.name} に upstream の ${branchBehindCount} commit を pull`}
+                      title={`${branchBehindCount} commit を pull`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRequestPullBranch(leaf.branch);
+                      }}
+                    >
+                      <span className="branch-list-item__pull-count">{branchBehindCount}</span>
+                      <ArrowDown size={13} />
+                    </button>
+                  ) : null}
                   {branchPullRequestHasConflicts ? (
                     <span
                       className="branch-list-item__pr-warning"
@@ -612,6 +694,28 @@ export function BranchTree({
                     <ExternalLink size={13} />
                   </button>
                 </div>
+              ) : !isDropTarget && branchBehindCount > 0 ? (
+                <div className="branch-list-item__actions">
+                  <button
+                    type="button"
+                    className="branch-list-item__pull-link"
+                    aria-label={`${leaf.branch.name} に upstream の ${branchBehindCount} commit を pull`}
+                    title={`${branchBehindCount} commit を pull`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRequestPullBranch(leaf.branch);
+                    }}
+                  >
+                    <span className="branch-list-item__pull-count">{branchBehindCount}</span>
+                    <ArrowDown size={13} />
+                  </button>
+                </div>
               ) : null}
             </div>
           );
@@ -626,6 +730,22 @@ export function BranchTree({
       : "別の local branch にドロップ"
     : null;
   const hasStashes = stashes.length > 0;
+  const branchContextMenuPullState =
+    contextMenu && contextMenu.kind === "branch"
+      ? {
+          showPullAction: shouldShowBranchPullAction(
+            contextMenu.branch,
+            contextMenu.pullStatus,
+            contextMenu.pullStatusLoading,
+          ),
+          pullDisabledReason: getBranchPullDisabledReason(
+            busy,
+            contextMenu.branch,
+            contextMenu.pullStatus,
+            contextMenu.pullStatusLoading,
+          ),
+        }
+      : null;
 
   const contextMenuPortal =
     contextMenu && typeof document !== "undefined"
@@ -644,6 +764,19 @@ export function BranchTree({
           >
             {contextMenu.kind === "branch" ? (
               <>
+                {branchContextMenuPullState?.showPullAction ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`branch-context-menu__item ${branchContextMenuPullState.pullDisabledReason ? "is-disabled" : ""}`}
+                    disabled={Boolean(branchContextMenuPullState.pullDisabledReason)}
+                    title={branchContextMenuPullState.pullDisabledReason ?? undefined}
+                    onClick={() => handlePullRequestFromTree(contextMenu.branch)}
+                  >
+                    <Download size={14} />
+                    <span>Pull</span>
+                  </button>
+                ) : null}
                 {contextMenu.branch.type === "local" ? (
                   <button
                     type="button"

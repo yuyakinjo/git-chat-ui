@@ -200,9 +200,6 @@ export function CommandPalette({
                       <span className="command-palette__item-description">{detail}</span>
                     ) : null}
                   </span>
-                  <span className="command-palette__item-hint">
-                    {command.disabledReason ? "Unavailable" : "Enter"}
-                  </span>
                 </button>
               );
             })

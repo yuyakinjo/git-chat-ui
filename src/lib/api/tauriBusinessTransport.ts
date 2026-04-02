@@ -172,12 +172,18 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("merge_branches", { repoPath, sourceBranch, targetBranch });
     },
 
-    getPullStatus(repoPath) {
-      return invokeCommand("get_pull_status", { repoPath });
+    getPullStatus(repoPath, branchName) {
+      return invokeCommand("get_pull_status", {
+        repoPath,
+        branchName: branchName?.trim() ? branchName.trim() : null,
+      });
     },
 
-    pull(repoPath) {
-      return invokeCommand("pull_current_branch", { repoPath });
+    pull(repoPath, branchName) {
+      return invokeCommand("pull_current_branch", {
+        repoPath,
+        branchName: branchName?.trim() ? branchName.trim() : null,
+      });
     },
 
     createBranch(repoPath, baseBranch, newBranch) {

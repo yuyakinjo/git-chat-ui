@@ -4,6 +4,7 @@ import type { Branch, RepositoryMutationSafety } from "../../../src/types";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
   getSelfMutationBlockedReason,
 } from "../../../src/lib/repositoryMutationSafety";
@@ -51,6 +52,16 @@ describe("getSelfStashMutationBlockedReason", () => {
     expect(getSelfStashMutationBlockedReason("apply")).toContain("stash apply");
     expect(getSelfStashMutationBlockedReason("pop")).toContain("stash pop");
     expect(getSelfStashMutationBlockedReason("apply / pop")).toContain("stash apply / pop");
+  });
+});
+
+describe("getSelfPullConfirmationMessage", () => {
+  test("warns that self-repo pull may restart the dev app and asks for confirmation", () => {
+    const message = getSelfPullConfirmationMessage();
+
+    expect(message).toContain("pull");
+    expect(message).toContain("再起動");
+    expect(message).toContain("このまま pull しますか");
   });
 });
 
