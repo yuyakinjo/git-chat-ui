@@ -675,9 +675,26 @@ export function useControllerData({
       const response = await api.getBranchPullRequestUrls(repoPath);
       setBranchPullRequestUrls(response.urls);
     } catch {
-      setBranchPullRequestUrls({});
+      // Keep the current map on transient GitHub lookup failures.
     }
   }, [repoPath]);
+
+  const rememberBranchPullRequestUrl = useCallback((branchName: string, url: string): void => {
+    const normalizedBranchName = branchName.trim();
+    const normalizedUrl = url.trim();
+    if (!normalizedBranchName || !normalizedUrl) {
+      return;
+    }
+
+    setBranchPullRequestUrls((current) =>
+      current[normalizedBranchName] === normalizedUrl
+        ? current
+        : {
+            ...current,
+            [normalizedBranchName]: normalizedUrl,
+          },
+    );
+  }, []);
 
   const loadPullStatus = useCallback(async (): Promise<void> => {
     try {
@@ -928,6 +945,30 @@ export function useControllerData({
     };
   }, [repoPath]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const refreshBranchPullRequests = (): void => {
+      void loadBranchPullRequestUrls();
+    };
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        refreshBranchPullRequests();
+      }
+    };
+
+    window.addEventListener("focus", refreshBranchPullRequests);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", refreshBranchPullRequests);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadBranchPullRequestUrls]);
+
   // Clear focused diff when active commit changes
   useEffect(() => {
     setFocusedCommitDiffFile(null);
@@ -1052,6 +1093,7 @@ export function useControllerData({
   return {
     branches,
     branchPullRequestUrls,
+    rememberBranchPullRequestUrl,
     currentBranchName,
     currentLocalBranch,
     branchDiffBaseBranch,

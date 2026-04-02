@@ -541,7 +541,11 @@ export function useControllerBranchOps({
       );
       data.setInlineError(null);
       setBranchAction(null);
+      data.rememberBranchPullRequestUrl(currentAction.source.name, response.url);
       onNotify(`Pull Request を作成しました: ${response.url}`);
+      void api.openExternalUrl(response.url).catch((error) => {
+        data.reportError(error, "Pull Request を開けませんでした。");
+      });
       await data.refreshAll();
     } catch (error) {
       data.reportError(error, "Pull Request の作成に失敗しました。");

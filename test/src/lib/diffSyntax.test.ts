@@ -9,7 +9,9 @@ import {
 describe("diffSyntax", () => {
   test("maps app themes to light/dark syntax themes", () => {
     expect(resolveDiffSyntaxTheme("default-light")).toBe("light");
+    expect(resolveDiffSyntaxTheme("paper-light")).toBe("light");
     expect(resolveDiffSyntaxTheme("default-dark")).toBe("dark");
+    expect(resolveDiffSyntaxTheme("graphite-dark")).toBe("dark");
     expect(resolveDiffSyntaxTheme("unexpected")).toBe("light");
     expect(resolveDiffSyntaxTheme(null)).toBe("light");
   });
