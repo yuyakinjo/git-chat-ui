@@ -1,10 +1,11 @@
-import { Cog, ExternalLink, FolderGit2, Plus, X } from "lucide-react";
+import { Bot, Cog, ExternalLink, FolderGit2, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 
 import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
 import { ConfigView } from "./components/ConfigView";
 import { ControllerView } from "./components/ControllerView";
 import { DashboardView } from "./components/DashboardView";
+import { RepositoryAssistantSidebar } from "./components/RepositoryAssistantSidebar";
 import {
   closeRepositoryTab,
   CONFIG_TAB_ID,
@@ -37,7 +38,40 @@ import {
   getInitialPersistedAppSession,
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
-import type { AiGenerationConfig, AppConfig, Repository } from "./types";
+import {
+  createRepositoryAssistantMessage,
+  isEditableShortcutTarget,
+  isRepositoryAssistantShortcut,
+} from "./lib/repositoryAssistant";
+import type {
+  AiGenerationConfig,
+  AppConfig,
+  Repository,
+  RepositoryAssistantMessage,
+} from "./types";
+
+interface RepositoryAssistantConversationState {
+  messages: RepositoryAssistantMessage[];
+  draft: string;
+  pending: boolean;
+  error: string | null;
+}
+
+function createEmptyRepositoryAssistantConversationState(): RepositoryAssistantConversationState {
+  return {
+    messages: [],
+    draft: "",
+    pending: false,
+    error: null,
+  };
+}
+
+function getRepositoryAssistantConversationState(
+  conversations: Record<string, RepositoryAssistantConversationState>,
+  repoPath: string,
+): RepositoryAssistantConversationState {
+  return conversations[repoPath] ?? createEmptyRepositoryAssistantConversationState();
+}
 
 export default function App(): JSX.Element {
   const [initialPersistedAppSession] = useState<PersistedAppSession>(getInitialPersistedAppSession);
@@ -57,6 +91,11 @@ export default function App(): JSX.Element {
   const [notice, setNotice] = useState<string>("");
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
+  const [commandPaletteOpenRequestId, setCommandPaletteOpenRequestId] = useState(0);
+  const [isRepositoryAssistantOpen, setRepositoryAssistantOpen] = useState(false);
+  const [repositoryAssistantConversations, setRepositoryAssistantConversations] = useState<
+    Record<string, RepositoryAssistantConversationState>
+  >({});
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -74,6 +113,16 @@ export default function App(): JSX.Element {
   );
   const activeThemeLabel = getAppThemeLabel(appTheme);
   const isTauriDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const activeRepositoryAssistantConversation = useMemo(
+    () =>
+      activeRepository
+        ? getRepositoryAssistantConversationState(
+            repositoryAssistantConversations,
+            activeRepository.path,
+          )
+        : null,
+    [activeRepository, repositoryAssistantConversations],
+  );
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -243,6 +292,40 @@ export default function App(): JSX.Element {
   }, [configEscapeTabId, isConfigActive]);
 
   useEffect(() => {
+    if (activeRepository) {
+      return;
+    }
+
+    setRepositoryAssistantOpen(false);
+  }, [activeRepository]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (
+        event.defaultPrevented ||
+        !activeRepository ||
+        isEditableShortcutTarget(event.target) ||
+        !isRepositoryAssistantShortcut(event)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setRepositoryAssistantOpen((current) => !current);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeRepository]);
+
+  useEffect(() => {
     if (!isDashboardActive) {
       return;
     }
@@ -357,6 +440,107 @@ export default function App(): JSX.Element {
     }
   };
 
+  const handleOpenCommandPalette = (): void => {
+    if (!activeRepository) {
+      return;
+    }
+
+    setCommandPaletteOpenRequestId((current) => current + 1);
+  };
+
+  const handleAssistantDraftChange = (value: string): void => {
+    if (!activeRepository) {
+      return;
+    }
+
+    setRepositoryAssistantConversations((current) => ({
+      ...current,
+      [activeRepository.path]: {
+        ...getRepositoryAssistantConversationState(current, activeRepository.path),
+        draft: value,
+        error: null,
+      },
+    }));
+  };
+
+  const handleClearAssistantConversation = (): void => {
+    if (!activeRepository) {
+      return;
+    }
+
+    setRepositoryAssistantConversations((current) => ({
+      ...current,
+      [activeRepository.path]: createEmptyRepositoryAssistantConversationState(),
+    }));
+  };
+
+  const handleSubmitAssistantConversation = (): void => {
+    if (!activeRepository || !activeRepositoryAssistantConversation) {
+      return;
+    }
+
+    if (!appConfig?.openAiToken.trim()) {
+      const message = "AI sidebar には Config の OpenAI token が必要です。";
+      setRepositoryAssistantConversations((current) => ({
+        ...current,
+        [activeRepository.path]: {
+          ...getRepositoryAssistantConversationState(current, activeRepository.path),
+          error: message,
+        },
+      }));
+      setNotice(message);
+      return;
+    }
+
+    const repoPath = activeRepository.path;
+    const draft = activeRepositoryAssistantConversation.draft.trim();
+    if (!draft || activeRepositoryAssistantConversation.pending) {
+      return;
+    }
+
+    const userMessage = createRepositoryAssistantMessage("user", draft);
+    const nextMessages = [...activeRepositoryAssistantConversation.messages, userMessage];
+
+    setRepositoryAssistantConversations((current) => ({
+      ...current,
+      [repoPath]: {
+        ...getRepositoryAssistantConversationState(current, repoPath),
+        messages: nextMessages,
+        draft: "",
+        pending: true,
+        error: null,
+      },
+    }));
+
+    void api
+      .chatWithRepositoryAssistant(repoPath, nextMessages)
+      .then((response) => {
+        setRepositoryAssistantConversations((current) => ({
+          ...current,
+          [repoPath]: {
+            ...getRepositoryAssistantConversationState(current, repoPath),
+            messages: [...nextMessages, response.message],
+            pending: false,
+            error: null,
+          },
+        }));
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "AI chat への問い合わせに失敗しました。";
+        setRepositoryAssistantConversations((current) => ({
+          ...current,
+          [repoPath]: {
+            ...getRepositoryAssistantConversationState(current, repoPath),
+            messages: nextMessages,
+            pending: false,
+            error: message,
+          },
+        }));
+        setNotice(message);
+      });
+  };
+
   return (
     <main className="app-shell">
       <header className="app-tabbar">
@@ -419,6 +603,30 @@ export default function App(): JSX.Element {
           </div>
 
           <div className="app-tabbar__actions">
+            <button
+              type="button"
+              className="app-toolbar-button"
+              aria-label="Command Palette"
+              title="Command Palette (Cmd/Ctrl + P)"
+              disabled={!activeRepository}
+              onClick={handleOpenCommandPalette}
+            >
+              <Search size={16} />
+              <span className="app-toolbar-button__label">Palette</span>
+              <span className="app-toolbar-button__shortcut">Cmd + P</span>
+            </button>
+            <button
+              type="button"
+              className={`app-toolbar-button ${isRepositoryAssistantOpen ? "is-active" : ""}`}
+              aria-label="AI sidebar"
+              title="AI sidebar (Cmd/Ctrl + I)"
+              disabled={!activeRepository}
+              onClick={() => setRepositoryAssistantOpen((current) => !current)}
+            >
+              <Bot size={16} />
+              <span className="app-toolbar-button__label">Assistant</span>
+              <span className="app-toolbar-button__shortcut">Cmd + I</span>
+            </button>
             <label
               className="app-theme-picker app-tab--utility"
               title={`Theme: ${activeThemeLabel}`}
@@ -465,53 +673,78 @@ export default function App(): JSX.Element {
         </div>
       </header>
 
-      <div className="app-view-stack">
-        <section className="h-full" hidden={!isDashboardActive} aria-hidden={!isDashboardActive}>
-          <DashboardView
-            repositories={repositories}
-            query={query}
-            loading={loadingRepositories}
-            onQueryChange={setQuery}
-            onSelectRepository={handleSelectRepository}
-          />
-        </section>
-
-        {openRepositories.map((repository) => {
-          const tabId = getRepositoryTabId(repository.path);
-          const isActive = activeTabId === tabId;
-
-          return (
-            <section
-              key={repository.path}
-              className="h-full"
-              hidden={!isActive}
-              aria-hidden={!isActive}
-            >
-              <ControllerView
-                repository={repository}
-                appConfig={appConfig}
-                appThemeId={appTheme}
-                onNotify={setNotice}
-                onCurrentBranchChange={handleRepositoryBranchChange}
-                active={isActive}
-                repositoryGithubUrl={isActive ? githubButtonUrl : null}
-              />
-            </section>
-          );
-        })}
-
-        {isConfigActive || hasVisitedConfig ? (
-          <section className="h-full" hidden={!isConfigActive} aria-hidden={!isConfigActive}>
-            <ConfigView
-              config={appConfig}
-              onNotify={setNotice}
-              onAiGenerationConfigChange={setAiGenerationConfig}
-              onConfigSaved={(config) => {
-                setAppConfig(config);
-                setAiGenerationConfig(pickAiGenerationConfig(config));
-              }}
+      <div
+        className={`app-content-shell ${
+          isRepositoryAssistantOpen && activeRepository ? "is-assistant-open" : ""
+        }`}
+      >
+        <div className="app-view-stack">
+          <section className="h-full" hidden={!isDashboardActive} aria-hidden={!isDashboardActive}>
+            <DashboardView
+              repositories={repositories}
+              query={query}
+              loading={loadingRepositories}
+              onQueryChange={setQuery}
+              onSelectRepository={handleSelectRepository}
             />
           </section>
+
+          {openRepositories.map((repository) => {
+            const tabId = getRepositoryTabId(repository.path);
+            const isActive = activeTabId === tabId;
+
+            return (
+              <section
+                key={repository.path}
+                className="h-full"
+                hidden={!isActive}
+                aria-hidden={!isActive}
+              >
+                <ControllerView
+                  repository={repository}
+                  appConfig={appConfig}
+                  appThemeId={appTheme}
+                  onNotify={setNotice}
+                  onCurrentBranchChange={handleRepositoryBranchChange}
+                  active={isActive}
+                  repositoryGithubUrl={isActive ? githubButtonUrl : null}
+                  commandPaletteOpenRequestId={commandPaletteOpenRequestId}
+                />
+              </section>
+            );
+          })}
+
+          {isConfigActive || hasVisitedConfig ? (
+            <section className="h-full" hidden={!isConfigActive} aria-hidden={!isConfigActive}>
+              <ConfigView
+                config={appConfig}
+                onNotify={setNotice}
+                onAiGenerationConfigChange={setAiGenerationConfig}
+                onConfigSaved={(config) => {
+                  setAppConfig(config);
+                  setAiGenerationConfig(pickAiGenerationConfig(config));
+                }}
+              />
+            </section>
+          ) : null}
+        </div>
+
+        {activeRepository && isRepositoryAssistantOpen && activeRepositoryAssistantConversation ? (
+          <RepositoryAssistantSidebar
+            repository={activeRepository}
+            messages={activeRepositoryAssistantConversation.messages}
+            draft={activeRepositoryAssistantConversation.draft}
+            pending={activeRepositoryAssistantConversation.pending}
+            error={
+              appConfig?.openAiToken.trim()
+                ? activeRepositoryAssistantConversation.error
+                : "AI sidebar には Config の OpenAI token が必要です。"
+            }
+            onDraftChange={handleAssistantDraftChange}
+            onSubmit={handleSubmitAssistantConversation}
+            onClearConversation={handleClearAssistantConversation}
+            onClose={() => setRepositoryAssistantOpen(false)}
+          />
         ) : null}
       </div>
 

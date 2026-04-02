@@ -21,13 +21,18 @@ describe("createAiRouter", () => {
     }));
 
     await expect(
-      invokeJsonRoute(createAiRouter({ aiService: { generateCommitTitle }, readConfig, getDiffSnippet }), "post", "/api/generate-title", {
-        body: {
-          repoPath: "/tmp/repo",
-          changedFiles: ["src/App.tsx"],
-          selectedAiProvider: "claudeCode",
+      invokeJsonRoute(
+        createAiRouter({ aiService: { generateCommitTitle }, readConfig, getDiffSnippet }),
+        "post",
+        "/api/generate-title",
+        {
+          body: {
+            repoPath: "/tmp/repo",
+            changedFiles: ["src/App.tsx"],
+            selectedAiProvider: "claudeCode",
+          },
         },
-      }),
+      ),
     ).resolves.toEqual({
       statusCode: 200,
       body: {
@@ -46,6 +51,61 @@ describe("createAiRouter", () => {
       commitTitlePrompt: "config prompt",
       changedFiles: ["src/App.tsx"],
       diffSnippet: "+ diff",
+    });
+  });
+
+  test("delegates repository assistant chat to the injected assistant generator", async () => {
+    const readConfig = mock(async () => ({
+      ...DEFAULT_APP_CONFIG,
+      openAiToken: "sk-config-token",
+      openAiModel: "gpt-4.1-mini",
+    }));
+    const generateRepositoryAssistantReply = mock(async () => "Check the conflicted files first.");
+
+    const result = await invokeJsonRoute(
+      createAiRouter({
+        readConfig,
+        generateRepositoryAssistantReply,
+      }),
+      "post",
+      "/api/ai/chat",
+      {
+        body: {
+          repoPath: "/tmp/repo",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "What should I do next?",
+              createdAt: "2026-04-03T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toEqual({
+      message: {
+        id: expect.any(String),
+        role: "assistant",
+        content: "Check the conflicted files first.",
+        createdAt: expect.any(String),
+      },
+    });
+    expect(readConfig).toHaveBeenCalledTimes(1);
+    expect(generateRepositoryAssistantReply).toHaveBeenCalledWith({
+      repoPath: "/tmp/repo",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "What should I do next?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      openAiToken: "sk-config-token",
+      openAiModel: "gpt-4.1-mini",
     });
   });
 });

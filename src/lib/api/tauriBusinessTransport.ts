@@ -248,5 +248,14 @@ export function createTauriBusinessTransport(): BusinessTransport {
         },
       });
     },
+
+    chatWithRepositoryAssistant(repoPath, messages) {
+      return invokeCommand("chat_with_repository_assistant", {
+        input: {
+          repoPath,
+          messages,
+        },
+      });
+    },
   };
 }

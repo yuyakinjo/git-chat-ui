@@ -33,6 +33,19 @@ describe("globals.css", () => {
     expect(tabbarSection).toContain("padding: 10px 12px 0;");
   });
 
+  test("app shell defines toolbar buttons and a right-side assistant layout", () => {
+    const tabbarSection = getSection(".app-tabbar {", ".panel {");
+
+    expect(tabbarSection).toContain(".app-toolbar-button {");
+    expect(tabbarSection).toContain(".app-toolbar-button__shortcut {");
+    expect(tabbarSection).toContain(".app-content-shell {");
+    expect(tabbarSection).toContain(".app-content-shell.is-assistant-open {");
+    expect(tabbarSection).toContain("grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);");
+    expect(globalsCss).toContain("@media (max-width: 1100px) {");
+    expect(globalsCss).toContain(".app-content-shell.is-assistant-open {");
+    expect(globalsCss).toContain("grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);");
+  });
+
   test("app tabbar uses a segmented repository selector instead of browser-style tabs", () => {
     const tabbarSection = getSection(".app-tabbar {", ".panel {");
 
@@ -200,6 +213,17 @@ describe("globals.css", () => {
     expect(commandPaletteSection).not.toContain(".command-palette__eyebrow {");
     expect(commandPaletteSection).not.toContain(".command-palette__shortcut {");
     expect(commandPaletteSection).not.toContain(".command-palette__footer {");
+  });
+
+  test("repository assistant styles separate thread, messages, and composer", () => {
+    const assistantSection = getSection(".repository-assistant {", ".button {");
+
+    expect(assistantSection).toContain(".repository-assistant__thread {");
+    expect(assistantSection).toContain(".repository-assistant__message {");
+    expect(assistantSection).toContain(".repository-assistant__message--assistant {");
+    expect(assistantSection).toContain(".repository-assistant__composer {");
+    expect(assistantSection).toContain(".repository-assistant__textarea {");
+    expect(assistantSection).toContain("@keyframes repository-assistant-spin {");
   });
 
   test("branch rows expose dedicated local and remote icon styles with dark-mode overrides", () => {

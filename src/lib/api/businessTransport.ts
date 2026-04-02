@@ -18,6 +18,8 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantMessage,
+  RepositoryAssistantResponse,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -143,4 +145,8 @@ export interface BusinessTransport {
     changedFiles: string[],
     input?: Partial<AiGenerationConfig>,
   ): Promise<GeneratedCommitMessage>;
+  chatWithRepositoryAssistant(
+    repoPath: string,
+    messages: RepositoryAssistantMessage[],
+  ): Promise<RepositoryAssistantResponse>;
 }

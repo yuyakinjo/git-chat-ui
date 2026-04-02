@@ -1,5 +1,10 @@
 export type { AiProvider } from "../shared/ai.js";
 export type { AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
+export type {
+  RepositoryAssistantMessage,
+  RepositoryAssistantMessageRole,
+  RepositoryAssistantResponse,
+} from "../shared/repositoryAssistant.js";
 
 export interface Repository {
   name: string;

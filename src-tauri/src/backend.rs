@@ -32,8 +32,12 @@ const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 const NO_STAGED_CHANGES_ERROR: &str =
     "No staged changes are available for commit message generation.";
 const NO_AI_PROVIDER_ERROR: &str = "No AI provider is configured for commit message generation.";
+const REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR: &str =
+    "AI sidebar requires an OpenAI token in Config.";
 const COMMIT_AVATAR_HISTORY_LIMIT: usize = 100;
 const COMMIT_AVATAR_SIZE: usize = 72;
+const MAX_REPOSITORY_ASSISTANT_MESSAGES: usize = 12;
+const MAX_REPOSITORY_ASSISTANT_LIST_ITEMS: usize = 8;
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
@@ -582,6 +586,44 @@ pub struct GenerateTitleInput {
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RepositoryAssistantMessageRole {
+    User,
+    Assistant,
+}
+
+impl RepositoryAssistantMessageRole {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantMessage {
+    pub id: String,
+    pub role: RepositoryAssistantMessageRole,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWithRepositoryAssistantInput {
+    pub repo_path: String,
+    pub messages: Vec<RepositoryAssistantMessage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantResponse {
+    pub message: RepositoryAssistantMessage,
 }
 
 #[derive(Debug, Clone)]
@@ -3594,6 +3636,247 @@ fn generate_with_claude(
     }
 }
 
+fn current_timestamp_millis() -> String {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis().to_string(),
+        Err(_) => "0".to_string(),
+    }
+}
+
+fn create_repository_assistant_message_id() -> String {
+    format!(
+        "assistant-{}-{}",
+        std::process::id(),
+        current_timestamp_millis()
+    )
+}
+
+fn format_repository_assistant_working_files(items: &[WorkingFile], empty_label: &str) -> String {
+    if items.is_empty() {
+        return empty_label.to_string();
+    }
+
+    let visible_items = items
+        .iter()
+        .take(MAX_REPOSITORY_ASSISTANT_LIST_ITEMS)
+        .map(|item| format!("{} ({})", item.file, item.status_label))
+        .collect::<Vec<_>>();
+    let remainder = items.len().saturating_sub(visible_items.len());
+
+    if remainder > 0 {
+        format!("{}, +{} more", visible_items.join(", "), remainder)
+    } else {
+        visible_items.join(", ")
+    }
+}
+
+fn format_repository_assistant_branch_names(branches: &[Branch], empty_label: &str) -> String {
+    if branches.is_empty() {
+        return empty_label.to_string();
+    }
+
+    let visible_items = branches
+        .iter()
+        .take(MAX_REPOSITORY_ASSISTANT_LIST_ITEMS)
+        .map(|branch| branch.name.clone())
+        .collect::<Vec<_>>();
+    let remainder = branches.len().saturating_sub(visible_items.len());
+
+    if remainder > 0 {
+        format!("{}, +{} more", visible_items.join(", "), remainder)
+    } else {
+        visible_items.join(", ")
+    }
+}
+
+fn format_repository_assistant_commits(commits: &[CommitListItem]) -> String {
+    if commits.is_empty() {
+        return "No recent commits were loaded.".to_string();
+    }
+
+    commits
+        .iter()
+        .take(6)
+        .map(|commit| {
+            let short_sha: String = commit.sha.chars().take(7).collect();
+            format!("- {} {} ({})", short_sha, commit.subject, commit.author)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn build_repository_assistant_context(repo_path: &str) -> Result<String, String> {
+    let branches = get_branches(repo_path.to_string())?;
+    let working_tree_status = get_working_tree_status(repo_path.to_string())?;
+    let pull_status = get_pull_status(repo_path.to_string(), None).ok();
+    let recent_commits = get_commits(repo_path.to_string(), None, None, 0, 6)?;
+    let conflict_summary = get_conflict_summary(repo_path.to_string(), None).ok();
+
+    let pull_line = match pull_status {
+        Some(status) => match status.branch_name.as_deref() {
+            Some(branch_name) => format!(
+                "{} is {}{} (ahead {}, behind {}).",
+                branch_name,
+                status.state,
+                status
+                    .upstream_name
+                    .as_deref()
+                    .map(|upstream| format!(" against {}", upstream))
+                    .unwrap_or_default(),
+                status.ahead_count,
+                status.behind_count
+            ),
+            None => "Pull status is unavailable or detached.".to_string(),
+        },
+        None => "Pull status is unavailable or detached.".to_string(),
+    };
+
+    let conflict_line = match conflict_summary {
+        Some(summary) if !summary.files.is_empty() => format!(
+            "{} conflicted files during {}{}: {}",
+            summary.files.len(),
+            match summary.operation {
+                ConflictOperation::Merge => "merge",
+                ConflictOperation::Pull => "pull",
+                ConflictOperation::StashApply => "stashApply",
+                ConflictOperation::StashPop => "stashPop",
+                ConflictOperation::Unknown => "unknown",
+            },
+            match (&summary.source_branch, &summary.target_branch) {
+                (Some(source), Some(target)) => format!(" ({} -> {})", source, target),
+                _ => String::new(),
+            },
+            format_repository_assistant_working_files(&summary.files, "none")
+        ),
+        _ => "No active conflicts.".to_string(),
+    };
+
+    Ok([
+        format!("Repository path: {}", repo_path),
+        format!("Checked out branch: {}", branches.current),
+        format!(
+            "Local branches: {}",
+            format_repository_assistant_branch_names(&branches.local, "none")
+        ),
+        format!(
+            "Remote branches: {}",
+            format_repository_assistant_branch_names(&branches.remote, "none")
+        ),
+        format!("Pull status: {}", pull_line),
+        format!("Conflicts: {}", conflict_line),
+        format!(
+            "Staged files ({}): {}",
+            working_tree_status.staged.len(),
+            format_repository_assistant_working_files(&working_tree_status.staged, "none")
+        ),
+        format!(
+            "Unstaged files ({}): {}",
+            working_tree_status.unstaged.len(),
+            format_repository_assistant_working_files(&working_tree_status.unstaged, "none")
+        ),
+        format!(
+            "Recent commits:\n{}",
+            format_repository_assistant_commits(&recent_commits.commits)
+        ),
+    ]
+    .join("\n"))
+}
+
+fn build_repository_assistant_system_prompt(context: &str) -> String {
+    [
+        "You are Git Chat UI's repository assistant.",
+        "Help the user understand and plan Git operations for the current repository.",
+        "Be concrete, operational, and concise.",
+        "Prefer the safest next action and call out destructive or conflict-prone steps.",
+        "If the repository state is ambiguous, say what additional detail is needed.",
+        "Do not invent repository state beyond the provided context.",
+        "Repository context:",
+        context,
+    ]
+    .join("\n\n")
+}
+
+fn normalize_repository_assistant_messages(
+    messages: &[RepositoryAssistantMessage],
+) -> Vec<RepositoryAssistantMessage> {
+    let mut normalized = messages
+        .iter()
+        .filter(|message| !message.content.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    if normalized.len() > MAX_REPOSITORY_ASSISTANT_MESSAGES {
+        normalized.drain(0..(normalized.len() - MAX_REPOSITORY_ASSISTANT_MESSAGES));
+    }
+
+    normalized
+}
+
+fn chat_with_openai(
+    token: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[RepositoryAssistantMessage],
+) -> Result<String, String> {
+    let normalized_token = token.trim();
+    if normalized_token.is_empty() {
+        return Err(REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR.to_string());
+    }
+
+    let normalized_messages = normalize_repository_assistant_messages(messages);
+    if normalized_messages.is_empty() {
+        return Err("messages must include at least one non-empty user message.".to_string());
+    }
+
+    let input_messages = normalized_messages
+        .iter()
+        .map(|message| {
+            json!({
+                "role": message.role.as_str(),
+                "content": message.content.trim(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut input = vec![json!({
+        "role": "system",
+        "content": system_prompt
+    })];
+    input.extend(input_messages);
+
+    let Some(json) = run_curl_json(
+        "https://api.openai.com/v1/responses",
+        &[
+            format!("Authorization: Bearer {normalized_token}"),
+            "Content-Type: application/json".to_string(),
+        ],
+        json!({
+            "model": resolve_open_ai_model(model),
+            "temperature": 0.2,
+            "max_output_tokens": 900,
+            "input": input
+        }),
+    ) else {
+        return Err("OpenAI request failed.".to_string());
+    };
+
+    if let Some(text) = json.get("output_text").and_then(Value::as_str) {
+        if !text.trim().is_empty() {
+            return Ok(text.trim().to_string());
+        }
+    }
+
+    json.get("output")
+        .and_then(Value::as_array)
+        .and_then(|output| output.first())
+        .and_then(|first| first.get("content"))
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| "OpenAI API returned no text.".to_string())
+}
+
 fn generate_commit_title_internal(
     config: &AppConfig,
     changed_files: &[String],
@@ -5550,6 +5833,37 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
     };
     let diff_snippet = get_diff_snippet(&input.repo_path, &input.changed_files)?;
     generate_commit_title_internal(&config, &input.changed_files, &diff_snippet)
+}
+
+#[tauri::command]
+pub fn chat_with_repository_assistant(
+    input: ChatWithRepositoryAssistantInput,
+) -> Result<RepositoryAssistantResponse, String> {
+    ensure_repo_path(&input.repo_path)?;
+
+    let config = read_config()?;
+    if config.open_ai_token.trim().is_empty() {
+        return Err(REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR.to_string());
+    }
+
+    let system_prompt = build_repository_assistant_system_prompt(
+        &build_repository_assistant_context(&input.repo_path)?,
+    );
+    let message = chat_with_openai(
+        &config.open_ai_token,
+        &config.open_ai_model,
+        &system_prompt,
+        &input.messages,
+    )?;
+
+    Ok(RepositoryAssistantResponse {
+        message: RepositoryAssistantMessage {
+            id: create_repository_assistant_message_id(),
+            role: RepositoryAssistantMessageRole::Assistant,
+            content: message,
+            created_at: current_timestamp_millis(),
+        },
+    })
 }
 
 #[cfg(test)]

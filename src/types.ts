@@ -5,6 +5,11 @@ export type {
   TokenValidationResult,
 } from "../shared/ai.js";
 export type {
+  RepositoryAssistantMessage,
+  RepositoryAssistantMessageRole,
+  RepositoryAssistantResponse,
+} from "../shared/repositoryAssistant.js";
+export type {
   AiGenerationConfig,
   AppConfig,
   CommitGraphMode,

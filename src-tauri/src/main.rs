@@ -66,7 +66,8 @@ fn main() {
             backend::validate_open_ai_token,
             backend::get_open_ai_models,
             backend::validate_claude_code_token,
-            backend::generate_title
+            backend::generate_title,
+            backend::chat_with_repository_assistant
         ])
         .run(tauri::generate_context!())
         .expect("failed to run app");

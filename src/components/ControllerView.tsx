@@ -72,6 +72,7 @@ interface ControllerViewProps {
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
   active?: boolean;
   repositoryGithubUrl?: string | null;
+  commandPaletteOpenRequestId?: number;
 }
 
 type CommitMessageGenerationState =
@@ -89,6 +90,7 @@ export function ControllerView({
   onCurrentBranchChange,
   active = false,
   repositoryGithubUrl = null,
+  commandPaletteOpenRequestId = 0,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -108,6 +110,7 @@ export function ControllerView({
     {},
   );
   const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
   const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
@@ -471,6 +474,20 @@ export function ControllerView({
 
     setCommandPaletteOpen(false);
   }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
+      return;
+    }
+
+    if (commandPaletteOpenRequestId === lastHandledCommandPaletteOpenRequestIdRef.current) {
+      return;
+    }
+
+    lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
+    setCommandPaletteOpen(true);
+  }, [active, commandPaletteOpenRequestId]);
 
   useEffect(() => {
     if (!active || typeof window === "undefined") {

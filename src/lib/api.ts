@@ -19,6 +19,8 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantMessage,
+  RepositoryAssistantResponse,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -319,5 +321,12 @@ export const api = {
     input?: Partial<AiGenerationConfig>,
   ): Promise<GeneratedCommitMessage> {
     return getBusinessTransport().generateCommitMessage(repoPath, changedFiles, input);
+  },
+
+  chatWithRepositoryAssistant(
+    repoPath: string,
+    messages: RepositoryAssistantMessage[],
+  ): Promise<RepositoryAssistantResponse> {
+    return getBusinessTransport().chatWithRepositoryAssistant(repoPath, messages);
   },
 };

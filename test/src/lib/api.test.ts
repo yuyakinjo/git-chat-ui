@@ -46,6 +46,57 @@ describe("api.generateCommitMessage", () => {
   });
 });
 
+describe("api.chatWithRepositoryAssistant", () => {
+  test("posts repository chat messages to the AI chat endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Start by checking the conflicted files.",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.chatWithRepositoryAssistant("/tmp/repo", [
+      {
+        id: "user-1",
+        role: "user",
+        content: "What should I do next?",
+        createdAt: "2026-04-03T00:00:00.000Z",
+      },
+    ]);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/ai/chat");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "What should I do next?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+});
+
 describe("api.health", () => {
   test("uses the HTTP business transport on web", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];

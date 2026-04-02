@@ -45,6 +45,14 @@ describe("api in Tauri", () => {
       selectedAiProvider: "claudeCode",
       commitTitlePrompt: "Write a short Japanese commit message.",
     });
+    await api.chatWithRepositoryAssistant("/tmp/repo", [
+      {
+        id: "user-1",
+        role: "user",
+        content: "How should I resolve this branch state?",
+        createdAt: "2026-04-03T00:00:00.000Z",
+      },
+    ]);
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
@@ -68,7 +76,20 @@ describe("api in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(5, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "chat_with_repository_assistant", {
+      input: {
+        repoPath: "/tmp/repo",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: "How should I resolve this branch state?",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });
