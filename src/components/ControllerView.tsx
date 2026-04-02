@@ -39,6 +39,7 @@ import { CommitGraph } from "./CommitGraph";
 import { ConflictOverlay } from "./ConflictOverlay";
 import { GitOperationPanel } from "./GitOperationPanel";
 import { StashDiffOverlay } from "./StashDiffOverlay";
+import { StashDeleteDialog } from "./StashDeleteDialog";
 import { StashRenameDialog } from "./StashRenameDialog";
 import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
@@ -699,7 +700,7 @@ export function ControllerView({
           }}
           onRequestRenameStash={branchOps.handleRequestRenameStash}
           onRequestDeleteStash={(stash) => {
-            void branchOps.handleDeleteStash(stash);
+            branchOps.handleRequestDeleteStash(stash);
           }}
           onRequestApplyStash={(stash) => {
             void branchOps.handleApplyStash(stash);
@@ -909,6 +910,18 @@ export function ControllerView({
           onClose={() => branchOps.setStashRenameTarget(null)}
           onRename={(message) => {
             void branchOps.handleRenameStash(message);
+          }}
+        />
+      ) : null}
+
+      {branchOps.stashDeleteTarget ? (
+        <StashDeleteDialog
+          stashId={branchOps.stashDeleteTarget.id}
+          message={branchOps.stashDeleteTarget.message}
+          busy={data.operationBusy}
+          onClose={() => branchOps.setStashDeleteTarget(null)}
+          onDelete={() => {
+            void branchOps.handleDeleteStash();
           }}
         />
       ) : null}
