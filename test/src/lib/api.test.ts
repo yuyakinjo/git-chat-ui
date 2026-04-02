@@ -3,6 +3,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { api } from "../../../src/lib/api";
 
 const originalFetch = globalThis.fetch;
+const repositoryAssistantSettings = {
+  openAiModel: "gpt-4.1-mini",
+  reasoningEffort: "medium" as const,
+};
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -72,14 +76,18 @@ describe("api.chatWithRepositoryAssistant", () => {
       );
     }) as unknown as typeof fetch;
 
-    await api.chatWithRepositoryAssistant("/tmp/repo", [
-      {
-        id: "user-1",
-        role: "user",
-        content: "What should I do next?",
-        createdAt: "2026-04-03T00:00:00.000Z",
-      },
-    ]);
+    await api.chatWithRepositoryAssistant(
+      "/tmp/repo",
+      [
+        {
+          id: "user-1",
+          role: "user",
+          content: "What should I do next?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      repositoryAssistantSettings,
+    );
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("http://localhost:4141/api/ai/chat");
@@ -93,6 +101,8 @@ describe("api.chatWithRepositoryAssistant", () => {
           createdAt: "2026-04-03T00:00:00.000Z",
         },
       ],
+      openAiModel: "gpt-4.1-mini",
+      reasoningEffort: "medium",
     });
   });
 });

@@ -20,6 +20,7 @@ import type {
   PullRequestResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -148,5 +149,6 @@ export interface BusinessTransport {
   chatWithRepositoryAssistant(
     repoPath: string,
     messages: RepositoryAssistantMessage[],
+    settings: RepositoryAssistantSettings,
   ): Promise<RepositoryAssistantResponse>;
 }

@@ -1,6 +1,7 @@
 export type {
   AiProvider,
   GeneratedCommitMessage,
+  OpenAiReasoningEffort,
   OpenAiModelsResponse,
   TokenValidationResult,
 } from "../shared/ai.js";
@@ -8,6 +9,7 @@ export type {
   RepositoryAssistantMessage,
   RepositoryAssistantMessageRole,
   RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
 } from "../shared/repositoryAssistant.js";
 export type {
   AiGenerationConfig,

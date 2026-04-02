@@ -23,7 +23,8 @@ describe("controllerPanelLayout", () => {
 
   test("splits commit detail only when the panel is wide enough", () => {
     expect(shouldSplitCommitDetailPanel(880)).toBe(false);
-    expect(shouldSplitCommitDetailPanel(980)).toBe(true);
+    expect(shouldSplitCommitDetailPanel(1120)).toBe(false);
+    expect(shouldSplitCommitDetailPanel(1180)).toBe(true);
   });
 
   test("keeps git operations visible until the working tree status has loaded", () => {

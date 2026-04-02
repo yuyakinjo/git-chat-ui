@@ -226,6 +226,16 @@ describe("globals.css", () => {
     expect(assistantSection).toContain("@keyframes repository-assistant-spin {");
   });
 
+  test("commit detail split layout only uses wide two-column tracks", () => {
+    const commitDetailSection = getSection(".commit-detail-panel__content {", ".list-item {");
+
+    expect(commitDetailSection).toContain(".commit-detail-panel__content--split {");
+    expect(commitDetailSection).toContain("align-items: start;");
+    expect(commitDetailSection).toContain(
+      "grid-template-columns: minmax(320px, 0.82fr) minmax(460px, 1.18fr);",
+    );
+  });
+
   test("branch rows expose dedicated local and remote icon styles with dark-mode overrides", () => {
     const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
 

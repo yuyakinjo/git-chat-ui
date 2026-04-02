@@ -249,11 +249,12 @@ export function createTauriBusinessTransport(): BusinessTransport {
       });
     },
 
-    chatWithRepositoryAssistant(repoPath, messages) {
+    chatWithRepositoryAssistant(repoPath, messages, settings) {
       return invokeCommand("chat_with_repository_assistant", {
         input: {
           repoPath,
           messages,
+          ...settings,
         },
       });
     },

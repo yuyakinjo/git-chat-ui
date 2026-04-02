@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText } from "ai";
 
+import { normalizeOpenAiReasoningEffort, type OpenAiReasoningEffort } from "../../shared/ai.js";
 import {
   getBranches,
   getCommits,
@@ -143,11 +144,13 @@ export async function generateRepositoryAssistantReply({
   messages,
   openAiToken,
   openAiModel,
+  reasoningEffort,
 }: {
   repoPath: string;
   messages: RepositoryAssistantMessage[];
   openAiToken: string;
   openAiModel: string;
+  reasoningEffort?: OpenAiReasoningEffort | string;
 }): Promise<string> {
   const normalizedMessages = normalizeMessages(messages);
   if (normalizedMessages.length === 0) {
@@ -162,6 +165,7 @@ export async function generateRepositoryAssistantReply({
   const provider = createOpenAI({
     apiKey: normalizedToken,
   });
+  const normalizedReasoningEffort = normalizeOpenAiReasoningEffort(reasoningEffort);
 
   const systemPrompt = buildRepositoryAssistantSystemPrompt(await buildRepositoryContext(repoPath));
   const response = await generateText({
@@ -170,6 +174,15 @@ export async function generateRepositoryAssistantReply({
     messages: normalizedMessages,
     temperature: 0.2,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
+    ...(normalizedReasoningEffort !== "default"
+      ? {
+          providerOptions: {
+            openai: {
+              reasoningEffort: normalizedReasoningEffort,
+            },
+          },
+        }
+      : {}),
   });
 
   const text = response.text.trim();

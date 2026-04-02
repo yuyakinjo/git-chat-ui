@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const originalWindow = globalThis.window;
+const repositoryAssistantSettings = {
+  openAiModel: "gpt-4.1-mini",
+  reasoningEffort: "medium" as const,
+};
 
 afterEach(() => {
   mock.restore();
@@ -45,14 +49,18 @@ describe("api in Tauri", () => {
       selectedAiProvider: "claudeCode",
       commitTitlePrompt: "Write a short Japanese commit message.",
     });
-    await api.chatWithRepositoryAssistant("/tmp/repo", [
-      {
-        id: "user-1",
-        role: "user",
-        content: "How should I resolve this branch state?",
-        createdAt: "2026-04-03T00:00:00.000Z",
-      },
-    ]);
+    await api.chatWithRepositoryAssistant(
+      "/tmp/repo",
+      [
+        {
+          id: "user-1",
+          role: "user",
+          content: "How should I resolve this branch state?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      repositoryAssistantSettings,
+    );
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
@@ -87,6 +95,8 @@ describe("api in Tauri", () => {
             createdAt: "2026-04-03T00:00:00.000Z",
           },
         ],
+        openAiModel: "gpt-4.1-mini",
+        reasoningEffort: "medium",
       },
     });
     expect(invokeMock).toHaveBeenNthCalledWith(6, "discard_file", {

@@ -40,14 +40,18 @@ import {
 } from "./lib/sessionInit";
 import {
   createRepositoryAssistantMessage,
+  createDefaultRepositoryAssistantSettings,
   isEditableShortcutTarget,
   isRepositoryAssistantShortcut,
+  normalizeRepositoryAssistantSettings,
+  REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY,
 } from "./lib/repositoryAssistant";
 import type {
   AiGenerationConfig,
   AppConfig,
   Repository,
   RepositoryAssistantMessage,
+  RepositoryAssistantSettings,
 } from "./types";
 
 interface RepositoryAssistantConversationState {
@@ -96,6 +100,8 @@ export default function App(): JSX.Element {
   const [repositoryAssistantConversations, setRepositoryAssistantConversations] = useState<
     Record<string, RepositoryAssistantConversationState>
   >({});
+  const [repositoryAssistantSettings, setRepositoryAssistantSettings] =
+    useState<RepositoryAssistantSettings>(() => createDefaultRepositoryAssistantSettings(null));
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -232,6 +238,29 @@ export default function App(): JSX.Element {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !appConfig) {
+      return;
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY);
+      const parsedValue = storedValue ? JSON.parse(storedValue) : null;
+      setRepositoryAssistantSettings((current) => {
+        const normalized = normalizeRepositoryAssistantSettings(parsedValue, appConfig.openAiModel);
+
+        return current.openAiModel === normalized.openAiModel &&
+          current.reasoningEffort === normalized.reasoningEffort
+          ? current
+          : normalized;
+      });
+    } catch {
+      setRepositoryAssistantSettings((current) =>
+        normalizeRepositoryAssistantSettings(current, appConfig.openAiModel),
+      );
+    }
+  }, [appConfig]);
 
   useEffect(() => {
     if (!activeRepository) {
@@ -391,6 +420,21 @@ export default function App(): JSX.Element {
     }
   }, [activeTabId, appTheme, hasInitializedSession, openRepositories]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY,
+        JSON.stringify(repositoryAssistantSettings),
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory settings.
+    }
+  }, [repositoryAssistantSettings]);
+
   const handleSelectRepository = (repository: Repository): void => {
     void api.markRecentRepository(repository.path);
     setOpenRepositories((current) => upsertRepositoryTab(current, repository));
@@ -513,7 +557,7 @@ export default function App(): JSX.Element {
     }));
 
     void api
-      .chatWithRepositoryAssistant(repoPath, nextMessages)
+      .chatWithRepositoryAssistant(repoPath, nextMessages, repositoryAssistantSettings)
       .then((response) => {
         setRepositoryAssistantConversations((current) => ({
           ...current,
@@ -732,6 +776,8 @@ export default function App(): JSX.Element {
         {activeRepository && isRepositoryAssistantOpen && activeRepositoryAssistantConversation ? (
           <RepositoryAssistantSidebar
             repository={activeRepository}
+            openAiToken={appConfig?.openAiToken ?? ""}
+            settings={repositoryAssistantSettings}
             messages={activeRepositoryAssistantConversation.messages}
             draft={activeRepositoryAssistantConversation.draft}
             pending={activeRepositoryAssistantConversation.pending}
@@ -740,6 +786,7 @@ export default function App(): JSX.Element {
                 ? activeRepositoryAssistantConversation.error
                 : "AI sidebar には Config の OpenAI token が必要です。"
             }
+            onSettingsChange={setRepositoryAssistantSettings}
             onDraftChange={handleAssistantDraftChange}
             onSubmit={handleSubmitAssistantConversation}
             onClearConversation={handleClearAssistantConversation}

@@ -3,6 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { RepositoryAssistantSidebar } from "../../../src/components/RepositoryAssistantSidebar";
 
+const repositoryAssistantSettings = {
+  openAiModel: "gpt-5.4",
+  reasoningEffort: "xhigh" as const,
+};
+
 describe("RepositoryAssistantSidebar", () => {
   test("renders an empty state with composer affordances", () => {
     const html = renderToStaticMarkup(
@@ -11,10 +16,13 @@ describe("RepositoryAssistantSidebar", () => {
           name: "git-chat-ui",
           path: "/tmp/git-chat-ui",
         }}
+        openAiToken=""
+        settings={repositoryAssistantSettings}
         messages={[]}
         draft=""
         pending={false}
         error={null}
+        onSettingsChange={() => {}}
         onDraftChange={() => {}}
         onSubmit={() => {}}
         onClearConversation={() => {}}
@@ -23,8 +31,15 @@ describe("RepositoryAssistantSidebar", () => {
     );
 
     expect(html).toContain("AI Repo Chat");
+    expect(html).toContain(
+      "branch / working tree / recent commits を見ながら Git 操作を整理します。",
+    );
     expect(html).toContain("複雑な Git 操作をここで相談できます。");
-    expect(html).toContain("Cmd/Ctrl + Enter で送信");
+    expect(html).toContain("Chat Model");
+    expect(html).toContain("推論の労力");
+    expect(html).toContain("モデル既定");
+    expect(html).toContain("非常に高い");
+    expect(html).not.toContain("Cmd/Ctrl + Enter で送信");
     expect(html).toContain('placeholder="複雑な branch 操作や conflict 対応を相談する"');
     expect(html).toContain(">Send</span>");
     expect(html).toContain("Clear conversation");
@@ -38,6 +53,8 @@ describe("RepositoryAssistantSidebar", () => {
           name: "git-chat-ui",
           path: "/tmp/git-chat-ui",
         }}
+        openAiToken=""
+        settings={repositoryAssistantSettings}
         messages={[
           {
             id: "user-1",
@@ -55,6 +72,7 @@ describe("RepositoryAssistantSidebar", () => {
         draft="What about rebasing after that?"
         pending
         error="AI sidebar には Config の OpenAI token が必要です。"
+        onSettingsChange={() => {}}
         onDraftChange={() => {}}
         onSubmit={() => {}}
         onClearConversation={() => {}}

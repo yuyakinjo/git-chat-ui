@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { normalizeOpenAiReasoningEffort } from "../../shared/ai.js";
 import { readConfig } from "../configStore.js";
 import { getDiffSnippet } from "../gitService.js";
 import { getAiService, type AiService } from "../ai/service.js";
@@ -85,11 +86,17 @@ export function createAiRouter({
           )
         : [];
       const config = await readConfigImpl();
+      const openAiModel =
+        typeof request.body.openAiModel === "string"
+          ? request.body.openAiModel
+          : config.openAiModel;
+      const reasoningEffort = normalizeOpenAiReasoningEffort(request.body.reasoningEffort);
       const assistantMessage = await generateRepositoryAssistantReplyImpl({
         repoPath,
         messages,
         openAiToken: config.openAiToken,
-        openAiModel: config.openAiModel,
+        openAiModel,
+        reasoningEffort,
       });
 
       const payload: RepositoryAssistantResponse = {

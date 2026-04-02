@@ -21,6 +21,7 @@ import type {
   PullRequestResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -326,7 +327,8 @@ export const api = {
   chatWithRepositoryAssistant(
     repoPath: string,
     messages: RepositoryAssistantMessage[],
+    settings: RepositoryAssistantSettings,
   ): Promise<RepositoryAssistantResponse> {
-    return getBusinessTransport().chatWithRepositoryAssistant(repoPath, messages);
+    return getBusinessTransport().chatWithRepositoryAssistant(repoPath, messages, settings);
   },
 };

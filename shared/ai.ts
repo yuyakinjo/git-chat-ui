@@ -1,4 +1,12 @@
 export type AiProvider = "openAi" | "claudeCode";
+export type OpenAiReasoningEffort =
+  | "default"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
 
 export interface GeneratedCommitMessage {
   title: string;
@@ -12,6 +20,16 @@ export interface TokenValidationResult {
 export interface OpenAiModelsResponse {
   models: string[];
 }
+
+export const OPENAI_REASONING_EFFORT_VALUES = [
+  "default",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const satisfies OpenAiReasoningEffort[];
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 
@@ -30,4 +48,15 @@ export const DEFAULT_COMMIT_TITLE_PROMPT = [
 export function resolveCommitTitlePrompt(prompt: string | null | undefined): string {
   const normalized = typeof prompt === "string" ? prompt.trim() : "";
   return normalized.length > 0 ? normalized : DEFAULT_COMMIT_TITLE_PROMPT;
+}
+
+export function isOpenAiReasoningEffort(value: unknown): value is OpenAiReasoningEffort {
+  return (
+    typeof value === "string" &&
+    OPENAI_REASONING_EFFORT_VALUES.includes(value as OpenAiReasoningEffort)
+  );
+}
+
+export function normalizeOpenAiReasoningEffort(value: unknown): OpenAiReasoningEffort {
+  return isOpenAiReasoningEffort(value) ? value : "default";
 }

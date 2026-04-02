@@ -1,3 +1,5 @@
+import type { OpenAiReasoningEffort } from "./ai.js";
+
 export type RepositoryAssistantMessageRole = "user" | "assistant";
 
 export interface RepositoryAssistantMessage {
@@ -9,4 +11,9 @@ export interface RepositoryAssistantMessage {
 
 export interface RepositoryAssistantResponse {
   message: RepositoryAssistantMessage;
+}
+
+export interface RepositoryAssistantSettings {
+  openAiModel: string;
+  reasoningEffort: OpenAiReasoningEffort;
 }

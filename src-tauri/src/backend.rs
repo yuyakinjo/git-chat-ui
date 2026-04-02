@@ -86,6 +86,39 @@ impl Default for AiProvider {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiReasoningEffort {
+    Default,
+    #[serde(rename = "none")]
+    NoneValue,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+}
+
+impl Default for OpenAiReasoningEffort {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl OpenAiReasoningEffort {
+    fn as_api_value(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::NoneValue => Some("none"),
+            Self::Minimal => Some("minimal"),
+            Self::Low => Some("low"),
+            Self::Medium => Some("medium"),
+            Self::High => Some("high"),
+            Self::Xhigh => Some("xhigh"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentRepository {
@@ -618,6 +651,10 @@ pub struct RepositoryAssistantMessage {
 pub struct ChatWithRepositoryAssistantInput {
     pub repo_path: String,
     pub messages: Vec<RepositoryAssistantMessage>,
+    #[serde(default)]
+    pub open_ai_model: String,
+    #[serde(default)]
+    pub reasoning_effort: OpenAiReasoningEffort,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3362,6 +3399,30 @@ fn resolve_open_ai_model(model: &str) -> String {
     }
 }
 
+fn is_open_ai_reasoning_model(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized.starts_with("gpt-5")
+        || normalized.starts_with("o1")
+        || normalized.starts_with("o3")
+        || normalized.starts_with("o4")
+}
+
+fn supports_non_reasoning_parameters_for_reasoning_model(model: &str) -> bool {
+    model.trim().to_ascii_lowercase().starts_with("gpt-5.1")
+}
+
+fn should_include_open_ai_temperature(
+    model: &str,
+    reasoning_effort: OpenAiReasoningEffort,
+) -> bool {
+    if !is_open_ai_reasoning_model(model) {
+        return true;
+    }
+
+    matches!(reasoning_effort, OpenAiReasoningEffort::NoneValue)
+        && supports_non_reasoning_parameters_for_reasoning_model(model)
+}
+
 fn sort_open_ai_model_ids(model_ids: Vec<String>) -> Vec<String> {
     let mut deduped = Vec::<String>::new();
 
@@ -3814,6 +3875,7 @@ fn normalize_repository_assistant_messages(
 fn chat_with_openai(
     token: &str,
     model: &str,
+    reasoning_effort: OpenAiReasoningEffort,
     system_prompt: &str,
     messages: &[RepositoryAssistantMessage],
 ) -> Result<String, String> {
@@ -3841,6 +3903,22 @@ fn chat_with_openai(
         "content": system_prompt
     })];
     input.extend(input_messages);
+    let resolved_model = resolve_open_ai_model(model);
+    let mut request_body = json!({
+        "model": resolved_model,
+        "max_output_tokens": 900,
+        "input": input
+    });
+
+    if should_include_open_ai_temperature(&resolved_model, reasoning_effort) {
+        request_body["temperature"] = json!(0.2);
+    }
+
+    if let Some(effort) = reasoning_effort.as_api_value() {
+        request_body["reasoning"] = json!({
+            "effort": effort
+        });
+    }
 
     let Some(json) = run_curl_json(
         "https://api.openai.com/v1/responses",
@@ -3848,12 +3926,7 @@ fn chat_with_openai(
             format!("Authorization: Bearer {normalized_token}"),
             "Content-Type: application/json".to_string(),
         ],
-        json!({
-            "model": resolve_open_ai_model(model),
-            "temperature": 0.2,
-            "max_output_tokens": 900,
-            "input": input
-        }),
+        request_body,
     ) else {
         return Err("OpenAI request failed.".to_string());
     };
@@ -5849,9 +5922,15 @@ pub fn chat_with_repository_assistant(
     let system_prompt = build_repository_assistant_system_prompt(
         &build_repository_assistant_context(&input.repo_path)?,
     );
+    let open_ai_model = if input.open_ai_model.trim().is_empty() {
+        config.open_ai_model.clone()
+    } else {
+        input.open_ai_model.clone()
+    };
     let message = chat_with_openai(
         &config.open_ai_token,
-        &config.open_ai_model,
+        &open_ai_model,
+        input.reasoning_effort,
         &system_prompt,
         &input.messages,
     )?;
@@ -6463,6 +6542,28 @@ mod tests {
     fn resolve_open_ai_model_uses_default_when_blank() {
         assert_eq!(resolve_open_ai_model("   "), DEFAULT_OPENAI_MODEL);
         assert_eq!(resolve_open_ai_model("gpt-4.1"), "gpt-4.1");
+    }
+
+    #[test]
+    fn open_ai_reasoning_effort_as_api_value_omits_default() {
+        assert_eq!(OpenAiReasoningEffort::Default.as_api_value(), None);
+        assert_eq!(OpenAiReasoningEffort::High.as_api_value(), Some("high"));
+    }
+
+    #[test]
+    fn should_include_open_ai_temperature_only_for_supported_models() {
+        assert!(should_include_open_ai_temperature(
+            "gpt-4.1-mini",
+            OpenAiReasoningEffort::Default
+        ));
+        assert!(!should_include_open_ai_temperature(
+            "gpt-5.4",
+            OpenAiReasoningEffort::Default
+        ));
+        assert!(should_include_open_ai_temperature(
+            "gpt-5.1",
+            OpenAiReasoningEffort::NoneValue
+        ));
     }
 
     #[test]

@@ -1,4 +1,11 @@
-import type { RepositoryAssistantMessage, RepositoryAssistantMessageRole } from "../types";
+import { DEFAULT_OPENAI_MODEL, normalizeOpenAiReasoningEffort } from "../../shared/ai.js";
+import type {
+  RepositoryAssistantMessage,
+  RepositoryAssistantMessageRole,
+  RepositoryAssistantSettings,
+} from "../types";
+
+const REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY = "git-chat-ui.repository-assistant-settings";
 
 interface RepositoryAssistantShortcutLike {
   key: string;
@@ -42,5 +49,39 @@ export function createRepositoryAssistantMessage(
     role,
     content: content.trim(),
     createdAt: new Date().toISOString(),
+  };
+}
+
+export { REPOSITORY_ASSISTANT_SETTINGS_STORAGE_KEY };
+
+export function createDefaultRepositoryAssistantSettings(
+  fallbackOpenAiModel: string | null | undefined,
+): RepositoryAssistantSettings {
+  const normalizedModel = fallbackOpenAiModel?.trim();
+
+  return {
+    openAiModel:
+      normalizedModel && normalizedModel.length > 0 ? normalizedModel : DEFAULT_OPENAI_MODEL,
+    reasoningEffort: "default",
+  };
+}
+
+export function normalizeRepositoryAssistantSettings(
+  value: unknown,
+  fallbackOpenAiModel: string | null | undefined,
+): RepositoryAssistantSettings {
+  if (typeof value !== "object" || value === null) {
+    return createDefaultRepositoryAssistantSettings(fallbackOpenAiModel);
+  }
+
+  const candidate = value as Partial<RepositoryAssistantSettings>;
+  const fallback = createDefaultRepositoryAssistantSettings(fallbackOpenAiModel);
+
+  return {
+    openAiModel:
+      typeof candidate.openAiModel === "string" && candidate.openAiModel.trim().length > 0
+        ? candidate.openAiModel.trim()
+        : fallback.openAiModel,
+    reasoningEffort: normalizeOpenAiReasoningEffort(candidate.reasoningEffort),
   };
 }

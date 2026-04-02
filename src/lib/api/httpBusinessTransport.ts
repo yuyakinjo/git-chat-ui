@@ -372,12 +372,13 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       });
     },
 
-    chatWithRepositoryAssistant(repoPath, messages) {
+    chatWithRepositoryAssistant(repoPath, messages, settings) {
       return request(baseUrl, "/ai/chat", {
         method: "POST",
         body: JSON.stringify({
           repoPath,
           messages,
+          ...settings,
         }),
       });
     },

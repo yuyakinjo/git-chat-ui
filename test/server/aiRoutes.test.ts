@@ -72,6 +72,8 @@ describe("createAiRouter", () => {
       {
         body: {
           repoPath: "/tmp/repo",
+          openAiModel: "gpt-5.4",
+          reasoningEffort: "high",
           messages: [
             {
               id: "user-1",
@@ -105,7 +107,8 @@ describe("createAiRouter", () => {
         },
       ],
       openAiToken: "sk-config-token",
-      openAiModel: "gpt-4.1-mini",
+      openAiModel: "gpt-5.4",
+      reasoningEffort: "high",
     });
   });
 });
