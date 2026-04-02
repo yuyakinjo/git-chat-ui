@@ -1000,8 +1000,6 @@ export function ControllerView({
 
       <CommandPalette
         open={isCommandPaletteOpen}
-        repositoryName={repository.name}
-        currentBranchName={checkedOutBranchName}
         commands={commandPaletteCommands}
         onClose={handleCloseCommandPalette}
       />

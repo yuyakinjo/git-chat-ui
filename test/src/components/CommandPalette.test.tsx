@@ -5,12 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CommandPalette } from "../../../src/components/CommandPalette";
 
 describe("CommandPalette", () => {
-  test("renders the search UI, repository context, and commands", () => {
+  test("renders the search UI and commands", () => {
     const html = renderToStaticMarkup(
       <CommandPalette
         open
-        repositoryName="git-chat-ui"
-        currentBranchName="main"
         onClose={() => {}}
         commands={[
           {
@@ -37,8 +35,6 @@ describe("CommandPalette", () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain("Command Palette");
     expect(html).toContain("Search commands");
-    expect(html).toContain("git-chat-ui");
-    expect(html).toContain("main");
     expect(html).toContain("Copy Current Branch Name");
     expect(html).toContain("Open GitHub Page");
     expect(html).not.toContain("Cmd/Ctrl + P");

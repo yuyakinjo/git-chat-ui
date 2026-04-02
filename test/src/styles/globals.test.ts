@@ -183,15 +183,16 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
-  test("command palette keeps only repository context chrome and ignores passive hover on open", () => {
+  test("command palette removes extra top chrome and ignores passive hover on open", () => {
     const commandPaletteSection = getSection(".command-palette {", ".config-view__combobox-menu {");
 
-    expect(commandPaletteSection).toContain(".command-palette__header {");
-    expect(commandPaletteSection).toContain("padding: 14px 18px 10px;");
-    expect(commandPaletteSection).toContain(".command-palette__context {");
+    expect(commandPaletteSection).toContain(".command-palette__search {");
     expect(commandPaletteSection).toContain(
       ".command-palette__results.is-pointer-active .command-palette__item:hover:not(:disabled),",
     );
+    expect(commandPaletteSection).not.toContain(".command-palette__header {");
+    expect(commandPaletteSection).not.toContain(".command-palette__context {");
+    expect(commandPaletteSection).not.toContain(".command-palette__context-branch {");
     expect(commandPaletteSection).not.toContain(".command-palette__eyebrow {");
     expect(commandPaletteSection).not.toContain(".command-palette__shortcut {");
     expect(commandPaletteSection).not.toContain(".command-palette__footer {");

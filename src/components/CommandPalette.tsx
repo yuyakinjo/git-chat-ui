@@ -16,16 +16,12 @@ export interface CommandPaletteCommand extends SearchableCommandPaletteItem {
 
 interface CommandPaletteProps {
   open: boolean;
-  repositoryName: string;
-  currentBranchName?: string | null;
   commands: readonly CommandPaletteCommand[];
   onClose: () => void;
 }
 
 export function CommandPalette({
   open,
-  repositoryName,
-  currentBranchName = null,
   commands,
   onClose,
 }: CommandPaletteProps): JSX.Element | ReturnType<typeof createPortal> | null {
@@ -120,15 +116,6 @@ export function CommandPalette({
         aria-label="Command Palette"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="command-palette__header">
-          <div className="command-palette__context">
-            <span>{repositoryName}</span>
-            {currentBranchName ? (
-              <span className="command-palette__context-branch">{currentBranchName}</span>
-            ) : null}
-          </div>
-        </div>
-
         <div className="command-palette__search">
           <Search size={16} aria-hidden="true" />
           <input

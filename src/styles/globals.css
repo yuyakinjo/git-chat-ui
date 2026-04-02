@@ -758,30 +758,6 @@ button.app-tab {
   overflow: hidden;
 }
 
-.command-palette__header {
-  padding: 14px 18px 10px;
-  border-bottom: 1px solid rgb(var(--theme-border-rgb) / 0.12);
-}
-
-.command-palette__context {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.command-palette__context-branch {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgb(var(--color-accent) / 0.1);
-  color: rgb(var(--color-accent) / 0.95);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .command-palette__search {
   display: flex;
   align-items: center;
