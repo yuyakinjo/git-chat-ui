@@ -12,7 +12,7 @@ import githubLight from "@shikijs/themes/github-light";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { createHighlighterCoreSync } from "shiki/core";
 
-import type { NativeWindowTheme } from "./appTheme";
+import { getAppThemeMode, type NativeWindowTheme } from "./appTheme";
 import type { IntralineSegment } from "./intralineDiff";
 
 export type DiffSyntaxLanguage = "ts" | "tsx" | "json" | "md" | "css" | "html" | "js" | "go" | "rs";
@@ -136,7 +136,7 @@ export function buildDiffSyntaxTokens(
 }
 
 export function resolveDiffSyntaxTheme(themeId: string | null | undefined): DiffSyntaxTheme {
-  return themeId === "default-dark" ? "dark" : "light";
+  return getAppThemeMode(themeId);
 }
 
 export function buildDiffSyntaxDisplayTokens(

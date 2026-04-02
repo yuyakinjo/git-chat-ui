@@ -22,6 +22,7 @@ fn main() {
             backend::get_repositories,
             backend::mark_recent_repository,
             backend::get_repository_github_url,
+            backend::get_branch_pull_requests,
             backend::get_repository_mutation_safety,
             backend::get_branches,
             backend::get_commits,

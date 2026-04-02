@@ -1,7 +1,18 @@
-import { AlertTriangle, GitCommitHorizontal, GripVertical, UploadCloud, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  Download,
+  ExternalLink,
+  GitCommitHorizontal,
+  GripVertical,
+  Plus,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import {
   startTransition,
   useActionState,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -11,7 +22,10 @@ import {
 import { flushSync } from "react-dom";
 
 import { api } from "../lib/api";
+import type { AppThemeId } from "../lib/appTheme";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
+import { isCommandPaletteShortcut } from "../lib/commandPalette";
 import { describeGitError, type UiError } from "../lib/errors";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
@@ -33,12 +47,14 @@ import { BranchCreateDialog } from "./BranchCreateDialog";
 import { BranchDeleteDialog } from "./BranchDeleteDialog";
 import { BranchDiffOverlay } from "./BranchDiffOverlay";
 import { BranchTree } from "./BranchTree";
+import { CommandPalette, type CommandPaletteCommand } from "./CommandPalette";
 import { CommitDetailPanel } from "./CommitDetailPanel";
 import { CommitDiffOverlay } from "./CommitDiffOverlay";
 import { CommitGraph } from "./CommitGraph";
 import { ConflictOverlay } from "./ConflictOverlay";
 import { GitOperationPanel } from "./GitOperationPanel";
 import { StashDiffOverlay } from "./StashDiffOverlay";
+import { StashDeleteDialog } from "./StashDeleteDialog";
 import { StashRenameDialog } from "./StashRenameDialog";
 import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
@@ -49,8 +65,11 @@ import type { AppConfig, Branch, Repository } from "../types";
 interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
+  appThemeId?: AppThemeId | null;
   onNotify: (message: string) => void;
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
+  active?: boolean;
+  repositoryGithubUrl?: string | null;
 }
 
 type CommitMessageGenerationState =
@@ -63,8 +82,11 @@ const GIT_OPERATION_PANEL_HIDE_DURATION_MS = 320;
 export function ControllerView({
   repository,
   appConfig,
+  appThemeId = null,
   onNotify,
   onCurrentBranchChange,
+  active = false,
+  repositoryGithubUrl = null,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -76,6 +98,7 @@ export function ControllerView({
   const [gitOperationsPanelVisibility, setGitOperationsPanelVisibility] = useState<
     "visible" | "hiding" | "hidden"
   >("visible");
+  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
@@ -131,12 +154,232 @@ export function ControllerView({
     setSelectedBranchForHover,
     setPendingScrollCommitSha,
   });
+  const branchPullRequests = data.branchPullRequests;
+  const reportError = data.reportError;
+
+  const handleOpenBranchPullRequest = useCallback(
+    async (branch: Branch): Promise<void> => {
+      const url = branchPullRequests[branch.name]?.url;
+      if (!url) {
+        return;
+      }
+
+      try {
+        await api.openExternalUrl(url);
+      } catch (error) {
+        reportError(error, "Pull Request を開けませんでした。");
+      }
+    },
+    [branchPullRequests, reportError],
+  );
+
+  const checkedOutBranchName = data.currentLocalBranch?.name ?? null;
+
+  const handleCloseCommandPalette = useCallback((): void => {
+    setCommandPaletteOpen(false);
+  }, []);
+
+  const copyCurrentBranchName = useCallback(async (): Promise<void> => {
+    if (!checkedOutBranchName) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(checkedOutBranchName);
+      onNotify(`${checkedOutBranchName} をコピーしました。`);
+    } catch (error) {
+      reportError(error, "ブランチ名をコピーできませんでした。");
+    }
+  }, [checkedOutBranchName, onNotify, reportError]);
+
+  const pushCurrentBranch = useCallback((): void => {
+    if (!data.currentLocalBranch) {
+      return;
+    }
+
+    void data.mutateAndReload(
+      async () => {
+        await api.push(repoPath);
+      },
+      {
+        onSuccess: () => {
+          flushSync(() => {
+            data.clearCommitMessageDraft();
+          });
+        },
+      },
+    );
+  }, [data, repoPath]);
+
+  const pullCurrentBranch = useCallback((): void => {
+    if (!data.currentLocalBranch) {
+      return;
+    }
+
+    if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
+      return;
+    }
+
+    void data.mutateAndReload(
+      async () => {
+        await api.pull(repoPath);
+      },
+      {
+        onSuccess: () => {
+          onNotify("upstream の変更を取り込みました。");
+        },
+      },
+    );
+  }, [data, onNotify, repoPath]);
+
+  const openRepositoryGithubPage = useCallback(async (): Promise<void> => {
+    if (!repositoryGithubUrl) {
+      onNotify("GitHub page を開けませんでした。");
+      return;
+    }
+
+    try {
+      await api.openExternalUrl(repositoryGithubUrl);
+    } catch (error) {
+      reportError(error, "GitHub page を開けませんでした。");
+    }
+  }, [onNotify, reportError, repositoryGithubUrl]);
+
+  const openCreateBranchDialog = useCallback((): void => {
+    if (!data.currentLocalBranch) {
+      return;
+    }
+
+    branchOps.handleRequestCreateBranch(data.currentLocalBranch);
+  }, [branchOps, data.currentLocalBranch]);
+
+  const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () => [
+      {
+        id: "copy-current-branch-name",
+        title: "Copy Current Branch Name",
+        description: checkedOutBranchName
+          ? `Current branch: ${checkedOutBranchName}`
+          : "Currently checked out local branch name.",
+        keywords: [
+          "copy",
+          "branch",
+          "clipboard",
+          "checkout",
+          "current",
+          "現在",
+          "ブランチ",
+          "コピー",
+        ],
+        icon: Copy,
+        disabledReason: checkedOutBranchName
+          ? null
+          : "local branch を checkout 中のときだけ使えます。",
+        onSelect: copyCurrentBranchName,
+      },
+      {
+        id: "create-branch",
+        title: "Create Branch",
+        description: checkedOutBranchName
+          ? `${checkedOutBranchName} から新しい branch を作成して切り替えます。`
+          : "Create and checkout a new branch from the current local branch.",
+        keywords: ["create", "branch", "checkout", "new", "現在", "ブランチ", "作成"],
+        icon: Plus,
+        disabledReason: data.operationBusy
+          ? "Git 操作の完了を待ってから実行してください。"
+          : data.currentLocalBranch
+            ? null
+            : "local branch を checkout 中のときだけ使えます。",
+        onSelect: openCreateBranchDialog,
+      },
+      {
+        id: "pull-current-branch",
+        title: "Pull Current Branch",
+        description: checkedOutBranchName
+          ? `${checkedOutBranchName} に upstream の変更を取り込みます。`
+          : "Pull upstream changes into the current local branch.",
+        keywords: ["pull", "fetch", "branch", "remote", "現在", "ブランチ", "プル"],
+        icon: Download,
+        disabledReason: data.operationBusy
+          ? "Git 操作の完了を待ってから実行してください。"
+          : (data.selfMutationBlockedReason ??
+            (data.currentLocalBranch ? null : "local branch を checkout 中のときだけ使えます。")),
+        onSelect: pullCurrentBranch,
+      },
+      {
+        id: "push-current-branch",
+        title: "Push Current Branch",
+        description: checkedOutBranchName
+          ? `${checkedOutBranchName} を remote へ push します。`
+          : "Push the current local branch to the remote.",
+        keywords: ["push", "branch", "remote", "publish", "現在", "ブランチ", "プッシュ"],
+        icon: UploadCloud,
+        disabledReason: data.operationBusy
+          ? "Git 操作の完了を待ってから実行してください。"
+          : data.currentLocalBranch
+            ? null
+            : "local branch を checkout 中のときだけ使えます。",
+        onSelect: pushCurrentBranch,
+      },
+      {
+        id: "open-github-page",
+        title: "Open GitHub Page",
+        description: `${repository.name} の GitHub page を開きます。`,
+        keywords: ["github", "open", "repository", "browser", "git hub", "ページ", "開く"],
+        icon: ExternalLink,
+        disabledReason: repositoryGithubUrl ? null : "GitHub remote を解決できたときだけ使えます。",
+        onSelect: openRepositoryGithubPage,
+      },
+    ],
+    [
+      checkedOutBranchName,
+      copyCurrentBranchName,
+      data.currentLocalBranch,
+      data.operationBusy,
+      data.selfMutationBlockedReason,
+      openCreateBranchDialog,
+      openRepositoryGithubPage,
+      pullCurrentBranch,
+      pushCurrentBranch,
+      repository.name,
+      repositoryGithubUrl,
+    ],
+  );
 
   useEffect(() => {
     if (generatingCommitMessage) {
       setCommitMessageAnimationPending(false);
     }
   }, [generatingCommitMessage]);
+
+  useEffect(() => {
+    if (active) {
+      return;
+    }
+
+    setCommandPaletteOpen(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || typeof window === "undefined") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || !isCommandPaletteShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      setCommandPaletteOpen((current) => !current);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [active]);
 
   /* oxlint-disable react-hooks/exhaustive-deps -- depend on stable setter references, not the data object itself */
   useEffect(() => {
@@ -335,21 +578,6 @@ export function ControllerView({
     />
   );
 
-  const pushCurrentBranch = (): void => {
-    void data.mutateAndReload(
-      async () => {
-        await api.push(repoPath);
-      },
-      {
-        onSuccess: () => {
-          flushSync(() => {
-            data.clearCommitMessageDraft();
-          });
-        },
-      },
-    );
-  };
-
   const commitCurrentChanges = (): void => {
     void data.mutateAndReload(
       async () => {
@@ -518,20 +746,7 @@ export function ControllerView({
       }}
       onCommit={commitCurrentChanges}
       onPull={() => {
-        if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
-          return;
-        }
-
-        void data.mutateAndReload(
-          async () => {
-            await api.pull(repoPath);
-          },
-          {
-            onSuccess: () => {
-              onNotify("upstream の変更を取り込みました。");
-            },
-          },
-        );
+        pullCurrentBranch();
       }}
       hideFooterCommitAction
       headerAccessory={
@@ -685,6 +900,7 @@ export function ControllerView({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
         <BranchTree
           branches={data.branches}
+          branchPullRequests={data.branchPullRequests}
           stashes={data.stashes}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}
@@ -699,13 +915,16 @@ export function ControllerView({
           }}
           onRequestRenameStash={branchOps.handleRequestRenameStash}
           onRequestDeleteStash={(stash) => {
-            void branchOps.handleDeleteStash(stash);
+            branchOps.handleRequestDeleteStash(stash);
           }}
           onRequestApplyStash={(stash) => {
             void branchOps.handleApplyStash(stash);
           }}
           onRequestPopStash={(stash) => {
             void branchOps.handlePopStash(stash);
+          }}
+          onOpenBranchPullRequest={(branch) => {
+            void handleOpenBranchPullRequest(branch);
           }}
           onRequestCreateBranch={branchOps.handleRequestCreateBranch}
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
@@ -779,9 +998,16 @@ export function ControllerView({
         </div>
       ) : null}
 
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        commands={commandPaletteCommands}
+        onClose={handleCloseCommandPalette}
+      />
+
       {selectedCommitDetail && data.focusedCommitDiffFile ? (
         <CommitDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           detail={selectedCommitDetail}
           filePath={data.focusedCommitDiffFile}
           onClose={() => data.setFocusedCommitDiffFile(null)}
@@ -791,6 +1017,7 @@ export function ControllerView({
 
       {data.focusedWorkingTreeDiff ? (
         <WorkingTreeDiffOverlay
+          appThemeId={appThemeId}
           detail={data.workingTreeDiffDetail}
           loading={data.loadingWorkingTreeDiffDetail}
           filePath={data.focusedWorkingTreeDiff.file}
@@ -802,6 +1029,7 @@ export function ControllerView({
       {data.focusedStash ? (
         <StashDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           stash={data.focusedStash}
           detail={data.stashDiffDetail}
           loading={data.loadingStashDiffDetail}
@@ -812,6 +1040,7 @@ export function ControllerView({
       {data.showBranchDiff ? (
         <BranchDiffOverlay
           repoPath={repoPath}
+          appThemeId={appThemeId}
           detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
           loading={data.loadingBranchDiffDetail}
           baseBranchName={data.branchDiffBaseLabel}
@@ -909,6 +1138,18 @@ export function ControllerView({
           onClose={() => branchOps.setStashRenameTarget(null)}
           onRename={(message) => {
             void branchOps.handleRenameStash(message);
+          }}
+        />
+      ) : null}
+
+      {branchOps.stashDeleteTarget ? (
+        <StashDeleteDialog
+          stashId={branchOps.stashDeleteTarget.id}
+          message={branchOps.stashDeleteTarget.message}
+          busy={data.operationBusy}
+          onClose={() => branchOps.setStashDeleteTarget(null)}
+          onDelete={() => {
+            void branchOps.handleDeleteStash();
           }}
         />
       ) : null}

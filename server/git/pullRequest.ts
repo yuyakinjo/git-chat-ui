@@ -1,10 +1,11 @@
-import { ensureRepoPath, runGh } from "./command.js";
+import { ensureRepoPath, runGh, runGit } from "./command.js";
 import {
   ensureBranchPair,
   ensureOriginRemote,
   isPushRequired,
   pushBranchToOrigin,
 } from "./branch.js";
+import type { BranchPullRequest } from "../types.js";
 
 export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
   const trimmed = remoteUrl.trim();
@@ -39,6 +40,88 @@ export function normalizeGithubRemoteUrl(remoteUrl: string): string | null {
 
 async function ensureGithubAuth(repoPath: string): Promise<void> {
   await runGh(["auth", "status", "-h", "github.com"], repoPath);
+}
+
+export async function getOpenPullRequests(
+  repoPath: string,
+): Promise<Record<string, BranchPullRequest>> {
+  await ensureRepoPath(repoPath);
+
+  try {
+    const remoteUrl = await runGit(["remote", "get-url", "origin"], repoPath);
+    if (!normalizeGithubRemoteUrl(remoteUrl)) {
+      return {};
+    }
+  } catch {
+    return {};
+  }
+
+  try {
+    await ensureGithubAuth(repoPath);
+  } catch {
+    return {};
+  }
+
+  let output = "";
+
+  try {
+    output = await runGh(
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "200",
+        "--json",
+        "headRefName,url,mergeable,mergeStateStatus",
+      ],
+      repoPath,
+    );
+  } catch {
+    return {};
+  }
+
+  if (!output.trim()) {
+    return {};
+  }
+
+  let parsed: Array<{
+    headRefName?: string;
+    url?: string;
+    mergeable?: string;
+    mergeStateStatus?: string;
+  }> = [];
+
+  try {
+    parsed = JSON.parse(output) as Array<{
+      headRefName?: string;
+      url?: string;
+      mergeable?: string;
+      mergeStateStatus?: string;
+    }>;
+  } catch {
+    return {};
+  }
+
+  const pullRequests: Record<string, BranchPullRequest> = {};
+
+  for (const item of parsed) {
+    const headRefName = item.headRefName?.trim();
+    const url = item.url?.trim();
+    if (!headRefName || !url || headRefName in pullRequests) {
+      continue;
+    }
+
+    const mergeable = item.mergeable?.trim().toUpperCase() ?? "";
+    const mergeStateStatus = item.mergeStateStatus?.trim().toUpperCase() ?? "";
+    pullRequests[headRefName] = {
+      url,
+      hasConflicts: mergeable === "CONFLICTING" || mergeStateStatus === "DIRTY",
+    };
+  }
+
+  return pullRequests;
 }
 
 async function findExistingPullRequest(

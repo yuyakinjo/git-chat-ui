@@ -19,6 +19,7 @@ import { describeGitError } from "../lib/errors";
 import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
+  BranchPullRequest,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
@@ -75,6 +76,9 @@ export function useControllerData({
     [repoPath],
   );
   const [branches, setBranches] = useState<BranchResponse | null>(null);
+  const [branchPullRequests, setBranchPullRequests] = useState<Record<string, BranchPullRequest>>(
+    {},
+  );
   const [activeLogRef, setActiveLogRef] = useState<string>("HEAD");
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
@@ -669,6 +673,41 @@ export function useControllerData({
     }
   }, [repoPath, reportError]);
 
+  const loadBranchPullRequests = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.getBranchPullRequests(repoPath);
+      setBranchPullRequests(response.pullRequests);
+    } catch {
+      // Keep the current metadata on transient GitHub lookup failures.
+    }
+  }, [repoPath]);
+
+  const rememberBranchPullRequest = useCallback(
+    (branchName: string, pullRequest: BranchPullRequest): void => {
+      const normalizedBranchName = branchName.trim();
+      const normalizedUrl = pullRequest.url.trim();
+      if (!normalizedBranchName || !normalizedUrl) {
+        return;
+      }
+
+      const normalizedPullRequest: BranchPullRequest = {
+        url: normalizedUrl,
+        hasConflicts: pullRequest.hasConflicts,
+      };
+
+      setBranchPullRequests((current) =>
+        current[normalizedBranchName]?.url === normalizedPullRequest.url &&
+        current[normalizedBranchName]?.hasConflicts === normalizedPullRequest.hasConflicts
+          ? current
+          : {
+              ...current,
+              [normalizedBranchName]: normalizedPullRequest,
+            },
+      );
+    },
+    [],
+  );
+
   const loadPullStatus = useCallback(async (): Promise<void> => {
     try {
       const response = await api.getPullStatus(repoPath);
@@ -691,6 +730,7 @@ export function useControllerData({
         const targetRef = refOverride ?? activeLogRef;
         const [nextBranches] = await Promise.all([
           loadBranches(),
+          loadBranchPullRequests(),
           loadWorkingState(),
           loadPullStatus(),
         ]);
@@ -706,13 +746,23 @@ export function useControllerData({
         refreshLockRef.current = false;
       }
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
+    [
+      activeLogRef,
+      branches,
+      loadBranchPullRequests,
+      loadBranches,
+      loadCommits,
+      loadPullStatus,
+      loadWorkingState,
+      repoPath,
+    ],
   );
 
   const reloadAfterBranchMutation = useCallback(
     async (preferredBranchName?: string): Promise<void> => {
       const [nextBranches] = await Promise.all([
         loadBranches(),
+        loadBranchPullRequests(),
         loadWorkingState(),
         loadPullStatus(),
       ]);
@@ -735,7 +785,16 @@ export function useControllerData({
       const fingerprintResponse = await api.getFingerprint(repoPath);
       setFingerprint(fingerprintResponse.fingerprint);
     },
-    [activeLogRef, branches, loadBranches, loadCommits, loadPullStatus, loadWorkingState, repoPath],
+    [
+      activeLogRef,
+      branches,
+      loadBranchPullRequests,
+      loadBranches,
+      loadCommits,
+      loadPullStatus,
+      loadWorkingState,
+      repoPath,
+    ],
   );
 
   const completeActiveMergeSession = useCallback(async (): Promise<void> => {
@@ -848,6 +907,7 @@ export function useControllerData({
     const defaultRef = "HEAD";
     setActiveLogRef(defaultRef);
     setActiveCompareRefs([]);
+    setBranchPullRequests({});
     setActiveCommit(null);
     setIsWipSelected(false);
     setCommitAuthorAvatars({});
@@ -896,6 +956,30 @@ export function useControllerData({
       active = false;
     };
   }, [repoPath]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const refreshBranchPullRequests = (): void => {
+      void loadBranchPullRequests();
+    };
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        refreshBranchPullRequests();
+      }
+    };
+
+    window.addEventListener("focus", refreshBranchPullRequests);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", refreshBranchPullRequests);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadBranchPullRequests]);
 
   // Clear focused diff when active commit changes
   useEffect(() => {
@@ -1020,6 +1104,8 @@ export function useControllerData({
 
   return {
     branches,
+    branchPullRequests,
+    rememberBranchPullRequest,
     currentBranchName,
     currentLocalBranch,
     branchDiffBaseBranch,

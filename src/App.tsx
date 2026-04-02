@@ -24,6 +24,7 @@ import { api } from "./lib/api";
 import {
   APP_THEME_OPTIONS,
   getAppThemeLabel,
+  getAppThemeMode,
   getNativeWindowAppearance,
   normalizeAppTheme,
   type AppThemeId,
@@ -76,6 +77,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.body.dataset.theme = appTheme;
+      document.body.dataset.themeMode = getAppThemeMode(appTheme);
       document.body.dataset.windowChrome = isTauriDesktop ? "overlay-titlebar" : "default";
     }
 
@@ -490,8 +492,11 @@ export default function App(): JSX.Element {
               <ControllerView
                 repository={repository}
                 appConfig={appConfig}
+                appThemeId={appTheme}
                 onNotify={setNotice}
                 onCurrentBranchChange={handleRepositoryBranchChange}
+                active={isActive}
+                repositoryGithubUrl={isActive ? githubButtonUrl : null}
               />
             </section>
           );

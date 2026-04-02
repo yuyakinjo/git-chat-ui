@@ -33,7 +33,9 @@ export interface UseControllerBranchOpsResult {
   setBranchDeleteTarget: (target: Branch | null) => void;
   setBranchDeleteForce: (forceDelete: boolean) => void;
   stashRenameTarget: StashEntry | null;
+  stashDeleteTarget: StashEntry | null;
   setStashRenameTarget: (target: StashEntry | null) => void;
+  setStashDeleteTarget: (target: StashEntry | null) => void;
 
   handleCheckoutBranch: (branch: Branch) => Promise<void>;
   handleCheckoutCommit: (commit: CommitListItem) => Promise<void>;
@@ -43,7 +45,8 @@ export interface UseControllerBranchOpsResult {
   handleRequestDeleteBranch: (branch: Branch) => void;
   handleRequestCreateBranch: (branch: Branch) => void;
   handleRequestRenameStash: (stash: StashEntry) => void;
-  handleDeleteStash: (stash: StashEntry) => Promise<void>;
+  handleRequestDeleteStash: (stash: StashEntry) => void;
+  handleDeleteStash: () => Promise<void>;
   handleApplyStash: (stash: StashEntry) => Promise<void>;
   handlePopStash: (stash: StashEntry) => Promise<void>;
   handleCreateBranch: (newBranchName: string) => Promise<void>;
@@ -70,6 +73,7 @@ export function useControllerBranchOps({
   const [branchDeleteTarget, setBranchDeleteTarget] = useState<Branch | null>(null);
   const [branchDeleteForce, setBranchDeleteForce] = useState(false);
   const [stashRenameTarget, setStashRenameTarget] = useState<StashEntry | null>(null);
+  const [stashDeleteTarget, setStashDeleteTarget] = useState<StashEntry | null>(null);
 
   const openConflictFromResult = async (
     result: ConflictOperationResult,
@@ -186,6 +190,7 @@ export function useControllerBranchOps({
     }
 
     setStashRenameTarget(null);
+    setStashDeleteTarget(null);
     setBranchCreateSource(null);
     setBranchDeleteTarget(null);
     setBranchDeleteForce(false);
@@ -212,6 +217,7 @@ export function useControllerBranchOps({
 
     setBranchAction(null);
     setStashRenameTarget(null);
+    setStashDeleteTarget(null);
     setBranchCreateSource(null);
     setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
@@ -226,6 +232,7 @@ export function useControllerBranchOps({
 
     setBranchAction(null);
     setStashRenameTarget(null);
+    setStashDeleteTarget(null);
     setBranchDeleteTarget(null);
     setBranchDeleteForce(false);
     data.setShowBranchDiff(false);
@@ -238,25 +245,36 @@ export function useControllerBranchOps({
     setBranchCreateSource(null);
     setBranchDeleteTarget(null);
     setBranchDeleteForce(false);
+    setStashDeleteTarget(null);
     data.setShowBranchDiff(false);
     data.setFocusedCommitDiffFile(null);
     setStashRenameTarget(stash);
   };
 
-  const handleDeleteStash = async (stash: StashEntry): Promise<void> => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`${stash.id} を削除しますか？\n\nこの操作は元に戻せません。`)
-    ) {
+  const handleRequestDeleteStash = (stash: StashEntry): void => {
+    setBranchAction(null);
+    setBranchCreateSource(null);
+    setBranchDeleteTarget(null);
+    setBranchDeleteForce(false);
+    setStashRenameTarget(null);
+    data.setShowBranchDiff(false);
+    data.setFocusedCommitDiffFile(null);
+    setStashDeleteTarget(stash);
+  };
+
+  const handleDeleteStash = async (): Promise<void> => {
+    const currentTarget = stashDeleteTarget;
+    if (!currentTarget) {
       return;
     }
 
     data.setOperationBusy(true);
 
     try {
-      await api.deleteStash(repoPath, stash.id);
+      await api.deleteStash(repoPath, currentTarget.id);
+      setStashDeleteTarget(null);
       data.setInlineError(null);
-      onNotify(`${stash.id} を削除しました。`);
+      onNotify(`${currentTarget.id} を削除しました。`);
       await data.refreshAll();
     } catch (error) {
       data.reportError(error, "stash の削除に失敗しました。");
@@ -523,7 +541,14 @@ export function useControllerBranchOps({
       );
       data.setInlineError(null);
       setBranchAction(null);
+      data.rememberBranchPullRequest(currentAction.source.name, {
+        url: response.url,
+        hasConflicts: false,
+      });
       onNotify(`Pull Request を作成しました: ${response.url}`);
+      void api.openExternalUrl(response.url).catch((error) => {
+        data.reportError(error, "Pull Request を開けませんでした。");
+      });
       await data.refreshAll();
     } catch (error) {
       data.reportError(error, "Pull Request の作成に失敗しました。");
@@ -583,7 +608,9 @@ export function useControllerBranchOps({
     setBranchDeleteTarget,
     setBranchDeleteForce,
     stashRenameTarget,
+    stashDeleteTarget,
     setStashRenameTarget,
+    setStashDeleteTarget,
 
     handleCheckoutBranch,
     handleCheckoutCommit,
@@ -593,6 +620,7 @@ export function useControllerBranchOps({
     handleRequestDeleteBranch,
     handleRequestCreateBranch,
     handleRequestRenameStash,
+    handleRequestDeleteStash,
     handleDeleteStash,
     handleApplyStash,
     handlePopStash,

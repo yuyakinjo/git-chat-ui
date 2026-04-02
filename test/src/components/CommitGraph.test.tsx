@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  buildCommitRefBadges,
   buildDefaultBranchAnchorLaneIndices,
   DEFAULT_BRANCH_LANE_COLOR,
   LEFT_BRANCH_LANE_COLORS,
+  parseCommitRefLabels,
   RIGHT_BRANCH_LANE_COLORS,
   laneColor,
 } from "../../../src/components/CommitGraphHelpers";
@@ -53,6 +55,14 @@ const branchContext: BranchResponse = {
   ],
 };
 
+const commitRefScopeContext = {
+  localRefNames: new Set(branchContext.local.map((branch) => branch.name)),
+  remoteRefNames: new Set(branchContext.remote.map((branch) => branch.name)),
+  remoteNames: new Set(
+    branchContext.remote.map((branch) => branch.name.split("/", 1)[0]).filter(Boolean),
+  ),
+};
+
 describe("CommitGraph", () => {
   test("anchors lane colors around the default branch lane", () => {
     const branchyCommits: CommitListItem[] = [
@@ -88,6 +98,34 @@ describe("CommitGraph", () => {
     expect(laneColor(1, anchors[1])).toBe(DEFAULT_BRANCH_LANE_COLOR);
     expect(laneColor(0, anchors[0])).toBe(LEFT_BRANCH_LANE_COLORS[0]);
     expect(laneColor(1, anchors[2])).toBe(RIGHT_BRANCH_LANE_COLORS[0]);
+  });
+
+  test("merges local refs and matching origin refs into a single badge model", () => {
+    const badges = buildCommitRefBadges(
+      parseCommitRefLabels("(HEAD -> main, tag: v1.2.0, origin/main, origin/HEAD)"),
+      commitRefScopeContext,
+    );
+
+    expect(badges).toEqual([
+      {
+        type: "head",
+        name: "main",
+        scopes: ["local", "remote"],
+        title: "main, origin/main",
+      },
+      {
+        type: "tag",
+        name: "v1.2.0",
+        scopes: ["tag"],
+        title: "v1.2.0",
+      },
+      {
+        type: "branch",
+        name: "origin/HEAD",
+        scopes: ["remote"],
+        title: "origin/HEAD",
+      },
+    ]);
   });
 
   test("renders the WIP marker as a hollow dashed circle in detailed mode", () => {
@@ -140,10 +178,19 @@ describe("CommitGraph", () => {
     expect(html).toContain("commit-graph__ref-badge--head");
     expect(html).toContain("commit-graph__ref-badge--tag");
     expect(html).toContain("commit-graph__ref-badge-icon");
+    expect(html).toContain("commit-graph__ref-badge-icons");
+    expect(html).toContain("commit-graph__ref-badge-done");
     expect(html).toContain("commit-graph__ref-badge-label");
+    expect(html.match(/class="commit-graph__ref-badge /g)?.length ?? 0).toBe(3);
+    expect(html.match(/commit-graph__ref-badge-done/g)?.length ?? 0).toBe(1);
     expect(html.match(/commit-graph__ref-badge-icon--local/g)?.length ?? 0).toBe(1);
     expect(html.match(/commit-graph__ref-badge-icon--remote/g)?.length ?? 0).toBe(2);
     expect(html.match(/commit-graph__ref-badge-icon--tag/g)?.length ?? 0).toBe(1);
+    expect(html).toContain('title="main, origin/main"');
+    expect(html).toMatch(
+      /commit-graph__ref-badge-done[\s\S]*commit-graph__ref-badge-label truncate">main<\/span>[\s\S]*commit-graph__ref-badge-icons/,
+    );
+    expect(html).not.toContain(">origin/main</span>");
     expect(html).toContain("origin/HEAD");
     expect(html).toContain('data-controller-panel-drag-ignore="true"');
     expect(html).not.toContain("Detailed lane mode (branch / merge)");

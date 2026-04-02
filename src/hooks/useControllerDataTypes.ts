@@ -2,6 +2,7 @@ import type {
   AppConfig,
   Branch,
   BranchDiffDetail,
+  BranchPullRequest,
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
@@ -27,6 +28,8 @@ export interface UseControllerDataParams {
 
 export interface UseControllerDataResult {
   branches: BranchResponse | null;
+  branchPullRequests: Record<string, BranchPullRequest>;
+  rememberBranchPullRequest: (branchName: string, pullRequest: BranchPullRequest) => void;
   currentBranchName: string | null;
   currentLocalBranch: Branch | null;
   branchDiffBaseBranch: Branch | null;

@@ -9,8 +9,8 @@ describe("App", () => {
 
     expect(html).toContain('aria-label="Application theme"');
     expect(html).toContain('aria-label="repository を追加"');
-    expect(html).toContain("Default Light");
-    expect(html).toContain("Default Dark");
+    expect(html).toContain("☀ Default Light");
+    expect(html).toContain("☾ Default Dark");
     expect(html).not.toContain("Dashboard</span>");
   });
 });

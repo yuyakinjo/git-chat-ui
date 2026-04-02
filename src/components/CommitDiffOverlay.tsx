@@ -2,12 +2,14 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import { api } from "../lib/api";
+import type { AppThemeId } from "../lib/appTheme";
 import type { CommitDetail, CommitFileDiffDetail } from "../types";
 import { CopyableShaButton } from "./CopyableShaButton";
 import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface CommitDiffOverlayProps {
   repoPath: string;
+  appThemeId?: AppThemeId | null;
   detail: CommitDetail;
   filePath: string;
   onClose: () => void;
@@ -16,6 +18,7 @@ interface CommitDiffOverlayProps {
 
 export function CommitDiffOverlay({
   repoPath,
+  appThemeId = null,
   detail,
   filePath,
   onClose,
@@ -153,6 +156,7 @@ export function CommitDiffOverlay({
         <div className="min-h-0 flex-1">
           <SplitDiffViewer
             diff={commitDiffViewerDiff}
+            appThemeId={appThemeId}
             files={detail.files}
             preferredFilePath={activeFilePath}
             showFileList={detail.files.length > 1}

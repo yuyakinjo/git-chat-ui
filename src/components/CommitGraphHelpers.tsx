@@ -19,6 +19,7 @@ export const REF_COLUMN_MAX_WIDTH = 900;
 export const REF_COLUMN_DEFAULT_WIDTH = 230;
 export const REF_COLUMN_STORAGE_KEY = "git-chat-ui.commit-refs-column-width";
 export const REF_BADGE_ICON_SIZE = 10;
+export const REF_BADGE_DONE_ICON_SIZE = 12;
 
 export const LANE_COLORS = [
   "#0071e3",
@@ -55,11 +56,22 @@ export interface CommitRefLabel {
   name: string;
 }
 
+export type CommitRefBadgeScope = "local" | "remote" | "tag";
+
+export interface CommitRefBadge {
+  type: CommitRefLabel["type"];
+  name: string;
+  scopes: CommitRefBadgeScope[];
+  title: string;
+}
+
 export interface CommitRefScopeContext {
   localRefNames: Set<string>;
   remoteRefNames: Set<string>;
   remoteNames: Set<string>;
 }
+
+const EMPTY_REMOTE_NAMES = new Set<string>();
 
 // ── Pure functions ─────────────────────────────────────────────────────
 
@@ -225,10 +237,24 @@ function hasRemotePrefix(labelName: string, remoteNames: Set<string>): boolean {
   return [...remoteNames].some((remoteName) => labelName.startsWith(`${remoteName}/`));
 }
 
+function getRemoteRefShortName(labelName: string, remoteNames: Set<string>): string | null {
+  for (const remoteName of remoteNames) {
+    const prefix = `${remoteName}/`;
+    if (!labelName.startsWith(prefix) || labelName.length <= prefix.length) {
+      continue;
+    }
+
+    const shortName = labelName.slice(prefix.length);
+    return shortName === "HEAD" ? null : shortName;
+  }
+
+  return null;
+}
+
 export function resolveCommitRefScope(
   label: CommitRefLabel,
   context: CommitRefScopeContext | null,
-): "local" | "remote" | "tag" {
+): CommitRefBadgeScope {
   if (label.type === "tag") {
     return "tag";
   }
@@ -267,7 +293,91 @@ export function resolveCommitRefScope(
   return "local";
 }
 
-export function refLabelIcon(scope: "local" | "remote" | "tag"): LucideIcon {
+export function buildCommitRefBadges(
+  labels: CommitRefLabel[],
+  context: CommitRefScopeContext | null,
+): CommitRefBadge[] {
+  if (labels.length === 0) {
+    return [];
+  }
+
+  const remoteNames = context?.remoteNames ?? EMPTY_REMOTE_NAMES;
+  const scopes = labels.map((label) => resolveCommitRefScope(label, context));
+  const localLabelNames = new Set(
+    labels.flatMap((label, index) => (scopes[index] === "local" ? [label.name] : [])),
+  );
+  const consumedIndices = new Set<number>();
+
+  return labels.flatMap((label, index): CommitRefBadge[] => {
+    if (consumedIndices.has(index)) {
+      return [];
+    }
+
+    const scope = scopes[index];
+    if (scope === "tag") {
+      return [
+        {
+          type: label.type,
+          name: label.name,
+          scopes: ["tag"],
+          title: label.name,
+        },
+      ];
+    }
+
+    if (scope === "local") {
+      const mergedRemoteIndex = labels.findIndex((candidate, candidateIndex) => {
+        if (candidateIndex === index || consumedIndices.has(candidateIndex)) {
+          return false;
+        }
+
+        if (scopes[candidateIndex] !== "remote" || !candidate.name.startsWith("origin/")) {
+          return false;
+        }
+
+        return getRemoteRefShortName(candidate.name, remoteNames) === label.name;
+      });
+
+      if (mergedRemoteIndex >= 0) {
+        consumedIndices.add(mergedRemoteIndex);
+        const mergedRemoteName = labels[mergedRemoteIndex]?.name ?? label.name;
+        return [
+          {
+            type: label.type,
+            name: label.name,
+            scopes: ["local", "remote"],
+            title: `${label.name}, ${mergedRemoteName}`,
+          },
+        ];
+      }
+
+      return [
+        {
+          type: label.type,
+          name: label.name,
+          scopes: ["local"],
+          title: label.name,
+        },
+      ];
+    }
+
+    const shortName = getRemoteRefShortName(label.name, remoteNames);
+    if (label.name.startsWith("origin/") && shortName && localLabelNames.has(shortName)) {
+      return [];
+    }
+
+    return [
+      {
+        type: label.type,
+        name: label.name,
+        scopes: ["remote"],
+        title: label.name,
+      },
+    ];
+  });
+}
+
+export function refLabelIcon(scope: CommitRefBadgeScope): LucideIcon {
   if (scope === "remote") {
     return Cloud;
   }
@@ -277,7 +387,7 @@ export function refLabelIcon(scope: "local" | "remote" | "tag"): LucideIcon {
   return HardDrive;
 }
 
-export function refLabelIconClass(scope: "local" | "remote" | "tag"): string {
+export function refLabelIconClass(scope: CommitRefBadgeScope): string {
   return `commit-graph__ref-badge-icon commit-graph__ref-badge-icon--${scope}`;
 }
 

@@ -1,10 +1,12 @@
 import { X } from "lucide-react";
 import { useEffect, type JSX } from "react";
 
+import type { AppThemeId } from "../lib/appTheme";
 import type { WorkingTreeDiffArea, WorkingTreeDiffDetail } from "../types";
 import { SplitDiffViewer } from "./SplitDiffViewer";
 
 interface WorkingTreeDiffOverlayProps {
+  appThemeId?: AppThemeId | null;
   detail: WorkingTreeDiffDetail | null;
   loading: boolean;
   filePath: string | null;
@@ -13,6 +15,7 @@ interface WorkingTreeDiffOverlayProps {
 }
 
 export function WorkingTreeDiffOverlay({
+  appThemeId = null,
   detail,
   loading,
   filePath,
@@ -85,6 +88,7 @@ export function WorkingTreeDiffOverlay({
           <div className="min-h-0 flex-1">
             <SplitDiffViewer
               diff={detail.diff}
+              appThemeId={appThemeId}
               files={detail.files}
               isDiffTruncated={detail.isDiffTruncated}
               preferredFilePath={detail.file}

@@ -276,4 +276,34 @@ index 1111111..2222222 100644
     expect(html).toContain("差分を読み込み中...");
     expect(html).not.toContain("Text diff unavailable for this file.");
   });
+
+  test("uses the passed app theme id for syntax colors during theme switches", () => {
+    const diff = `diff --git a/src/app.ts b/src/app.ts
+index 1111111..2222222 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1 @@
+-import { api } from './lib/api';
++import { theme } from './lib/theme';
+`;
+
+    const defaultLightHtml = renderToStaticMarkup(
+      <SplitDiffViewer diff={diff} preferredFilePath="src/app.ts" appThemeId="default-light" />,
+    );
+    const paperLightHtml = renderToStaticMarkup(
+      <SplitDiffViewer diff={diff} preferredFilePath="src/app.ts" appThemeId="paper-light" />,
+    );
+    const defaultDarkHtml = renderToStaticMarkup(
+      <SplitDiffViewer diff={diff} preferredFilePath="src/app.ts" appThemeId="default-dark" />,
+    );
+    const graphiteDarkHtml = renderToStaticMarkup(
+      <SplitDiffViewer diff={diff} preferredFilePath="src/app.ts" appThemeId="graphite-dark" />,
+    );
+
+    expect(defaultLightHtml).toContain("diff-token");
+    expect(defaultDarkHtml).toContain("diff-token");
+    expect(defaultLightHtml).toBe(paperLightHtml);
+    expect(defaultDarkHtml).toBe(graphiteDarkHtml);
+    expect(defaultLightHtml).not.toBe(defaultDarkHtml);
+  });
 });

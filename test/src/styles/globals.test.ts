@@ -15,6 +15,16 @@ function getSection(startMarker: string, endMarker: string): string {
 }
 
 describe("globals.css", () => {
+  test("defines four app themes with dedicated paper and graphite variants", () => {
+    expect(globalsCss).toContain('body[data-theme="paper-light"] {');
+    expect(globalsCss).toContain('body[data-theme="default-dark"] {');
+    expect(globalsCss).toContain('body[data-theme="graphite-dark"] {');
+    expect(globalsCss).toContain('body[data-theme-mode="light"] {');
+    expect(globalsCss).toContain('body[data-theme-mode="dark"] {');
+    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 8% -28%");
+    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 12% -22%");
+  });
+
   test("app shell keeps the header-to-panel gap aligned with panel spacing", () => {
     const shellSection = getSection(".app-shell {", ".app-tabbar {");
     const tabbarSection = getSection(".app-tabbar {", ".panel {");
@@ -173,9 +183,32 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
-  test("branch rows expose dedicated local and remote icon styles with dark-theme overrides", () => {
+  test("command palette removes extra top chrome and ignores passive hover on open", () => {
+    const commandPaletteSection = getSection(".command-palette {", ".config-view__combobox-menu {");
+
+    expect(commandPaletteSection).toContain(".command-palette__search {");
+    expect(commandPaletteSection).toContain(
+      ".command-palette__results.is-pointer-active .command-palette__item:hover:not(:disabled),",
+    );
+    expect(commandPaletteSection).not.toContain(".command-palette__header {");
+    expect(commandPaletteSection).not.toContain(".command-palette__context {");
+    expect(commandPaletteSection).not.toContain(".command-palette__context-branch {");
+    expect(commandPaletteSection).not.toContain(".command-palette__eyebrow {");
+    expect(commandPaletteSection).not.toContain(".command-palette__shortcut {");
+    expect(commandPaletteSection).not.toContain(".command-palette__footer {");
+  });
+
+  test("branch rows expose dedicated local and remote icon styles with dark-mode overrides", () => {
     const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
 
+    expect(branchBadgeSection).toContain(".branch-list-item {");
+    expect(branchBadgeSection).toContain(".branch-list-item__trigger {");
+    expect(branchBadgeSection).toContain(".branch-list-item__actions {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-warning {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain("width: 24px;");
+    expect(branchBadgeSection).toContain("height: 24px;");
+    expect(branchBadgeSection).toContain(".branch-list-item__pr-link.is-warning {");
     expect(branchBadgeSection).toContain(".branch-list-item__icon {");
     expect(branchBadgeSection).toContain(".branch-list-item__icon--local {");
     expect(branchBadgeSection).toContain("rgb(29 78 216 / 0.92)");
@@ -183,11 +216,13 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain("rgb(15 118 110 / 0.96)");
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(
-      'body[data-theme="default-dark"] .branch-list-item__icon--local {',
+      'body[data-theme-mode="dark"] .branch-list-item__icon--local {',
     );
     expect(branchBadgeSection).toContain(
-      'body[data-theme="default-dark"] .branch-list-item__icon--remote {',
+      'body[data-theme-mode="dark"] .branch-list-item__icon--remote {',
     );
     expect(branchBadgeSection).not.toContain(".branch-list-item__ref-badge {");
   });
@@ -252,7 +287,7 @@ describe("globals.css", () => {
     expect(menuSection).not.toContain("rgba(244, 247, 252, 0.95)");
   });
 
-  test("wip row removes its default highlight while keeping dedicated hover and dark-theme overrides", () => {
+  test("wip row removes its default highlight while keeping dedicated hover and dark-mode overrides", () => {
     const wipSection = getSection(".wip-row {", ".wip-node {");
 
     expect(wipSection).toContain("background: transparent !important;");
@@ -261,10 +296,10 @@ describe("globals.css", () => {
     expect(wipSection).toContain(".wip-row__meta {");
     expect(wipSection).toContain(".wip-row:hover {");
     expect(wipSection).toContain("background: rgb(255 251 235 / 0.72) !important;");
-    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row {');
-    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row:hover {');
-    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__badge {');
-    expect(wipSection).toContain('body[data-theme="default-dark"] .wip-row__meta {');
+    expect(wipSection).toContain('body[data-theme-mode="dark"] .wip-row {');
+    expect(wipSection).toContain('body[data-theme-mode="dark"] .wip-row:hover {');
+    expect(wipSection).toContain('body[data-theme-mode="dark"] .wip-row__badge {');
+    expect(wipSection).toContain('body[data-theme-mode="dark"] .wip-row__meta {');
     expect(wipSection).toContain(
       "background: linear-gradient(90deg, rgb(120 53 15 / 0.2), rgb(68 64 60 / 0.24)) !important;",
     );
@@ -276,16 +311,18 @@ describe("globals.css", () => {
 
     expect(refBadgeSection).toContain("gap: 4px;");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge-icon {");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-icons {");
+    expect(refBadgeSection).toContain(".commit-graph__ref-badge-done {");
     expect(refBadgeSection).toContain("flex-shrink: 0;");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge-label {");
     expect(refBadgeSection).toContain("min-width: 0;");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge--head {");
     expect(refBadgeSection).toContain(".commit-graph__ref-badge--tag {");
     expect(refBadgeSection).toContain(
-      'body[data-theme="default-dark"] .commit-graph__ref-badge--head {',
+      'body[data-theme-mode="dark"] .commit-graph__ref-badge--head {',
     );
     expect(refBadgeSection).toContain(
-      'body[data-theme="default-dark"] .commit-graph__ref-badge--tag {',
+      'body[data-theme-mode="dark"] .commit-graph__ref-badge--tag {',
     );
   });
 
@@ -310,7 +347,7 @@ describe("globals.css", () => {
     expect(wipNodeSection).not.toContain(".wip-node-core {");
   });
 
-  test("diff viewer defaults to a light palette and scopes dark styling to explicit dark-theme overrides", () => {
+  test("diff viewer defaults to a light palette and scopes dark styling to explicit dark-mode overrides", () => {
     const diffSection = getSection(".diff-workbench {", ".diff-empty-state,");
 
     expect(globalsCss).toContain("--diff-surface: #f7faff;");
@@ -318,11 +355,11 @@ describe("globals.css", () => {
     expect(diffSection).toContain("rgb(var(--theme-elevated-rgb) / 0.96)");
     expect(diffSection).toContain("rgb(var(--theme-elevated-strong-rgb) / 0.88)");
     expect(diffSection).toContain("background: rgb(var(--theme-elevated-rgb) / 0.72);");
-    expect(diffSection).toContain('body[data-theme="default-dark"] .diff-workbench__sidebar {');
+    expect(diffSection).toContain('body[data-theme-mode="dark"] .diff-workbench__sidebar {');
     expect(diffSection).toContain(
-      'body[data-theme="default-dark"] .diff-workbench__file-tab.is-active {',
+      'body[data-theme-mode="dark"] .diff-workbench__file-tab.is-active {',
     );
-    expect(diffSection).toContain('body[data-theme="default-dark"] .diff-file__columns {');
+    expect(diffSection).toContain('body[data-theme-mode="dark"] .diff-file__columns {');
   });
 
   test("branch action dialog renders PR refs as pills with a reduced-motion-safe arrow animation", () => {
@@ -341,7 +378,7 @@ describe("globals.css", () => {
     );
     expect(branchActionSection).toContain("@keyframes branch-action-dialog-arrow {");
     expect(branchActionSection).toContain(
-      'body[data-theme="default-dark"] .branch-action-dialog__ref-pill {',
+      'body[data-theme-mode="dark"] .branch-action-dialog__ref-pill {',
     );
     expect(branchActionSection).toContain("@media (prefers-reduced-motion: reduce) {");
     expect(branchActionSection).toContain(".branch-action-dialog__ref-arrow svg {");

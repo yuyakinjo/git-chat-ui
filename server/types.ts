@@ -15,6 +15,15 @@ export interface Branch {
   isRemoteDefault?: boolean;
 }
 
+export interface BranchPullRequest {
+  url: string;
+  hasConflicts: boolean;
+}
+
+export interface BranchPullRequestsResponse {
+  pullRequests: Record<string, BranchPullRequest>;
+}
+
 export interface CommitListItem {
   sha: string;
   parentShas: string[];
