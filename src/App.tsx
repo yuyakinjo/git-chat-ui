@@ -492,6 +492,14 @@ export default function App(): JSX.Element {
     setCommandPaletteOpenRequestId((current) => current + 1);
   };
 
+  const handleOpenConfig = useCallback((): void => {
+    setActiveTabId(CONFIG_TAB_ID);
+  }, []);
+
+  const handleSelectAppTheme = useCallback((themeId: AppThemeId): void => {
+    setAppTheme(normalizeAppTheme(themeId));
+  }, []);
+
   const handleAssistantDraftChange = (value: string): void => {
     if (!activeRepository) {
       return;
@@ -679,7 +687,7 @@ export default function App(): JSX.Element {
                 className="app-theme-picker__select"
                 aria-label="Application theme"
                 value={appTheme}
-                onChange={(event) => setAppTheme(normalizeAppTheme(event.target.value))}
+                onChange={(event) => handleSelectAppTheme(normalizeAppTheme(event.target.value))}
               >
                 {APP_THEME_OPTIONS.map((theme) => (
                   <option key={theme.id} value={theme.id}>
@@ -748,6 +756,8 @@ export default function App(): JSX.Element {
                   repository={repository}
                   appConfig={appConfig}
                   appThemeId={appTheme}
+                  onOpenConfig={handleOpenConfig}
+                  onSelectTheme={handleSelectAppTheme}
                   onNotify={setNotice}
                   onCurrentBranchChange={handleRepositoryBranchChange}
                   active={isActive}
@@ -773,9 +783,9 @@ export default function App(): JSX.Element {
           ) : null}
         </div>
 
-        {activeRepository && isRepositoryAssistantOpen && activeRepositoryAssistantConversation ? (
+        {activeRepository && activeRepositoryAssistantConversation ? (
           <RepositoryAssistantSidebar
-            repository={activeRepository}
+            open={isRepositoryAssistantOpen}
             openAiToken={appConfig?.openAiToken ?? ""}
             settings={repositoryAssistantSettings}
             messages={activeRepositoryAssistantConversation.messages}

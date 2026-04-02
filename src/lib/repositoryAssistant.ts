@@ -27,6 +27,16 @@ export function isRepositoryAssistantShortcut(event: RepositoryAssistantShortcut
   return normalizeShortcutKey(event.key) === "i" && Boolean(event.metaKey || event.ctrlKey);
 }
 
+export function isRepositoryAssistantSubmitShortcut(
+  event: RepositoryAssistantShortcutLike,
+): boolean {
+  if (event.altKey || event.shiftKey) {
+    return false;
+  }
+
+  return normalizeShortcutKey(event.key) === "enter" && Boolean(event.metaKey || event.ctrlKey);
+}
+
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;

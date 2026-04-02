@@ -7,16 +7,16 @@ import {
   filterOpenAiModelOptions,
   resolveListboxScrollTop,
 } from "../lib/openAiModelCombobox";
-import { OPENAI_REASONING_EFFORT_VALUES } from "../../shared/ai.js";
+import { isRepositoryAssistantSubmitShortcut } from "../lib/repositoryAssistant";
+import { OPENAI_REASONING_EFFORT_VALUES, supportsOpenAiReasoningEffort } from "../../shared/ai.js";
 import type {
   OpenAiReasoningEffort,
-  Repository,
   RepositoryAssistantMessage,
   RepositoryAssistantSettings,
 } from "../types";
 
 interface RepositoryAssistantSidebarProps {
-  repository: Repository;
+  open: boolean;
   openAiToken: string;
   settings: RepositoryAssistantSettings;
   messages: RepositoryAssistantMessage[];
@@ -29,6 +29,8 @@ interface RepositoryAssistantSidebarProps {
   onClearConversation: () => void;
   onClose: () => void;
 }
+
+const openAiModelsCache = new Map<string, string[]>();
 
 const REASONING_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
   default: "モデル既定",
@@ -55,7 +57,7 @@ function formatTimestamp(value: string): string {
 }
 
 export function RepositoryAssistantSidebar({
-  repository,
+  open,
   openAiToken,
   settings,
   messages,
@@ -91,15 +93,10 @@ export function RepositoryAssistantSidebar({
     [openAiModels, settings.openAiModel],
   );
   const openAiModelFilterQuery = isOpenAiModelFilterDirty ? openAiModelFilter : "";
-  const normalizedOpenAiModelFilter = useMemo(
-    () => openAiModelFilterQuery.trim().toLocaleLowerCase(),
-    [openAiModelFilterQuery],
-  );
   const filteredOpenAiModelOptions = useMemo(
     () => filterOpenAiModelOptions(openAiModelOptions, openAiModelFilterQuery),
     [openAiModelFilterQuery, openAiModelOptions],
   );
-  const openAiModelFilterMatchCount = filteredOpenAiModelOptions.length;
   const isOpenAiModelComboboxEnabled =
     normalizedToken.length > 0 && !pending && !loadingOpenAiModels && openAiModelOptions.length > 0;
   const openAiModelInputValue = isOpenAiModelComboboxOpen
@@ -107,6 +104,21 @@ export function RepositoryAssistantSidebar({
       ? openAiModelFilter
       : settings.openAiModel
     : settings.openAiModel;
+  const showReasoningEffortSetting = useMemo(
+    () => supportsOpenAiReasoningEffort(settings.openAiModel),
+    [settings.openAiModel],
+  );
+  const openAiModelControlTitle = useMemo(() => {
+    if (!normalizedToken) {
+      return "Config の OpenAI token を設定すると chat 用モデルを選べます。";
+    }
+
+    if (loadingOpenAiModels) {
+      return "OpenAI の利用可能モデルを取得中です。";
+    }
+
+    return openAiModelsError;
+  }, [loadingOpenAiModels, normalizedToken, openAiModelsError]);
 
   useEffect(() => {
     openAiModelsRequestIdRef.current += 1;
@@ -115,6 +127,14 @@ export function RepositoryAssistantSidebar({
     if (!normalizedToken) {
       setLoadingOpenAiModels(false);
       setOpenAiModels([]);
+      setOpenAiModelsError(null);
+      return;
+    }
+
+    const cachedOpenAiModels = openAiModelsCache.get(normalizedToken);
+    if (cachedOpenAiModels) {
+      setLoadingOpenAiModels(false);
+      setOpenAiModels(cachedOpenAiModels);
       setOpenAiModelsError(null);
       return;
     }
@@ -130,6 +150,7 @@ export function RepositoryAssistantSidebar({
           return;
         }
 
+        openAiModelsCache.set(normalizedToken, response.models);
         setOpenAiModels(response.models);
       } catch (fetchError) {
         if (!active || openAiModelsRequestIdRef.current !== requestId) {
@@ -371,16 +392,18 @@ export function RepositoryAssistantSidebar({
     }
   };
 
+  const handleComposerTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (!canSubmit || !isRepositoryAssistantSubmitShortcut(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    onSubmit();
+  };
+
   return (
-    <aside className="panel repository-assistant">
+    <aside className="panel repository-assistant" hidden={!open} aria-hidden={!open}>
       <header className="repository-assistant__header">
-        <div className="min-w-0">
-          <div className="repository-assistant__eyebrow">AI Repo Chat</div>
-          <div className="repository-assistant__title">{repository.name}</div>
-          <div className="repository-assistant__subtitle">
-            branch / working tree / recent commits を見ながら Git 操作を整理します。
-          </div>
-        </div>
         <div className="repository-assistant__header-actions">
           <button
             type="button"
@@ -403,147 +426,6 @@ export function RepositoryAssistantSidebar({
           </button>
         </div>
       </header>
-
-      <section className="repository-assistant__settings">
-        <div className="repository-assistant__setting">
-          <label
-            className="repository-assistant__setting-label"
-            htmlFor="repository-assistant-model"
-          >
-            Chat Model
-          </label>
-          <div ref={openAiModelComboboxRef} className="config-view__combobox">
-            <div
-              className={`config-view__combobox-control${isOpenAiModelComboboxOpen ? " is-open" : ""}`}
-            >
-              <input
-                id="repository-assistant-model"
-                ref={openAiModelInputRef}
-                className="config-view__combobox-input"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls={`${openAiModelComboboxId}-listbox`}
-                aria-expanded={isOpenAiModelComboboxOpen}
-                aria-activedescendant={
-                  activeOpenAiModelIndex >= 0
-                    ? `${openAiModelComboboxId}-option-${activeOpenAiModelIndex}`
-                    : undefined
-                }
-                placeholder="OpenAI model を選択"
-                value={openAiModelInputValue}
-                disabled={!normalizedToken || pending || loadingOpenAiModels}
-                onFocus={handleOpenAiModelInputFocus}
-                onChange={(event) => handleOpenAiModelInputChange(event.target.value)}
-                onKeyDown={handleOpenAiModelInputKeyDown}
-              />
-              <button
-                type="button"
-                className="config-view__combobox-toggle"
-                aria-label={
-                  isOpenAiModelComboboxOpen
-                    ? "OpenAI model list を閉じる"
-                    : "OpenAI model list を開く"
-                }
-                disabled={!isOpenAiModelComboboxEnabled}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  if (isOpenAiModelComboboxOpen) {
-                    closeOpenAiModelCombobox();
-                    return;
-                  }
-
-                  openOpenAiModelCombobox(Boolean(settings.openAiModel.trim()));
-                }}
-              >
-                <ChevronDown size={16} aria-hidden="true" />
-              </button>
-            </div>
-
-            {isOpenAiModelComboboxOpen ? (
-              <div
-                id={`${openAiModelComboboxId}-listbox`}
-                ref={openAiModelMenuRef}
-                className="config-view__combobox-menu"
-                role="listbox"
-              >
-                {filteredOpenAiModelOptions.length > 0 ? (
-                  filteredOpenAiModelOptions.map((modelId, index) => {
-                    const isSelected = modelId === settings.openAiModel;
-                    const isActive = index === activeOpenAiModelIndex;
-
-                    return (
-                      <button
-                        key={modelId}
-                        id={`${openAiModelComboboxId}-option-${index}`}
-                        ref={(element) => {
-                          openAiModelOptionRefs.current[index] = element;
-                        }}
-                        type="button"
-                        role="option"
-                        aria-selected={isSelected}
-                        className={`config-view__combobox-option${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onMouseEnter={() => setActiveOpenAiModelIndex(index)}
-                        onClick={() => handleOpenAiModelOptionSelect(modelId)}
-                      >
-                        <span className="config-view__combobox-option-label">{modelId}</span>
-                        {isSelected ? (
-                          <span className="config-view__combobox-option-meta">選択中</span>
-                        ) : null}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="config-view__combobox-empty">一致するモデルはありません</div>
-                )}
-              </div>
-            ) : null}
-          </div>
-          <p className="repository-assistant__setting-note">
-            {!normalizedToken
-              ? "Config の OpenAI token を設定すると chat 用モデルを選べます。"
-              : loadingOpenAiModels
-                ? "OpenAI の利用可能モデルを取得中です。"
-                : openAiModelsError
-                  ? openAiModelsError
-                  : normalizedOpenAiModelFilter
-                    ? openAiModelFilterMatchCount > 0
-                      ? `モデル名の部分一致で ${openAiModelFilterMatchCount} 件に絞り込んでいます。`
-                      : "一致するモデルはありません。"
-                    : "Commit コメント生成とは別に、この chat 専用の model を使います。"}
-          </p>
-        </div>
-
-        <div className="repository-assistant__setting">
-          <label
-            className="repository-assistant__setting-label"
-            htmlFor="repository-assistant-reasoning-effort"
-          >
-            推論の労力
-          </label>
-          <select
-            id="repository-assistant-reasoning-effort"
-            className="input input-select repository-assistant__reasoning-select"
-            value={settings.reasoningEffort}
-            disabled={pending}
-            onChange={(event) =>
-              onSettingsChange({
-                ...settings,
-                reasoningEffort: event.target.value as OpenAiReasoningEffort,
-              })
-            }
-          >
-            {OPENAI_REASONING_EFFORT_VALUES.map((effort) => (
-              <option key={effort} value={effort}>
-                {REASONING_EFFORT_LABELS[effort]}
-              </option>
-            ))}
-          </select>
-          <p className="repository-assistant__setting-note">
-            reasoning model では回答品質とレイテンシのバランスをここで調整します。
-          </p>
-        </div>
-      </section>
 
       <section className="repository-assistant__thread" aria-label={messageCountLabel}>
         {hasMessages ? (
@@ -606,9 +488,141 @@ export function RepositoryAssistantSidebar({
           disabled={pending}
           placeholder="複雑な branch 操作や conflict 対応を相談する"
           onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={handleComposerTextareaKeyDown}
         />
         {error ? <div className="repository-assistant__error">{error}</div> : null}
         <div className="repository-assistant__composer-footer">
+          <div
+            className={`repository-assistant__composer-settings${showReasoningEffortSetting ? "" : " repository-assistant__composer-settings--single-column"}`}
+          >
+            <div
+              className="repository-assistant__setting"
+              title={openAiModelControlTitle ?? undefined}
+            >
+              <label
+                className="repository-assistant__setting-label"
+                htmlFor="repository-assistant-model"
+              >
+                Chat Model
+              </label>
+              <div ref={openAiModelComboboxRef} className="config-view__combobox">
+                <div
+                  className={`config-view__combobox-control${isOpenAiModelComboboxOpen ? " is-open" : ""}`}
+                >
+                  <input
+                    id="repository-assistant-model"
+                    ref={openAiModelInputRef}
+                    className="config-view__combobox-input"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-controls={`${openAiModelComboboxId}-listbox`}
+                    aria-expanded={isOpenAiModelComboboxOpen}
+                    aria-activedescendant={
+                      activeOpenAiModelIndex >= 0
+                        ? `${openAiModelComboboxId}-option-${activeOpenAiModelIndex}`
+                        : undefined
+                    }
+                    placeholder="OpenAI model を選択"
+                    value={openAiModelInputValue}
+                    disabled={!normalizedToken || pending || loadingOpenAiModels}
+                    onFocus={handleOpenAiModelInputFocus}
+                    onChange={(event) => handleOpenAiModelInputChange(event.target.value)}
+                    onKeyDown={handleOpenAiModelInputKeyDown}
+                  />
+                  <button
+                    type="button"
+                    className="config-view__combobox-toggle"
+                    aria-label={
+                      isOpenAiModelComboboxOpen
+                        ? "OpenAI model list を閉じる"
+                        : "OpenAI model list を開く"
+                    }
+                    disabled={!isOpenAiModelComboboxEnabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      if (isOpenAiModelComboboxOpen) {
+                        closeOpenAiModelCombobox();
+                        return;
+                      }
+
+                      openOpenAiModelCombobox(Boolean(settings.openAiModel.trim()));
+                    }}
+                  >
+                    <ChevronDown size={16} aria-hidden="true" />
+                  </button>
+                </div>
+
+                {isOpenAiModelComboboxOpen ? (
+                  <div
+                    id={`${openAiModelComboboxId}-listbox`}
+                    ref={openAiModelMenuRef}
+                    className="config-view__combobox-menu"
+                    role="listbox"
+                  >
+                    {filteredOpenAiModelOptions.length > 0 ? (
+                      filteredOpenAiModelOptions.map((modelId, index) => {
+                        const isSelected = modelId === settings.openAiModel;
+                        const isActive = index === activeOpenAiModelIndex;
+
+                        return (
+                          <button
+                            key={modelId}
+                            id={`${openAiModelComboboxId}-option-${index}`}
+                            ref={(element) => {
+                              openAiModelOptionRefs.current[index] = element;
+                            }}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            className={`config-view__combobox-option${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onMouseEnter={() => setActiveOpenAiModelIndex(index)}
+                            onClick={() => handleOpenAiModelOptionSelect(modelId)}
+                          >
+                            <span className="config-view__combobox-option-label">{modelId}</span>
+                            {isSelected ? (
+                              <span className="config-view__combobox-option-meta">選択中</span>
+                            ) : null}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="config-view__combobox-empty">一致するモデルはありません</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {showReasoningEffortSetting ? (
+              <div className="repository-assistant__setting">
+                <label
+                  className="repository-assistant__setting-label"
+                  htmlFor="repository-assistant-reasoning-effort"
+                >
+                  推論の労力
+                </label>
+                <select
+                  id="repository-assistant-reasoning-effort"
+                  className="input input-select repository-assistant__reasoning-select"
+                  value={settings.reasoningEffort}
+                  disabled={pending}
+                  onChange={(event) =>
+                    onSettingsChange({
+                      ...settings,
+                      reasoningEffort: event.target.value as OpenAiReasoningEffort,
+                    })
+                  }
+                >
+                  {OPENAI_REASONING_EFFORT_VALUES.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {REASONING_EFFORT_LABELS[effort]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
           <button type="submit" className="button button-primary" disabled={!canSubmit}>
             <span className="inline-flex items-center gap-2">
               <SendHorizonal size={15} />

@@ -1,11 +1,14 @@
 import {
   AlertTriangle,
+  Cog,
   Copy,
   Download,
   ExternalLink,
   GitCommitHorizontal,
   GripVertical,
+  Moon,
   Plus,
+  Sun,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -22,7 +25,8 @@ import {
 import { flushSync } from "react-dom";
 
 import { api } from "../lib/api";
-import type { AppThemeId } from "../lib/appTheme";
+import { getAppThemeMode, type AppThemeId } from "../lib/appTheme";
+import { buildAppCommandPaletteActionSpecs } from "../lib/appCommandPalette";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { isCommandPaletteShortcut } from "../lib/commandPalette";
@@ -68,6 +72,8 @@ interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
   appThemeId?: AppThemeId | null;
+  onOpenConfig?: () => void;
+  onSelectTheme?: (themeId: AppThemeId) => void;
   onNotify: (message: string) => void;
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
   active?: boolean;
@@ -86,6 +92,8 @@ export function ControllerView({
   repository,
   appConfig,
   appThemeId = null,
+  onOpenConfig,
+  onSelectTheme,
   onNotify,
   onCurrentBranchChange,
   active = false,
@@ -367,6 +375,38 @@ export function ControllerView({
     branchOps.handleRequestCreateBranch(data.currentLocalBranch);
   }, [branchOps, data.currentLocalBranch]);
 
+  const appCommandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () =>
+      buildAppCommandPaletteActionSpecs(appThemeId).map((command) => {
+        if (command.action === "openConfig") {
+          return {
+            id: command.id,
+            title: command.title,
+            description: command.description,
+            keywords: command.keywords,
+            disabledReason: command.disabledReason,
+            icon: Cog,
+            onSelect: () => {
+              onOpenConfig?.();
+            },
+          };
+        }
+
+        return {
+          id: command.id,
+          title: command.title,
+          description: command.description,
+          keywords: command.keywords,
+          disabledReason: command.disabledReason,
+          icon: getAppThemeMode(command.themeId) === "light" ? Sun : Moon,
+          onSelect: () => {
+            onSelectTheme?.(command.themeId);
+          },
+        };
+      }),
+    [appThemeId, onOpenConfig, onSelectTheme],
+  );
+
   const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
     () => [
       {
@@ -445,8 +485,10 @@ export function ControllerView({
         disabledReason: repositoryGithubUrl ? null : "GitHub remote を解決できたときだけ使えます。",
         onSelect: openRepositoryGithubPage,
       },
+      ...appCommandPaletteCommands,
     ],
     [
+      appCommandPaletteCommands,
       checkedOutBranchName,
       copyCurrentBranchName,
       data.currentLocalBranch,

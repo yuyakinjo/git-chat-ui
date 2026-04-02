@@ -31,6 +31,33 @@ export const OPENAI_REASONING_EFFORT_VALUES = [
   "xhigh",
 ] as const satisfies OpenAiReasoningEffort[];
 
+const OPENAI_REASONING_MODEL_ALIASES = [
+  "o1",
+  "o3",
+  "o3-mini",
+  "o4-mini",
+  "gpt-5",
+  "gpt-5-codex",
+  "gpt-5-mini",
+  "gpt-5-nano",
+  "gpt-5-pro",
+  "gpt-5.1",
+  "gpt-5.1-chat-latest",
+  "gpt-5.1-codex-mini",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+  "gpt-5.2",
+  "gpt-5.2-chat-latest",
+  "gpt-5.2-pro",
+  "gpt-5.2-codex",
+  "gpt-5.3-chat-latest",
+  "gpt-5.3-codex",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
+  "gpt-5.4-pro",
+] as const;
+
 export const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 
 export const DEFAULT_COMMIT_TITLE_PROMPT = [
@@ -59,4 +86,15 @@ export function isOpenAiReasoningEffort(value: unknown): value is OpenAiReasonin
 
 export function normalizeOpenAiReasoningEffort(value: unknown): OpenAiReasoningEffort {
   return isOpenAiReasoningEffort(value) ? value : "default";
+}
+
+export function supportsOpenAiReasoningEffort(model: string | null | undefined): boolean {
+  const normalizedModel = typeof model === "string" ? model.trim().toLocaleLowerCase() : "";
+  if (!normalizedModel) {
+    return false;
+  }
+
+  return OPENAI_REASONING_MODEL_ALIASES.some(
+    (alias) => normalizedModel === alias || normalizedModel.startsWith(`${alias}-20`),
+  );
 }

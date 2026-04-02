@@ -222,17 +222,22 @@ describe("globals.css", () => {
     expect(assistantSection).toContain(".repository-assistant__message {");
     expect(assistantSection).toContain(".repository-assistant__message--assistant {");
     expect(assistantSection).toContain(".repository-assistant__composer {");
+    expect(assistantSection).toContain(".repository-assistant__composer-settings {");
+    expect(assistantSection).toContain(".repository-assistant__setting .config-view__combobox-menu {");
+    expect(assistantSection).toContain("bottom: calc(100% + 6px);");
     expect(assistantSection).toContain(".repository-assistant__textarea {");
-    expect(assistantSection).toContain("@keyframes repository-assistant-spin {");
+    expect(globalsCss).toContain("@keyframes repository-assistant-spin {");
   });
 
   test("commit detail split layout only uses wide two-column tracks", () => {
     const commitDetailSection = getSection(".commit-detail-panel__content {", ".list-item {");
 
+    expect(commitDetailSection).toContain(".commit-detail-panel__summary {");
+    expect(commitDetailSection).toContain("flex: 0 0 auto;");
     expect(commitDetailSection).toContain(".commit-detail-panel__content--split {");
     expect(commitDetailSection).toContain("align-items: start;");
     expect(commitDetailSection).toContain(
-      "grid-template-columns: minmax(320px, 0.82fr) minmax(460px, 1.18fr);",
+      "grid-template-columns: minmax(280px, 0.78fr) minmax(340px, 1.22fr);",
     );
   });
 
@@ -312,6 +317,7 @@ describe("globals.css", () => {
     expect(inputSection).toContain(".config-view__combobox-input {");
     expect(inputSection).toContain(".config-view__combobox-toggle {");
     expect(inputSection).toContain(".config-view__combobox-menu {");
+    expect(inputSection).toContain("top: calc(100% + 6px);");
     expect(inputSection).toContain("backdrop-filter: blur(18px) saturate(170%);");
     expect(inputSection).toContain(".config-view__combobox-option.is-selected {");
     expect(inputSection).toContain(".config-view__combobox-empty {");

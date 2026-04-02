@@ -8,7 +8,7 @@ export type CollapsedControllerPanelsGridClassName =
 
 const GIT_OPERATION_PANEL_THREE_COLUMN_THRESHOLD = 720;
 const GIT_OPERATION_PANEL_FOUR_COLUMN_THRESHOLD = 1200;
-const COMMIT_DETAIL_PANEL_SPLIT_THRESHOLD = 1160;
+const COMMIT_DETAIL_PANEL_SPLIT_THRESHOLD = 760;
 
 export function resolveGitOperationPanelColumnCount(
   containerWidth: number,
