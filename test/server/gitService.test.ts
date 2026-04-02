@@ -623,6 +623,57 @@ describe("conflict details and resolution", () => {
     }
   });
 
+  test("stages the current working tree version for manual resolutions", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "manual.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+          { stage: 3, content: "theirs\n" },
+        ],
+        "manual resolution\n",
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "manual.txt",
+        side: "merged",
+      });
+
+      expect(await fs.readFile(path.join(fixture.repoPath, "manual.txt"), "utf8")).toBe(
+        "manual resolution\n",
+      );
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+
+      await stageConflictEntries(
+        fixture.repoPath,
+        "removed.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+        ],
+        null,
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "removed.txt",
+        side: "merged",
+      });
+
+      await expect(
+        fs.readFile(path.join(fixture.repoPath, "removed.txt"), "utf8"),
+      ).rejects.toThrow();
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   test("removes the file when the chosen side is a delete-side resolution", async () => {
     const fixture = await createConflictFixture();
 

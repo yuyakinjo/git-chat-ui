@@ -325,6 +325,7 @@ pub enum ConflictOperation {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ConflictResolutionSide {
+    Merged,
     Ours,
     Theirs,
 }
@@ -2274,7 +2275,8 @@ fn get_pull_status_for_branch(
 ) -> Result<PullStatusResponse, String> {
     ensure_repo_path(repo_path)?;
 
-    let Some(resolved_branch_name) = resolve_pull_status_branch_name(repo_path, branch_name)? else {
+    let Some(resolved_branch_name) = resolve_pull_status_branch_name(repo_path, branch_name)?
+    else {
         return Ok(detached_pull_status_response());
     };
 
@@ -2334,7 +2336,12 @@ fn fast_forward_branch_to_upstream(
         return Ok(());
     }
 
-    if run_git(&["merge-base", "--is-ancestor", &branch_head, &upstream_head], repo_path).is_err() {
+    if run_git(
+        &["merge-base", "--is-ancestor", &branch_head, &upstream_head],
+        repo_path,
+    )
+    .is_err()
+    {
         return Err(format!(
             "Not possible to fast-forward, aborting. Local branch '{branch_name}' and upstream '{upstream_name}' have diverged."
         ));
@@ -2381,11 +2388,7 @@ fn pull_branch(repo_path: &str, branch_name: Option<&str>) -> Result<(), String>
     }
 
     if let Ok((remote_name, remote_branch_name)) = parse_remote_branch_name(&upstream) {
-        let args = vec![
-            "fetch".to_string(),
-            remote_name,
-            remote_branch_name,
-        ];
+        let args = vec!["fetch".to_string(), remote_name, remote_branch_name];
         run_git_owned_with_env(
             &args,
             repo_path,
@@ -4637,9 +4640,15 @@ fn stage_conflict_resolution(
     file: &str,
     side: ConflictResolutionSide,
 ) -> Result<(), String> {
+    if side == ConflictResolutionSide::Merged {
+        run_git(&["add", "--", file], worktree_path)?;
+        return Ok(());
+    }
+
     let (flag, stage) = match side {
         ConflictResolutionSide::Ours => ("--ours", 2),
         ConflictResolutionSide::Theirs => ("--theirs", 3),
+        ConflictResolutionSide::Merged => unreachable!("merged resolution returns early"),
     };
 
     if read_stage_buffer(worktree_path, stage, file)?.is_some() {
@@ -6773,7 +6782,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_conflict_version_handles_text_and_delete_side_resolutions() {
+    fn resolve_conflict_version_handles_side_and_manual_resolutions() {
         let fixture = create_conflict_fixture();
         stage_conflict_entries(
             &fixture.repo_path,
@@ -6794,6 +6803,50 @@ mod tests {
                 .expect("resolved file should be readable"),
             "ours\n"
         );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "manual.txt",
+            &[(1, b"base\n"), (2, b"ours\n"), (3, b"theirs\n")],
+            Some(b"manual resolution\n"),
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "manual.txt".to_string(),
+            ConflictResolutionSide::Merged,
+            None,
+        )
+        .expect("manual resolution should stage the current file");
+        assert_eq!(
+            fs::read_to_string(Path::new(&fixture.repo_path).join("manual.txt"))
+                .expect("manual file should be readable"),
+            "manual resolution\n"
+        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "removed.txt",
+            &[(1, b"base\n"), (2, b"ours\n")],
+            None,
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "removed.txt".to_string(),
+            ConflictResolutionSide::Merged,
+            None,
+        )
+        .expect("manual delete resolution should stage removal");
+        assert!(!Path::new(&fixture.repo_path).join("removed.txt").exists());
         assert!(get_conflict_summary(fixture.repo_path.clone(), None)
             .expect("conflict summary should resolve")
             .files
@@ -6927,8 +6980,8 @@ mod tests {
         run_command("git", &["fetch", "origin"], &fixture.repo_path)
             .expect("local fetch should succeed");
 
-        let status = get_pull_status(fixture.repo_path.clone(), None)
-            .expect("pull status should resolve");
+        let status =
+            get_pull_status(fixture.repo_path.clone(), None).expect("pull status should resolve");
 
         assert_eq!(status.branch_name.as_deref(), Some("main"));
         assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
@@ -7007,8 +7060,8 @@ mod tests {
             .expect("upstream head should resolve");
         let readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
             .expect("README should be readable");
-        let status = get_pull_status(fixture.repo_path.clone(), None)
-            .expect("pull status should resolve");
+        let status =
+            get_pull_status(fixture.repo_path.clone(), None).expect("pull status should resolve");
 
         assert_eq!(current_branch, "main");
         assert_eq!(head, upstream_head);

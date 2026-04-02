@@ -162,7 +162,7 @@ export interface PullStatus {
 
 export type ConflictContextType = "repository" | "mergeSession";
 export type ConflictOperation = "merge" | "pull" | "stashApply" | "stashPop" | "unknown";
-export type ConflictResolutionSide = "ours" | "theirs";
+export type ConflictResolutionSide = "merged" | "ours" | "theirs";
 
 export interface RepositoryMutationSafety {
   isSelfRepository: boolean;

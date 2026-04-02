@@ -1,11 +1,16 @@
 import { Check, FileWarning, GitMerge, ShieldOff, X } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
 
-import type { ConflictFileDetail, ConflictSummary, ConflictResolutionSide } from "../types";
+import type {
+  ConflictFileDetail,
+  ConflictFileVersion,
+  ConflictSummary,
+  ConflictResolutionSide,
+} from "../types";
 
 import { GitFilePathLabel } from "./GitFilePresentation";
 
-type ConflictViewerTab = "merged" | "base" | "ours" | "theirs";
+type ConflictViewerTab = "compare" | "merged" | "base" | "ours" | "theirs";
 
 interface ConflictOverlayProps {
   summary: ConflictSummary;
@@ -21,16 +26,26 @@ interface ConflictOverlayProps {
 }
 
 const tabLabels: Record<ConflictViewerTab, string> = {
+  compare: "Compare",
   merged: "Merged",
   base: "Base",
   ours: "Ours",
   theirs: "Theirs",
 };
 
-function renderVersionContent(
-  version: ConflictFileDetail[ConflictViewerTab],
-  label: string,
-): JSX.Element {
+function describeConflictVersion(version: ConflictFileVersion): string {
+  if (version.isBinary) {
+    return "Binary";
+  }
+
+  if (version.content === null) {
+    return "Missing";
+  }
+
+  return "Text";
+}
+
+function renderVersionContent(version: ConflictFileVersion, label: string): JSX.Element {
   if (version.isBinary) {
     return (
       <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-sm text-ink-subtle">
@@ -70,6 +85,27 @@ function renderVersionContent(
   );
 }
 
+function renderComparePane(options: {
+  label: string;
+  version: ConflictFileVersion;
+  hint: string;
+}): JSX.Element {
+  const { label, version, hint } = options;
+
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/10 bg-white/70">
+      <div className="flex items-start justify-between gap-3 border-b border-black/8 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">{label}</div>
+          <div className="text-xs text-ink-subtle">{hint}</div>
+        </div>
+        <span className="badge bg-black/5! text-ink-soft!">{describeConflictVersion(version)}</span>
+      </div>
+      <div className="min-h-0 flex-1 p-3">{renderVersionContent(version, label)}</div>
+    </section>
+  );
+}
+
 export function ConflictOverlay({
   summary,
   activeFilePath,
@@ -82,14 +118,14 @@ export function ConflictOverlay({
   onAbortMergeSession,
   onClose,
 }: ConflictOverlayProps): JSX.Element {
-  const [activeTab, setActiveTab] = useState<ConflictViewerTab>("merged");
+  const [activeTab, setActiveTab] = useState<ConflictViewerTab>("compare");
   const activeFileCount = summary.files.length;
   const isMergeSession = summary.contextType === "mergeSession";
-  const activeVersion = detail ? detail[activeTab] : null;
+  const activeVersion = detail && activeTab !== "compare" ? detail[activeTab] : null;
   const canCompleteMergeSession = isMergeSession && activeFileCount === 0;
 
   useEffect(() => {
-    setActiveTab("merged");
+    setActiveTab("compare");
   }, [activeFilePath]);
 
   useEffect(() => {
@@ -220,6 +256,15 @@ export function ConflictOverlay({
                 >
                   Take Theirs
                 </button>
+                <button
+                  type="button"
+                  className="button button-secondary inline-flex items-center gap-2"
+                  onClick={() => onResolve("merged")}
+                  disabled={busy || loading || !activeFilePath}
+                >
+                  <Check size={14} />
+                  Mark Resolved
+                </button>
                 {isMergeSession ? (
                   <>
                     <button
@@ -246,15 +291,58 @@ export function ConflictOverlay({
             </div>
 
             {detail ? (
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
-                <span className="badge bg-[#ffe2e0]! text-[#b42318]!">{detail.statusLabel}</span>
-                <span>{tabLabels[activeTab]}</span>
+              <div className="mb-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+                  <span className="badge bg-[#ffe2e0]! text-[#b42318]!">{detail.statusLabel}</span>
+                  <span>{tabLabels[activeTab]}</span>
+                </div>
+                <div className="text-xs text-ink-subtle">
+                  Compare で Ours / Theirs を見比べるか、外部 editor で調整した current file
+                  をそのまま採用するときは Mark Resolved を使います。
+                </div>
               </div>
             ) : null}
 
             {loading ? (
               <div className="flex flex-1 items-center justify-center text-sm text-ink-subtle">
                 読み込み中...
+              </div>
+            ) : detail && activeTab === "compare" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      Current File
+                    </div>
+                    <div className="mt-1 text-sm text-ink">
+                      Merged タブで現在の working tree 内容を確認できます。
+                    </div>
+                    <div className="mt-1 text-xs text-ink-subtle">
+                      外部 editor で解消後は Mark Resolved で stage します。
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      Base
+                    </div>
+                    <div className="mt-1 text-sm text-ink">
+                      Base タブで共通祖先を確認しながら取り込み先を判断できます。
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
+                  {renderComparePane({
+                    label: "Ours",
+                    version: detail.ours,
+                    hint: "現在の checkout 側を優先して採用します。",
+                  })}
+                  {renderComparePane({
+                    label: "Theirs",
+                    version: detail.theirs,
+                    hint: "取り込み元の変更を優先して採用します。",
+                  })}
+                </div>
               </div>
             ) : detail && activeVersion ? (
               renderVersionContent(activeVersion, tabLabels[activeTab])

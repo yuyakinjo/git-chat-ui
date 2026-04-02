@@ -52,8 +52,10 @@ describe("ConflictOverlay", () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain("Conflict Viewer");
     expect(html).toContain("feature/conflict -&gt; main");
+    expect(html).toContain(">Compare<");
     expect(html).toContain("Take Ours");
     expect(html).toContain("Take Theirs");
+    expect(html).toContain("Mark Resolved");
     expect(html).toContain("Abort Merge");
     expect(html).toContain("Complete Merge");
     expect(html).toContain(">Merged<");
@@ -62,6 +64,8 @@ describe("ConflictOverlay", () => {
     expect(html).toContain(">Theirs<");
     expect(html).toContain("Both Modified");
     expect(html).toContain("src/conflict.txt");
+    expect(html).toContain("Current File");
+    expect(html).toContain("Mark Resolved で stage します。");
   });
 
   test("shows the resolved-empty state when no conflicted files remain", () => {

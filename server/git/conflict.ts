@@ -162,7 +162,9 @@ async function removeTemporaryWorktree(
 async function detectRepositoryConflictOperation(worktreePath: string): Promise<ConflictOperation> {
   try {
     const mergeHeadPath = await runGit(["rev-parse", "--git-path", "MERGE_HEAD"], worktreePath);
-    await fs.access(path.isAbsolute(mergeHeadPath) ? mergeHeadPath : path.join(worktreePath, mergeHeadPath));
+    await fs.access(
+      path.isAbsolute(mergeHeadPath) ? mergeHeadPath : path.join(worktreePath, mergeHeadPath),
+    );
     return "merge";
   } catch {
     return "unknown";
@@ -205,7 +207,10 @@ async function resolveConflictContext(
   };
 }
 
-async function getConflictFileStatus(worktreePath: string, file: string): Promise<WorkingFile | null> {
+async function getConflictFileStatus(
+  worktreePath: string,
+  file: string,
+): Promise<WorkingFile | null> {
   const output = await runGit(["status", "--porcelain=v1", "-uall", "--", file], worktreePath);
 
   for (const line of output.split("\n")) {
@@ -223,6 +228,11 @@ async function stageConflictResolution(
   file: string,
   side: ConflictResolutionSide,
 ): Promise<void> {
+  if (side === "merged") {
+    await runGit(["add", "--", file], worktreePath);
+    return;
+  }
+
   const stage = side === "ours" ? 2 : 3;
   const stageBuffer = await readStageBuffer(worktreePath, stage, file);
 

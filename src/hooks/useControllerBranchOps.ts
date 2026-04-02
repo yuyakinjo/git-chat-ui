@@ -352,7 +352,7 @@ export function useControllerBranchOps({
         await openConflictFromResult(
           result,
           "競合が発生しました",
-          "Conflict Viewer を開きました。Take Ours / Take Theirs で解消してください。",
+          "Conflict Viewer を開きました。Compare で見比べて Take Ours / Take Theirs / Mark Resolved で解消してください。",
         )
       ) {
         return;
@@ -474,7 +474,7 @@ export function useControllerBranchOps({
           await openConflictFromResult(
             result,
             "競合が発生しました",
-            "Conflict Viewer を開きました。stash の競合を解消してください。",
+            "Conflict Viewer を開きました。Compare で見比べて Take Ours / Take Theirs / Mark Resolved で解消してください。",
           )
         ) {
           return;
@@ -487,7 +487,7 @@ export function useControllerBranchOps({
           await openConflictFromResult(
             result,
             "競合が発生しました",
-            "Conflict Viewer を開きました。stash の競合を解消してください。",
+            "Conflict Viewer を開きました。Compare で見比べて Take Ours / Take Theirs / Mark Resolved で解消してください。",
           )
         ) {
           return;
