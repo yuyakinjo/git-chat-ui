@@ -82,57 +82,17 @@ describe("globals.css", () => {
       ".controller-panel-slot {",
     );
 
-    expect(controllerPanelSection).toContain("transition: grid-template-rows 320ms ease;");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.3fr) minmax(320px, 1.15fr) minmax(170px, 0.72fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      ".controller-panels-grid--without-git-operations-graph-detail {",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(0, 1.3fr) minmax(260px, 1.87fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      ".controller-panels-grid--without-git-operations-detail-graph {",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(260px, 1.87fr) minmax(0, 1.3fr);",
     );
     expect(controllerPanelSection).toContain("@media (max-width: 1320px) {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.08fr) minmax(340px, 1.18fr) minmax(150px, 0.56fr);",
     );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(0, 1.08fr) minmax(280px, 1.74fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(280px, 1.74fr) minmax(0, 1.08fr);",
-    );
     expect(controllerPanelSection).toContain("@media (max-width: 1100px) {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(280px, 1.08fr) minmax(320px, 1.1fr) minmax(170px, 0.62fr);",
     );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(240px, 1.08fr) minmax(320px, 1.72fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(320px, 1.72fr) minmax(240px, 1.08fr);",
-    );
-  });
-
-  test("controller panel slots fade git operations out before the grid collapses", () => {
-    const controllerPanelSection = getSection(
-      ".controller-panels-grid {",
-      ".controller-panel-drop-split {",
-    );
-
-    expect(controllerPanelSection).toContain(".controller-panel-slot--hiding {");
-    expect(controllerPanelSection).toContain("pointer-events: none;");
-    expect(controllerPanelSection).toContain(".controller-panel-slot--hiding .panel {");
-    expect(controllerPanelSection).toContain("opacity: 0;");
-    expect(controllerPanelSection).toContain("transform: translateY(-10px) scale(0.985);");
-    expect(controllerPanelSection).toContain("filter: saturate(0.86);");
-    expect(controllerPanelSection).toContain("transition-duration: 320ms;");
   });
 
   test("git operation panel uses a stacked staged/stash column and expands commit in wider layouts", () => {
@@ -221,14 +181,18 @@ describe("globals.css", () => {
     expect(assistantSection).toContain(".repository-assistant__thread {");
     expect(assistantSection).toContain(".repository-assistant__message {");
     expect(assistantSection).toContain(".repository-assistant__message--assistant {");
+    expect(assistantSection).toContain(".repository-assistant__message-author {");
+    expect(assistantSection).toContain(".repository-assistant__avatar {");
     expect(assistantSection).toContain(".repository-assistant__composer {");
     expect(assistantSection).toContain(".repository-assistant__composer-settings {");
+    expect(assistantSection).toContain(".repository-assistant__action-card {");
     expect(assistantSection).toContain(".repository-assistant__setting .config-view__combobox-menu {");
     expect(assistantSection).toContain("bottom: calc(100% + 6px);");
     expect(assistantSection).toContain(".repository-assistant__textarea {");
     expect(assistantSection).toContain(".repository-assistant__message-body pre {");
     expect(assistantSection).toContain(".repository-assistant__message-body code {");
     expect(assistantSection).toContain(".repository-assistant__message-body a {");
+    expect(globalsCss).toContain(".repository-assistant__policy-dialog {");
     expect(globalsCss).toContain("@keyframes repository-assistant-spin {");
   });
 

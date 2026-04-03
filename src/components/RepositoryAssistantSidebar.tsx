@@ -1,4 +1,13 @@
-import { ChevronDown, LoaderCircle, PanelRightClose, SendHorizonal, Trash2 } from "lucide-react";
+import {
+  Bot,
+  CircleUserRound,
+  ChevronDown,
+  LoaderCircle,
+  PanelRightClose,
+  SendHorizonal,
+  Shield,
+  Trash2,
+} from "lucide-react";
 import {
   useEffect,
   useId,
@@ -17,10 +26,20 @@ import {
   filterOpenAiModelOptions,
   resolveListboxScrollTop,
 } from "../lib/openAiModelCombobox";
-import { isRepositoryAssistantSubmitShortcut } from "../lib/repositoryAssistant";
+import {
+  formatRepositoryAssistantActionArgs,
+  getRepositoryAssistantActionDisplayLabel,
+  isRepositoryAssistantSubmitShortcut,
+} from "../lib/repositoryAssistant";
 import { OPENAI_REASONING_EFFORT_VALUES, supportsOpenAiReasoningEffort } from "../../shared/ai.js";
+import {
+  REPOSITORY_ASSISTANT_ACTION_SPECS,
+  getRepositoryAssistantActionSpec,
+} from "../../shared/repositoryAssistant.js";
 import type {
   OpenAiReasoningEffort,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionId,
   RepositoryAssistantMessage,
   RepositoryAssistantSettings,
 } from "../types";
@@ -32,11 +51,17 @@ interface RepositoryAssistantSidebarProps {
   messages: RepositoryAssistantMessage[];
   draft: string;
   pending: boolean;
+  policySaving: boolean;
+  allowedActionIds: RepositoryAssistantActionId[];
+  userAvatarUrl?: string | null;
+  userLogin?: string | null;
   error: string | null;
   onSettingsChange: (value: RepositoryAssistantSettings) => void;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onClearConversation: () => void;
+  onSetActionAllowed: (actionId: RepositoryAssistantActionId, allowed: boolean) => void;
+  onExecuteAction: (proposalId: string, action: RepositoryAssistantAction) => void;
   onClose: () => void;
 }
 
@@ -51,6 +76,18 @@ const REASONING_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
   high: "高い",
   xhigh: "非常に高い",
 };
+
+const ACTION_GROUP_LABELS = {
+  git: "Git",
+  githubPr: "GitHub PR",
+  appApi: "App API",
+} as const;
+
+const ACTION_RISK_LABELS = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+} as const;
 
 type RepositoryAssistantMarkdownLinkProps = ComponentProps<"a"> & { node?: unknown };
 
@@ -92,6 +129,41 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
+function RepositoryAssistantMessageAuthor({
+  role,
+  userAvatarUrl,
+  userLogin,
+}: {
+  role: RepositoryAssistantMessage["role"];
+  userAvatarUrl: string | null;
+  userLogin: string | null;
+}): JSX.Element {
+  const label = role === "assistant" ? "Assistant" : "You";
+  const hasUserAvatar = role === "user" && Boolean(userAvatarUrl?.trim());
+
+  return (
+    <div className="repository-assistant__message-author">
+      <span
+        className={`repository-assistant__avatar repository-assistant__avatar--${role}`}
+        title={role === "user" && userLogin ? `GitHub: ${userLogin}` : undefined}
+      >
+        {role === "assistant" ? (
+          <Bot size={14} aria-hidden="true" />
+        ) : hasUserAvatar ? (
+          <img
+            src={userAvatarUrl ?? undefined}
+            alt=""
+            className="repository-assistant__avatar-image"
+          />
+        ) : (
+          <CircleUserRound size={13} aria-hidden="true" />
+        )}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function RepositoryAssistantSidebar({
   open,
   openAiToken,
@@ -99,11 +171,17 @@ export function RepositoryAssistantSidebar({
   messages,
   draft,
   pending,
+  policySaving,
+  allowedActionIds,
+  userAvatarUrl = null,
+  userLogin = null,
   error,
   onSettingsChange,
   onDraftChange,
   onSubmit,
   onClearConversation,
+  onSetActionAllowed,
+  onExecuteAction,
   onClose,
 }: RepositoryAssistantSidebarProps): JSX.Element {
   const [openAiModels, setOpenAiModels] = useState<string[]>([]);
@@ -119,11 +197,22 @@ export function RepositoryAssistantSidebar({
   const openAiModelMenuRef = useRef<HTMLDivElement | null>(null);
   const openAiModelOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const openAiModelComboboxId = useId();
+  const [isPolicyDialogOpen, setPolicyDialogOpen] = useState(false);
 
   const hasMessages = messages.length > 0;
   const canSubmit = draft.trim().length > 0 && !pending;
   const normalizedToken = openAiToken.trim();
   const messageCountLabel = useMemo(() => `${messages.length} messages`, [messages.length]);
+  const allowedActionIdSet = useMemo(() => new Set(allowedActionIds), [allowedActionIds]);
+  const actionGroups = useMemo(
+    () =>
+      (Object.keys(ACTION_GROUP_LABELS) as Array<keyof typeof ACTION_GROUP_LABELS>).map((group) => ({
+        group,
+        label: ACTION_GROUP_LABELS[group],
+        actions: REPOSITORY_ASSISTANT_ACTION_SPECS.filter((spec) => spec.group === group),
+      })),
+    [],
+  );
   const openAiModelOptions = useMemo(
     () => buildOpenAiModelOptions(openAiModels, settings.openAiModel),
     [openAiModels, settings.openAiModel],
@@ -444,6 +533,16 @@ export function RepositoryAssistantSidebar({
           <button
             type="button"
             className="repository-assistant__icon-button"
+            aria-label="Assistant allowlist"
+            title="Assistant allowlist"
+            disabled={policySaving}
+            onClick={() => setPolicyDialogOpen(true)}
+          >
+            <Shield size={15} />
+          </button>
+          <button
+            type="button"
+            className="repository-assistant__icon-button"
             aria-label="Clear conversation"
             title="Clear conversation"
             disabled={!hasMessages || pending}
@@ -471,14 +570,89 @@ export function RepositoryAssistantSidebar({
               className={`repository-assistant__message repository-assistant__message--${message.role}`}
             >
               <div className="repository-assistant__message-meta">
-                <span>{message.role === "assistant" ? "Assistant" : "You"}</span>
-                <span>{formatTimestamp(message.createdAt)}</span>
+                <RepositoryAssistantMessageAuthor
+                  role={message.role}
+                  userAvatarUrl={userAvatarUrl}
+                  userLogin={userLogin}
+                />
+                <span className="repository-assistant__message-time">
+                  {formatTimestamp(message.createdAt)}
+                </span>
               </div>
               <div className="repository-assistant__message-body">
                 <ReactMarkdown components={{ a: RepositoryAssistantMarkdownLink }}>
                   {message.content}
                 </ReactMarkdown>
               </div>
+              {message.proposedActions && message.proposedActions.length > 0 ? (
+                <div className="repository-assistant__action-list">
+                  {message.proposedActions.map((proposal) => {
+                    const spec = getRepositoryAssistantActionSpec(proposal.action.id);
+                    const allowed = allowedActionIdSet.has(proposal.action.id);
+                    const canRun =
+                      allowed && !pending && proposal.status !== "running" && proposal.status !== "stale";
+
+                    return (
+                      <div key={proposal.id} className="repository-assistant__action-card">
+                        <div className="repository-assistant__action-header">
+                          <div className="repository-assistant__action-title">
+                            {getRepositoryAssistantActionDisplayLabel(proposal.action)}
+                          </div>
+                          <div className="repository-assistant__action-badges">
+                            <span className="repository-assistant__action-badge">
+                              {ACTION_GROUP_LABELS[spec.group]}
+                            </span>
+                            <span className="repository-assistant__action-badge">
+                              Risk: {ACTION_RISK_LABELS[spec.risk]}
+                            </span>
+                            <span className="repository-assistant__action-badge">
+                              {proposal.status}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="repository-assistant__action-copy">{proposal.reason}</div>
+                        <div className="repository-assistant__action-copy is-subtle">
+                          <code>{proposal.action.id}</code> {formatRepositoryAssistantActionArgs(proposal.action)}
+                        </div>
+                        <div className="repository-assistant__action-footer">
+                          <span
+                            className={`repository-assistant__action-permission ${allowed ? "is-allowed" : "is-blocked"}`}
+                          >
+                            {allowed ? "Allowed" : "Blocked by allowlist"}
+                          </span>
+                          <div className="repository-assistant__action-buttons">
+                            <button
+                              type="button"
+                              className="button button-secondary"
+                              disabled={policySaving || pending}
+                              onClick={() => onSetActionAllowed(proposal.action.id, !allowed)}
+                            >
+                              {allowed ? "Disallow" : "Allow"}
+                            </button>
+                            <button
+                              type="button"
+                              className="button button-primary"
+                              disabled={!canRun}
+                              onClick={() => onExecuteAction(proposal.id, proposal.action)}
+                            >
+                              {proposal.status === "running" ? "Running..." : "Approve & Run"}
+                            </button>
+                          </div>
+                        </div>
+                        {proposal.result ? (
+                          <div
+                            className={`repository-assistant__action-result ${
+                              proposal.result.status === "failed" ? "is-error" : ""
+                            }`}
+                          >
+                            {proposal.result.message}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </article>
           ))
         ) : (
@@ -496,8 +670,12 @@ export function RepositoryAssistantSidebar({
         {pending ? (
           <article className="repository-assistant__message repository-assistant__message--assistant is-pending">
             <div className="repository-assistant__message-meta">
-              <span>Assistant</span>
-              <span>thinking</span>
+              <RepositoryAssistantMessageAuthor
+                role="assistant"
+                userAvatarUrl={userAvatarUrl}
+                userLogin={userLogin}
+              />
+              <span className="repository-assistant__message-time">thinking</span>
             </div>
             <div className="repository-assistant__pending">
               <LoaderCircle size={15} className="repository-assistant__spinner" />
@@ -671,6 +849,72 @@ export function RepositoryAssistantSidebar({
           </button>
         </div>
       </form>
+
+      {isPolicyDialogOpen ? (
+        <div className="repository-assistant__dialog-backdrop" onClick={() => setPolicyDialogOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="repository assistant allowlist"
+            className="repository-assistant__policy-dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="repository-assistant__policy-header">
+              <div>
+                <div className="repository-assistant__policy-title">Assistant Allowlist</div>
+                <div className="repository-assistant__policy-copy">
+                  Allowlisted actions can be approved and executed from assistant proposals.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="repository-assistant__icon-button"
+                aria-label="Close allowlist"
+                title="Close allowlist"
+                onClick={() => setPolicyDialogOpen(false)}
+              >
+                <PanelRightClose size={15} />
+              </button>
+            </div>
+
+            <div className="repository-assistant__policy-groups">
+              {actionGroups.map(({ group, label, actions }) => (
+                <section key={group} className="repository-assistant__policy-group">
+                  <div className="repository-assistant__policy-group-title">{label}</div>
+                  {actions.length > 0 ? (
+                    <div className="repository-assistant__policy-list">
+                      {actions.map((action) => (
+                        <label key={action.id} className="repository-assistant__policy-item">
+                          <input
+                            type="checkbox"
+                            checked={allowedActionIdSet.has(action.id)}
+                            disabled={policySaving}
+                            onChange={(event) =>
+                              onSetActionAllowed(action.id, event.target.checked)
+                            }
+                          />
+                          <span className="repository-assistant__policy-item-copy">
+                            <span className="repository-assistant__policy-item-title">
+                              {action.label}
+                            </span>
+                            <span className="repository-assistant__policy-item-meta">
+                              <code>{action.id}</code> · Risk {ACTION_RISK_LABELS[action.risk]}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="repository-assistant__policy-empty">
+                      No app-only actions are available in v1.
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import { Bot, Cog, ExternalLink, FolderGit2, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
+import { getRepositoryAssistantActionSpec } from "../shared/repositoryAssistant.js";
 import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
 import { ConfigView } from "./components/ConfigView";
 import { ControllerView } from "./components/ControllerView";
@@ -42,25 +43,35 @@ import {
 import { isConfigShortcut } from "./lib/configShortcut";
 import {
   createRepositoryAssistantMessage,
+  createRepositoryAssistantExecutionMessage,
   createDefaultRepositoryAssistantSettings,
   createRepositoryAssistantSettingsFromConfig,
+  getRepositoryAssistantPolicyAllowedActionIds,
   isEditableShortcutTarget,
   isRepositoryAssistantShortcut,
+  markRepositoryAssistantProposalsStale,
   normalizeRepositoryAssistantSettings,
+  setRepositoryAssistantPolicyActionAllowed,
   toRepositoryAssistantConfigPatch,
+  updateRepositoryAssistantProposal,
 } from "./lib/repositoryAssistant";
 import type {
   AiGenerationConfig,
   AppConfig,
   Repository,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionId,
+  RepositoryAssistantActionResult,
   RepositoryAssistantMessage,
   RepositoryAssistantSettings,
+  RepositoryAssistantUserProfile,
 } from "./types";
 
 interface RepositoryAssistantConversationState {
   messages: RepositoryAssistantMessage[];
   draft: string;
   pending: boolean;
+  executingProposalId: string | null;
   error: string | null;
 }
 
@@ -69,6 +80,7 @@ function createEmptyRepositoryAssistantConversationState(): RepositoryAssistantC
     messages: [],
     draft: "",
     pending: false,
+    executingProposalId: null,
     error: null,
   };
 }
@@ -87,6 +99,7 @@ function createRepositoryAssistantConversationStateFromPersisted(
     messages: conversation.messages,
     draft: conversation.draft,
     pending: false,
+    executingProposalId: null,
     error: null,
   };
 }
@@ -113,7 +126,18 @@ function createPersistedRepositoryAssistantConversations(
     }
 
     accumulator[repoPath] = {
-      messages: conversation.messages,
+      messages: conversation.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        ...(message.proposedActions && message.proposedActions.length > 0
+          ? {
+              proposedActions: message.proposedActions,
+            }
+          : {}),
+        ...(message.actionResult ? { actionResult: message.actionResult } : {}),
+      })),
       draft: conversation.draft,
     };
     return accumulator;
@@ -148,6 +172,15 @@ export default function App(): JSX.Element {
   const [repositoryAssistantSettings, setRepositoryAssistantSettings] =
     useState<RepositoryAssistantSettings>(() => createDefaultRepositoryAssistantSettings(null));
   const repositoryAssistantSettingsSaveRequestIdRef = useRef(0);
+  const repositoryAssistantPolicySaveRequestIdRef = useRef(0);
+  const [repositoryAssistantPolicySavingRepoPath, setRepositoryAssistantPolicySavingRepoPath] =
+    useState<string | null>(null);
+  const [repositoryAssistantUserProfiles, setRepositoryAssistantUserProfiles] = useState<
+    Record<string, RepositoryAssistantUserProfile>
+  >({});
+  const [assistantRefreshRequestIds, setAssistantRefreshRequestIds] = useState<
+    Record<string, number>
+  >({});
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -155,6 +188,7 @@ export default function App(): JSX.Element {
     () => findRepositoryForTab(openRepositories, activeTabId),
     [activeTabId, openRepositories],
   );
+  const activeRepositoryPath = activeRepository?.path ?? null;
   const githubButtonRepository = useMemo(
     () => resolveGithubButtonRepository(openRepositories, activeTabId, lastRepositoryPath),
     [activeTabId, lastRepositoryPath, openRepositories],
@@ -168,13 +202,28 @@ export default function App(): JSX.Element {
   const isTauriDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const activeRepositoryAssistantConversation = useMemo(
     () =>
-      activeRepository
+      activeRepositoryPath
         ? getRepositoryAssistantConversationState(
             repositoryAssistantConversations,
-            activeRepository.path,
+            activeRepositoryPath,
           )
         : null,
-    [activeRepository, repositoryAssistantConversations],
+    [activeRepositoryPath, repositoryAssistantConversations],
+  );
+  const activeRepositoryAssistantAllowedActionIds = useMemo(
+    () =>
+      activeRepositoryPath
+        ? getRepositoryAssistantPolicyAllowedActionIds(
+            appConfig?.repositoryAssistantPolicies,
+            activeRepositoryPath,
+          )
+        : [],
+    [activeRepositoryPath, appConfig?.repositoryAssistantPolicies],
+  );
+  const activeRepositoryAssistantUserProfile = useMemo(
+    () =>
+      activeRepositoryPath ? (repositoryAssistantUserProfiles[activeRepositoryPath] ?? null) : null,
+    [activeRepositoryPath, repositoryAssistantUserProfiles],
   );
 
   useEffect(() => {
@@ -337,6 +386,42 @@ export default function App(): JSX.Element {
       active = false;
     };
   }, [githubButtonRepository]);
+
+  useEffect(() => {
+    if (
+      !isRepositoryAssistantOpen ||
+      !activeRepositoryPath ||
+      activeRepositoryAssistantUserProfile
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    void (async () => {
+      try {
+        const profile = await api.getRepositoryAssistantUserProfile(activeRepositoryPath);
+        if (!active) {
+          return;
+        }
+
+        setRepositoryAssistantUserProfiles((current) =>
+          current[activeRepositoryPath]
+            ? current
+            : {
+                ...current,
+                [activeRepositoryPath]: profile,
+              },
+        );
+      } catch {
+        // Keep the fallback avatar when the GitHub profile cannot be resolved.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [activeRepositoryAssistantUserProfile, activeRepositoryPath, isRepositoryAssistantOpen]);
 
   useEffect(() => {
     if (!isConfigActive || !configEscapeTabId || typeof window === "undefined") {
@@ -627,6 +712,66 @@ export default function App(): JSX.Element {
     }));
   };
 
+  const handleRepositoryAssistantPolicyChange = useCallback(
+    (repoPath: string, actionId: RepositoryAssistantActionId, allowed: boolean): void => {
+      if (!appConfig) {
+        return;
+      }
+
+      const nextPolicies = setRepositoryAssistantPolicyActionAllowed(
+        appConfig.repositoryAssistantPolicies,
+        repoPath,
+        actionId,
+        allowed,
+      );
+
+      repositoryAssistantPolicySaveRequestIdRef.current += 1;
+      const requestId = repositoryAssistantPolicySaveRequestIdRef.current;
+      setRepositoryAssistantPolicySavingRepoPath(repoPath);
+
+      void api
+        .saveConfig({ repositoryAssistantPolicies: nextPolicies })
+        .then((response) => {
+          if (requestId !== repositoryAssistantPolicySaveRequestIdRef.current) {
+            return;
+          }
+
+          if (response.config) {
+            setAppConfig(response.config);
+            return;
+          }
+
+          setAppConfig((current) =>
+            current
+              ? {
+                  ...current,
+                  repositoryAssistantPolicies: nextPolicies,
+                }
+              : current,
+          );
+        })
+        .catch((error) => {
+          if (requestId !== repositoryAssistantPolicySaveRequestIdRef.current) {
+            return;
+          }
+
+          setNotice(
+            error instanceof Error
+              ? error.message
+              : "Repository assistant allowlist の保存に失敗しました。",
+          );
+        })
+        .finally(() => {
+          if (requestId === repositoryAssistantPolicySaveRequestIdRef.current) {
+            setRepositoryAssistantPolicySavingRepoPath((current) =>
+              current === repoPath ? null : current,
+            );
+          }
+        });
+    },
+    [appConfig],
+  );
+
   const handleSubmitAssistantConversation = (): void => {
     if (!activeRepository || !activeRepositoryAssistantConversation) {
       return;
@@ -668,12 +813,18 @@ export default function App(): JSX.Element {
     void api
       .chatWithRepositoryAssistant(repoPath, nextMessages, repositoryAssistantSettings)
       .then((response) => {
+        const assistantMessage: RepositoryAssistantMessage = {
+          ...response.message,
+          proposedActions:
+            response.proposedActions.length > 0 ? response.proposedActions : undefined,
+        };
         setRepositoryAssistantConversations((current) => ({
           ...current,
           [repoPath]: {
             ...getRepositoryAssistantConversationState(current, repoPath),
-            messages: [...nextMessages, response.message],
+            messages: [...nextMessages, assistantMessage],
             pending: false,
+            executingProposalId: null,
             error: null,
           },
         }));
@@ -687,12 +838,105 @@ export default function App(): JSX.Element {
             ...getRepositoryAssistantConversationState(current, repoPath),
             messages: nextMessages,
             pending: false,
+            executingProposalId: null,
             error: message,
           },
         }));
         setNotice(message);
       });
   };
+
+  const handleExecuteRepositoryAssistantAction = useCallback(
+    (proposalId: string, action: RepositoryAssistantAction): void => {
+      if (!activeRepository || !activeRepositoryAssistantConversation) {
+        return;
+      }
+
+      const repoPath = activeRepository.path;
+      if (
+        activeRepositoryAssistantConversation.pending ||
+        activeRepositoryAssistantConversation.executingProposalId
+      ) {
+        return;
+      }
+
+      setRepositoryAssistantConversations((current) => {
+        const conversation = getRepositoryAssistantConversationState(current, repoPath);
+        return {
+          ...current,
+          [repoPath]: {
+            ...conversation,
+            messages: updateRepositoryAssistantProposal(conversation.messages, proposalId, (proposal) => ({
+              ...proposal,
+              status: "running",
+              result: null,
+            })),
+            executingProposalId: proposalId,
+            error: null,
+          },
+        };
+      });
+
+      const finalize = (result: RepositoryAssistantActionResult): void => {
+        const mutatesRepository =
+          result.status === "succeeded" && getRepositoryAssistantActionSpec(action.id).mutatesRepository;
+
+        setRepositoryAssistantConversations((current) => {
+          const conversation = getRepositoryAssistantConversationState(current, repoPath);
+          let nextMessages = updateRepositoryAssistantProposal(
+            conversation.messages,
+            proposalId,
+            (proposal) => ({
+              ...proposal,
+              status: result.status === "succeeded" ? "succeeded" : "failed",
+              result,
+            }),
+          );
+
+          if (mutatesRepository) {
+            nextMessages = markRepositoryAssistantProposalsStale(nextMessages, proposalId);
+          }
+
+          nextMessages = [...nextMessages, createRepositoryAssistantExecutionMessage(result)];
+
+          return {
+            ...current,
+            [repoPath]: {
+              ...conversation,
+              messages: nextMessages,
+              executingProposalId: null,
+              error: result.status === "failed" ? result.message : null,
+            },
+          };
+        });
+
+        if (mutatesRepository) {
+          setAssistantRefreshRequestIds((current) => ({
+            ...current,
+            [repoPath]: (current[repoPath] ?? 0) + 1,
+          }));
+        }
+
+        setNotice(result.message);
+      };
+
+      void api
+        .executeRepositoryAssistantAction(repoPath, action)
+        .then((response) => {
+          finalize(response.result);
+        })
+        .catch((error) => {
+          finalize({
+            action,
+            status: "failed",
+            message:
+              error instanceof Error ? error.message : "Repository assistant action failed.",
+            createdAt: new Date().toISOString(),
+          });
+        });
+    },
+    [activeRepository, activeRepositoryAssistantConversation],
+  );
 
   return (
     <main className="app-shell">
@@ -864,6 +1108,7 @@ export default function App(): JSX.Element {
                   active={isActive}
                   repositoryGithubUrl={isActive ? githubButtonUrl : null}
                   commandPaletteOpenRequestId={commandPaletteOpenRequestId}
+                  assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
                 />
               </section>
             );
@@ -892,6 +1137,10 @@ export default function App(): JSX.Element {
             messages={activeRepositoryAssistantConversation.messages}
             draft={activeRepositoryAssistantConversation.draft}
             pending={activeRepositoryAssistantConversation.pending}
+            policySaving={repositoryAssistantPolicySavingRepoPath === activeRepository.path}
+            allowedActionIds={activeRepositoryAssistantAllowedActionIds}
+            userAvatarUrl={activeRepositoryAssistantUserProfile?.avatarUrl ?? null}
+            userLogin={activeRepositoryAssistantUserProfile?.login ?? null}
             error={
               appConfig?.openAiToken.trim()
                 ? activeRepositoryAssistantConversation.error
@@ -901,6 +1150,10 @@ export default function App(): JSX.Element {
             onDraftChange={handleAssistantDraftChange}
             onSubmit={handleSubmitAssistantConversation}
             onClearConversation={handleClearAssistantConversation}
+            onSetActionAllowed={(actionId, allowed) => {
+              handleRepositoryAssistantPolicyChange(activeRepository.path, actionId, allowed);
+            }}
+            onExecuteAction={handleExecuteRepositoryAssistantAction}
             onClose={() => setRepositoryAssistantOpen(false)}
           />
         ) : null}

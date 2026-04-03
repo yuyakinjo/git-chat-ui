@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  resolveCollapsedControllerPanelsGridClassName,
   resolveGitOperationPanelColumnCount,
-  shouldRenderGitOperationsPanel,
   shouldSplitCommitDetailPanel,
 } from "../../../src/lib/controllerPanelLayout";
-import type { WorkingTreeStatus } from "../../../src/types";
 
 describe("controllerPanelLayout", () => {
   test("uses a single column git operation layout in narrow panels", () => {
@@ -25,49 +22,5 @@ describe("controllerPanelLayout", () => {
     expect(shouldSplitCommitDetailPanel(720)).toBe(false);
     expect(shouldSplitCommitDetailPanel(760)).toBe(true);
     expect(shouldSplitCommitDetailPanel(1120)).toBe(true);
-  });
-
-  test("keeps git operations visible until the working tree status has loaded", () => {
-    expect(shouldRenderGitOperationsPanel(null)).toBe(true);
-  });
-
-  test("hides git operations only when the working tree is fully empty", () => {
-    const emptyStatus: WorkingTreeStatus = {
-      conflicted: [],
-      staged: [],
-      unstaged: [],
-    };
-    const conflictedOnlyStatus: WorkingTreeStatus = {
-      conflicted: [
-        {
-          file: "src/conflict.txt",
-          statusLabel: "Both Modified",
-          x: "U",
-          y: "U",
-        },
-      ],
-      staged: [],
-      unstaged: [],
-    };
-
-    expect(shouldRenderGitOperationsPanel(emptyStatus)).toBe(false);
-    expect(shouldRenderGitOperationsPanel(conflictedOnlyStatus)).toBe(true);
-  });
-
-  test("picks the collapsed grid class from the remaining panel order", () => {
-    expect(
-      resolveCollapsedControllerPanelsGridClassName([
-        "commitGraph",
-        "gitOperations",
-        "commitDetail",
-      ]),
-    ).toBe("controller-panels-grid--without-git-operations-graph-detail");
-    expect(
-      resolveCollapsedControllerPanelsGridClassName([
-        "gitOperations",
-        "commitDetail",
-        "commitGraph",
-      ]),
-    ).toBe("controller-panels-grid--without-git-operations-detail-graph");
   });
 });

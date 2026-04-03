@@ -1,8 +1,19 @@
 export type { AiProvider, OpenAiReasoningEffort } from "../shared/ai.js";
 export type { AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
 export type {
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionResponse,
+  RepositoryAssistantActionId,
+  RepositoryAssistantActionProposal,
+  RepositoryAssistantActionResult,
+  RepositoryAssistantActionResultStatus,
+  RepositoryAssistantActionRisk,
+  RepositoryAssistantActionSpec,
+  RepositoryAssistantActionStatus,
   RepositoryAssistantMessage,
   RepositoryAssistantMessageRole,
+  RepositoryAssistantPolicies,
+  RepositoryAssistantPolicy,
   RepositoryAssistantResponse,
   RepositoryAssistantSettings,
 } from "../shared/repositoryAssistant.js";
@@ -41,6 +52,11 @@ export interface CommitListItem {
 
 export interface CommitAuthorAvatarResponse {
   avatars: Record<string, string>;
+}
+
+export interface RepositoryAssistantUserProfile {
+  login: string | null;
+  avatarUrl: string | null;
 }
 
 export interface CommitDetail {

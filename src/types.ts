@@ -6,8 +6,19 @@ export type {
   TokenValidationResult,
 } from "../shared/ai.js";
 export type {
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionResponse,
+  RepositoryAssistantActionId,
+  RepositoryAssistantActionProposal,
+  RepositoryAssistantActionResult,
+  RepositoryAssistantActionResultStatus,
+  RepositoryAssistantActionRisk,
+  RepositoryAssistantActionSpec,
+  RepositoryAssistantActionStatus,
   RepositoryAssistantMessage,
   RepositoryAssistantMessageRole,
+  RepositoryAssistantPolicies,
+  RepositoryAssistantPolicy,
   RepositoryAssistantResponse,
   RepositoryAssistantSettings,
 } from "../shared/repositoryAssistant.js";
@@ -63,6 +74,11 @@ export interface CommitResponse {
 
 export interface CommitAuthorAvatarResponse {
   avatars: Record<string, string>;
+}
+
+export interface RepositoryAssistantUserProfile {
+  login: string | null;
+  avatarUrl: string | null;
 }
 
 export interface CommitDetail {

@@ -51,6 +51,11 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/repositories/github-url?${params.toString()}`);
     },
 
+    getRepositoryAssistantUserProfile(repoPath) {
+      const params = new URLSearchParams({ repoPath });
+      return request(baseUrl, `/ai/user-profile?${params.toString()}`);
+    },
+
     getRepositoryMutationSafety(repoPath) {
       const params = new URLSearchParams({ repoPath });
       return request(baseUrl, `/repositories/mutation-safety?${params.toString()}`);
@@ -379,6 +384,16 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
           repoPath,
           messages,
           ...settings,
+        }),
+      });
+    },
+
+    executeRepositoryAssistantAction(repoPath, action) {
+      return request(baseUrl, "/ai/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          repoPath,
+          action,
         }),
       });
     },

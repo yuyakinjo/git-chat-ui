@@ -1,5 +1,6 @@
 import type { AiProvider, OpenAiReasoningEffort } from "./ai.js";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "./ai.js";
+import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
 export type CommitGraphMode = "simple" | "detailed";
 
@@ -21,6 +22,7 @@ export interface AppConfig {
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   repositoryScanDepth: number;
+  repositoryAssistantPolicies: RepositoryAssistantPolicies;
   recentlyUsed: Array<{
     path: string;
     usedAt: string;
@@ -43,6 +45,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   repositoryScanDepth: 4,
+  repositoryAssistantPolicies: {},
   recentlyUsed: [],
   windowState: null,
 };

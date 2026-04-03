@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { normalizeOpenAiReasoningEffort } from "../../shared/ai.js";
+import { normalizeRepositoryAssistantPolicies } from "../../shared/repositoryAssistant.js";
 import { readConfig, writeConfig } from "../configStore.js";
 import { getAiService, type AiService } from "../ai/service.js";
 import type { AppConfig } from "../types.js";
@@ -72,6 +73,10 @@ export function createConfigRouter({
             : current.commitTitlePrompt,
         commitGraphMode: parsedGraphMode ?? current.commitGraphMode,
         repositoryScanDepth: parsedRepositoryScanDepth ?? current.repositoryScanDepth,
+        repositoryAssistantPolicies:
+          request.body.repositoryAssistantPolicies === undefined
+            ? current.repositoryAssistantPolicies
+            : normalizeRepositoryAssistantPolicies(request.body.repositoryAssistantPolicies),
       };
 
       await writeConfigImpl(nextConfig);

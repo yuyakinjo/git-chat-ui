@@ -1,19 +1,32 @@
 import { Router } from "express";
 
 import { normalizeOpenAiReasoningEffort } from "../../shared/ai.js";
+import {
+  isRepositoryAssistantActionAllowed,
+  normalizeRepositoryAssistantAction,
+  type RepositoryAssistantActionExecutionResponse,
+  type RepositoryAssistantResponse,
+} from "../../shared/repositoryAssistant.js";
 import { readConfig } from "../configStore.js";
 import { getDiffSnippet } from "../gitService.js";
 import { getAiService, type AiService } from "../ai/service.js";
 import { generateRepositoryAssistantReply } from "../ai/repositoryAssistant.js";
-import type { RepositoryAssistantMessage, RepositoryAssistantResponse } from "../types.js";
+import { getRepositoryAssistantUserProfile } from "../ai/repositoryAssistantUserProfile.js";
+import {
+  assertRepositoryAssistantActionSafe,
+  executeRepositoryAssistantAction,
+} from "../ai/repositoryAssistantActions.js";
+import type { RepositoryAssistantMessage } from "../types.js";
 
-import { getRequiredString, parseSelectedAiProvider } from "./helpers.js";
+import { getRepoPathFromQuery, getRequiredString, parseSelectedAiProvider } from "./helpers.js";
 
 interface AiRouterDependencies {
   aiService?: Pick<AiService, "generateCommitTitle">;
   readConfig?: typeof readConfig;
   getDiffSnippet?: typeof getDiffSnippet;
   generateRepositoryAssistantReply?: typeof generateRepositoryAssistantReply;
+  getRepositoryAssistantUserProfile?: typeof getRepositoryAssistantUserProfile;
+  executeRepositoryAssistantAction?: typeof executeRepositoryAssistantAction;
 }
 
 export function createAiRouter({
@@ -22,6 +35,10 @@ export function createAiRouter({
   getDiffSnippet: getDiffSnippetImpl = getDiffSnippet,
   generateRepositoryAssistantReply:
     generateRepositoryAssistantReplyImpl = generateRepositoryAssistantReply,
+  getRepositoryAssistantUserProfile:
+    getRepositoryAssistantUserProfileImpl = getRepositoryAssistantUserProfile,
+  executeRepositoryAssistantAction:
+    executeRepositoryAssistantActionImpl = executeRepositoryAssistantAction,
 }: AiRouterDependencies = {}): Router {
   const router = Router();
 
@@ -102,17 +119,38 @@ export function createAiRouter({
         reasoningEffort,
       });
 
-      const payload: RepositoryAssistantResponse = {
-        message: {
-          id:
-            globalThis.crypto?.randomUUID?.() ??
-            `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          role: "assistant",
-          content: assistantMessage,
-          createdAt: new Date().toISOString(),
-        },
-      };
+      response.json(assistantMessage satisfies RepositoryAssistantResponse);
+    } catch (error) {
+      next(error);
+    }
+  });
 
+  router.get("/api/ai/user-profile", async (request, response, next) => {
+    try {
+      const repoPath = getRepoPathFromQuery(request);
+      response.json(await getRepositoryAssistantUserProfileImpl(repoPath));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/api/ai/execute", async (request, response, next) => {
+    try {
+      const repoPath = getRequiredString(request.body.repoPath, "repoPath");
+      const action = normalizeRepositoryAssistantAction(request.body.action);
+      if (!action) {
+        throw new Error("action is invalid.");
+      }
+
+      const config = await readConfigImpl();
+      if (!isRepositoryAssistantActionAllowed(config.repositoryAssistantPolicies, repoPath, action)) {
+        throw new Error(`${action.id} is not allowlisted for this repository.`);
+      }
+
+      await assertRepositoryAssistantActionSafe(repoPath, action);
+      const payload: RepositoryAssistantActionExecutionResponse = {
+        result: await executeRepositoryAssistantActionImpl(repoPath, action),
+      };
       response.json(payload);
     } catch (error) {
       next(error);

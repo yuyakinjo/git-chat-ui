@@ -18,9 +18,12 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
   RepositoryAssistantSettings,
+  RepositoryAssistantUserProfile,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -38,6 +41,7 @@ export interface BusinessTransport {
   resolveRepositories(repoPaths: string[]): Promise<{ repositories: Repository[] }>;
   markRecentRepository(repoPath: string): Promise<{ ok: boolean }>;
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }>;
+  getRepositoryAssistantUserProfile(repoPath: string): Promise<RepositoryAssistantUserProfile>;
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety>;
   getBranches(repoPath: string): Promise<BranchResponse>;
   getBranchPullRequests(repoPath: string): Promise<BranchPullRequestsResponse>;
@@ -151,4 +155,8 @@ export interface BusinessTransport {
     messages: RepositoryAssistantMessage[],
     settings: RepositoryAssistantSettings,
   ): Promise<RepositoryAssistantResponse>;
+  executeRepositoryAssistantAction(
+    repoPath: string,
+    action: RepositoryAssistantAction,
+  ): Promise<RepositoryAssistantActionExecutionResponse>;
 }

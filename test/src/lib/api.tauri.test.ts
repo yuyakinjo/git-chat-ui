@@ -41,6 +41,7 @@ describe("api in Tauri", () => {
 
     await api.health();
     await api.getBranchPullRequests("/tmp/repo");
+    await api.getRepositoryAssistantUserProfile("/tmp/repo");
     await api.getCommitAuthorAvatars("/tmp/repo", "refs/heads/main", ["abc1234"], true);
     await api.generateCommitMessage("/tmp/repo", ["src/App.tsx"], {
       openAiToken: "",
@@ -61,19 +62,28 @@ describe("api in Tauri", () => {
       ],
       repositoryAssistantSettings,
     );
+    await api.executeRepositoryAssistantAction("/tmp/repo", {
+      id: "git.checkout_ref",
+      args: {
+        ref: "feature/login",
+      },
+    });
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "get_branch_pull_requests", {
       repoPath: "/tmp/repo",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_commit_author_avatars", {
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_repository_assistant_user_profile", {
+      repoPath: "/tmp/repo",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "get_commit_author_avatars", {
       repoPath: "/tmp/repo",
       refName: "refs/heads/main",
       shas: ["abc1234"],
       allowRemoteFetch: true,
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(4, "generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -84,7 +94,7 @@ describe("api in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(5, "chat_with_repository_assistant", {
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "chat_with_repository_assistant", {
       input: {
         repoPath: "/tmp/repo",
         messages: [
@@ -99,7 +109,18 @@ describe("api in Tauri", () => {
         reasoningEffort: "medium",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(6, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "execute_repository_assistant_action", {
+      input: {
+        repoPath: "/tmp/repo",
+        action: {
+          id: "git.checkout_ref",
+          args: {
+            ref: "feature/login",
+          },
+        },
+      },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });

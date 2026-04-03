@@ -68,6 +68,7 @@ describe("api.chatWithRepositoryAssistant", () => {
             content: "Start by checking the conflicted files.",
             createdAt: "2026-04-03T00:00:00.000Z",
           },
+          proposedActions: [],
         }),
         {
           status: 200,
@@ -103,6 +104,93 @@ describe("api.chatWithRepositoryAssistant", () => {
       ],
       openAiModel: "gpt-4.1-mini",
       reasoningEffort: "medium",
+    });
+  });
+});
+
+describe("api.getRepositoryAssistantUserProfile", () => {
+  test("loads the repository assistant user profile from the AI user-profile endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          login: "octocat",
+          avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(api.getRepositoryAssistantUserProfile("/tmp/repo")).resolves.toEqual({
+      login: "octocat",
+      avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/ai/user-profile?repoPath=%2Ftmp%2Frepo",
+    );
+    expect(requests[0]?.body).toBeNull();
+  });
+});
+
+describe("api.executeRepositoryAssistantAction", () => {
+  test("posts typed assistant actions to the AI execute endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          result: {
+            action: {
+              id: "git.checkout_ref",
+              args: {
+                ref: "feature/login",
+              },
+            },
+            status: "succeeded",
+            message: "Checked out feature/login.",
+            createdAt: "2026-04-03T00:03:00.000Z",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.executeRepositoryAssistantAction("/tmp/repo", {
+      id: "git.checkout_ref",
+      args: {
+        ref: "feature/login",
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/ai/execute");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      action: {
+        id: "git.checkout_ref",
+        args: {
+          ref: "feature/login",
+        },
+      },
     });
   });
 });

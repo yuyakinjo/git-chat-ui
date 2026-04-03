@@ -41,10 +41,6 @@ import {
 } from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
 import {
-  resolveCollapsedControllerPanelsGridClassName,
-  shouldRenderGitOperationsPanel,
-} from "../lib/controllerPanelLayout";
-import {
   getWorkingTreeDiscardConfirmMessage,
   resolveWorkingTreeDiscardTarget,
 } from "../lib/workingTreeDiscard";
@@ -79,6 +75,7 @@ interface ControllerViewProps {
   active?: boolean;
   repositoryGithubUrl?: string | null;
   commandPaletteOpenRequestId?: number;
+  assistantRefreshRequestId?: number;
 }
 
 type CommitMessageGenerationState =
@@ -86,7 +83,19 @@ type CommitMessageGenerationState =
   | { status: "success"; title: string; description: string }
   | { status: "error"; error: UiError };
 
-const GIT_OPERATION_PANEL_HIDE_DURATION_MS = 320;
+const BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX = "git-chat-ui.branch-tree-collapsed";
+
+function getBranchTreeCollapsedStorageKey(repoPath: string): string {
+  return `${BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX}:${repoPath}`;
+}
+
+function readInitialBranchTreeCollapsed(repoPath: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem(getBranchTreeCollapsedStorageKey(repoPath)) === "1";
+}
 
 export function ControllerView({
   repository,
@@ -99,6 +108,7 @@ export function ControllerView({
   active = false,
   repositoryGithubUrl = null,
   commandPaletteOpenRequestId = 0,
+  assistantRefreshRequestId = 0,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -107,9 +117,6 @@ export function ControllerView({
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
   const [pendingCommitMessageGenerationResult, setPendingCommitMessageGenerationResult] =
     useState<CommitMessageGenerationState>({ status: "idle" });
-  const [gitOperationsPanelVisibility, setGitOperationsPanelVisibility] = useState<
-    "visible" | "hiding" | "hidden"
-  >("visible");
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [branchPullStatuses, setBranchPullStatuses] = useState<Record<string, PullStatus | null>>(
     {},
@@ -117,7 +124,9 @@ export function ControllerView({
   const [branchPullStatusLoading, setBranchPullStatusLoading] = useState<Record<string, boolean>>(
     {},
   );
-  const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isBranchTreeCollapsed, setBranchTreeCollapsed] = useState<boolean>(() =>
+    readInitialBranchTreeCollapsed(repoPath),
+  );
   const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
@@ -510,6 +519,21 @@ export function ControllerView({
   }, [generatingCommitMessage]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        getBranchTreeCollapsedStorageKey(repoPath),
+        isBranchTreeCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory state.
+    }
+  }, [isBranchTreeCollapsed, repoPath]);
+
+  useEffect(() => {
     if (active) {
       return;
     }
@@ -530,6 +554,14 @@ export function ControllerView({
     lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
     setCommandPaletteOpen(true);
   }, [active, commandPaletteOpenRequestId]);
+
+  useEffect(() => {
+    if (!active || assistantRefreshRequestId === 0) {
+      return;
+    }
+
+    void data.refreshAll();
+  }, [active, assistantRefreshRequestId, data.refreshAll]);
 
   useEffect(() => {
     if (!active || typeof window === "undefined") {
@@ -768,40 +800,6 @@ export function ControllerView({
     data.operationBusy ||
     (data.workingStatus?.staged.length ?? 0) === 0 ||
     !data.commitTitle.trim();
-  const shouldShowGitOperations = shouldRenderGitOperationsPanel(data.workingStatus);
-
-  useEffect(() => {
-    if (gitOperationsHideTimeoutRef.current !== null) {
-      clearTimeout(gitOperationsHideTimeoutRef.current);
-      gitOperationsHideTimeoutRef.current = null;
-    }
-
-    if (shouldShowGitOperations) {
-      setGitOperationsPanelVisibility("visible");
-      return;
-    }
-
-    setGitOperationsPanelVisibility((current) => (current === "hidden" ? current : "hiding"));
-    gitOperationsHideTimeoutRef.current = setTimeout(() => {
-      gitOperationsHideTimeoutRef.current = null;
-      setGitOperationsPanelVisibility("hidden");
-    }, GIT_OPERATION_PANEL_HIDE_DURATION_MS);
-
-    return () => {
-      if (gitOperationsHideTimeoutRef.current !== null) {
-        clearTimeout(gitOperationsHideTimeoutRef.current);
-        gitOperationsHideTimeoutRef.current = null;
-      }
-    };
-  }, [shouldShowGitOperations]);
-
-  useEffect(() => {
-    return () => {
-      if (gitOperationsHideTimeoutRef.current !== null) {
-        clearTimeout(gitOperationsHideTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const gitOperationPanel = (
     <GitOperationPanel
@@ -1005,19 +1003,6 @@ export function ControllerView({
     gitOperations: gitOperationPanel,
     commitDetail: commitDetailPanel,
   };
-  const renderGitOperationsSlot = gitOperationsPanelVisibility !== "hidden";
-  const visiblePanelOrder = renderGitOperationsSlot
-    ? panelOrder
-    : panelOrder.filter((panelId) => panelId !== "gitOperations");
-  const controllerPanelsGridClassName = [
-    "controller-panels-grid",
-    !renderGitOperationsSlot ? "controller-panels-grid--without-git-operations" : null,
-    !renderGitOperationsSlot
-      ? resolveCollapsedControllerPanelsGridClassName(visiblePanelOrder)
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   // --- Render ---
 
@@ -1098,16 +1083,22 @@ export function ControllerView({
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
+      <div
+        className={`controller-view__layout grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1 ${
+          isBranchTreeCollapsed ? "controller-view__layout--branch-tree-collapsed" : ""
+        }`}
+      >
         <BranchTree
           branches={data.branches}
           branchPullRequests={data.branchPullRequests}
           branchPullStatuses={branchPullStatuses}
           branchPullStatusLoading={branchPullStatusLoading}
           stashes={data.stashes}
+          collapsed={isBranchTreeCollapsed}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}
           busy={data.operationBusy}
+          onToggleCollapsed={() => setBranchTreeCollapsed((current) => !current)}
           onSelectBranch={branchOps.handleSelectBranch}
           onCheckoutBranch={(branch) => {
             void branchOps.handleCheckoutBranch(branch);
@@ -1135,8 +1126,8 @@ export function ControllerView({
           onRequestPullBranch={pullBranch}
         />
 
-        <div className={controllerPanelsGridClassName}>
-          {visiblePanelOrder.map((panelId) => {
+        <div className="controller-panels-grid">
+          {panelOrder.map((panelId) => {
             const isDragActive = draggedPanelId !== null;
             const isDropTarget = dropTargetPanelId === panelId;
             const isDragSource = draggedPanelId === panelId;
@@ -1153,11 +1144,14 @@ export function ControllerView({
                 key={panelId}
                 data-controller-panel-drop-id={panelId}
                 data-controller-panel-drag-source-id={panelId}
-                className={`controller-panel-slot min-h-0 ${
-                  panelId === "gitOperations" && gitOperationsPanelVisibility === "hiding"
-                    ? "controller-panel-slot--hiding"
-                    : ""
-                } ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isDragSource ? "is-drag-source" : ""}`}
+                className={[
+                  "controller-panel-slot min-h-0",
+                  isDropCandidate ? "is-drop-candidate" : null,
+                  isDropTarget ? "is-drop-target" : null,
+                  isDragSource ? "is-drag-source" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
               >
                 <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>

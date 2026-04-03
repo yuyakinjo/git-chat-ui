@@ -22,6 +22,7 @@ const config: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   repositoryScanDepth: 4,
+  repositoryAssistantPolicies: {},
   recentlyUsed: [],
   windowState: null,
 };

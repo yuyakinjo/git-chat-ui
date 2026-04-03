@@ -48,4 +48,32 @@ describe("BranchDiffOverlay", () => {
     expect(html).toContain('aria-label="Merge base abc1234 をクリップボードにコピー"');
     expect(html).toContain("Filter changed files by path");
   });
+
+  test("shows a loading state immediately when the initial file is missing from the aggregate diff", () => {
+    const html = renderToStaticMarkup(
+      <BranchDiffOverlay
+        repoPath="/tmp/example"
+        detail={{
+          ...detail,
+          files: [
+            {
+              file: "src/missing.ts",
+              additions: 7,
+              deletions: 2,
+            },
+            ...detail.files,
+          ],
+          isDiffTruncated: true,
+        }}
+        loading={false}
+        baseBranchName="main"
+        targetBranchName="feature/dialog"
+        onClose={() => {}}
+        onNotify={() => {}}
+      />,
+    );
+
+    expect(html).toContain("差分を読み込み中...");
+    expect(html).not.toContain("Text diff unavailable for this file.");
+  });
 });

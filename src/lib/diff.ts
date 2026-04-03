@@ -32,6 +32,30 @@ export interface ParsedDiffFile {
   hunks: ParsedDiffHunk[];
 }
 
+export function matchesParsedDiffFilePath(
+  file: Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath">,
+  targetPath: string | null | undefined,
+): boolean {
+  if (!targetPath) {
+    return false;
+  }
+
+  return (
+    file.displayPath === targetPath || file.newPath === targetPath || file.oldPath === targetPath
+  );
+}
+
+export function hasInlineDiffForPath(
+  files: Array<Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath" | "hunks">>,
+  targetPath: string | null | undefined,
+): boolean {
+  if (!targetPath) {
+    return false;
+  }
+
+  return files.some((file) => matchesParsedDiffFilePath(file, targetPath) && file.hunks.length > 0);
+}
+
 interface WorkingHunk {
   header: string;
   oldStart: number;

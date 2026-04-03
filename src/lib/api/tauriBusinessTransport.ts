@@ -26,6 +26,10 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("get_repository_github_url", { repoPath });
     },
 
+    getRepositoryAssistantUserProfile(repoPath) {
+      return invokeCommand("get_repository_assistant_user_profile", { repoPath });
+    },
+
     getRepositoryMutationSafety(repoPath) {
       return invokeCommand("get_repository_mutation_safety", { repoPath });
     },
@@ -255,6 +259,15 @@ export function createTauriBusinessTransport(): BusinessTransport {
           repoPath,
           messages,
           ...settings,
+        },
+      });
+    },
+
+    executeRepositoryAssistantAction(repoPath, action) {
+      return invokeCommand("execute_repository_assistant_action", {
+        input: {
+          repoPath,
+          action,
         },
       });
     },

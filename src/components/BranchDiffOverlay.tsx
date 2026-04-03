@@ -1,8 +1,9 @@
 import { X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { api } from "../lib/api";
 import type { AppThemeId } from "../lib/appTheme";
+import { hasInlineDiffForPath, parseUnifiedDiff } from "../lib/diff";
 import type { BranchDiffDetail, BranchDiffFileDetail } from "../types";
 import { CopyableShaButton } from "./CopyableShaButton";
 import { SplitDiffViewer } from "./SplitDiffViewer";
@@ -33,16 +34,23 @@ export function BranchDiffOverlay({
   const [activeFilePath, setActiveFilePath] = useState<string | null>(
     detail?.files[0]?.file ?? null,
   );
-  const [activeFileHasInlineDiff, setActiveFileHasInlineDiff] = useState<boolean | null>(null);
   const [fileDiffCache, setFileDiffCache] = useState<Record<string, BranchDiffFileDetail>>({});
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const branchDiffFileRequestKeyRef = useRef<string | null>(null);
+  const aggregateParsedFiles = useMemo(() => parseUnifiedDiff(detail?.diff ?? ""), [detail?.diff]);
+  const resolvedActiveFilePath =
+    activeFilePath && detail?.files.some((file) => file.file === activeFilePath)
+      ? activeFilePath
+      : (detail?.files[0]?.file ?? null);
+  const activeFileHasInlineDiff = hasInlineDiffForPath(
+    aggregateParsedFiles,
+    resolvedActiveFilePath,
+  );
 
   /* oxlint-disable react-hooks/exhaustive-deps -- reset state only when branch refs change, not when files array reference changes */
   useEffect(() => {
     setActiveFilePath(detail?.files[0]?.file ?? null);
-    setActiveFileHasInlineDiff(null);
     setFileDiffCache({});
     setLoadingFilePath(null);
     setFileErrors({});
@@ -63,31 +71,35 @@ export function BranchDiffOverlay({
     };
   }, [onClose]);
 
-  const activeFileDiff = activeFilePath ? (fileDiffCache[activeFilePath] ?? null) : null;
-  const activeFileError = activeFilePath ? (fileErrors[activeFilePath] ?? null) : null;
+  const activeFileDiff = resolvedActiveFilePath
+    ? (fileDiffCache[resolvedActiveFilePath] ?? null)
+    : null;
+  const activeFileError = resolvedActiveFilePath
+    ? (fileErrors[resolvedActiveFilePath] ?? null)
+    : null;
   const branchDiffViewerDiff = activeFileDiff?.diff ?? detail?.diff ?? "";
   const branchDiffViewerTruncated =
     activeFileDiff?.isDiffTruncated ?? detail?.isDiffTruncated ?? false;
   const showActiveFileLoading =
-    Boolean(activeFilePath) &&
-    activeFileHasInlineDiff === false &&
+    Boolean(resolvedActiveFilePath) &&
+    !activeFileHasInlineDiff &&
     !activeFileDiff &&
     !activeFileError;
 
   useEffect(() => {
     if (
       !detail ||
-      !activeFilePath ||
-      activeFileHasInlineDiff !== false ||
+      !resolvedActiveFilePath ||
+      activeFileHasInlineDiff ||
       activeFileDiff ||
       activeFileError
     ) {
       return;
     }
 
-    const requestKey = `${detail.baseRef}\u0000${detail.targetRef}\u0000${activeFilePath}`;
+    const requestKey = `${detail.baseRef}\u0000${detail.targetRef}\u0000${resolvedActiveFilePath}`;
     branchDiffFileRequestKeyRef.current = requestKey;
-    setLoadingFilePath(activeFilePath);
+    setLoadingFilePath(resolvedActiveFilePath);
 
     void (async () => {
       try {
@@ -95,7 +107,7 @@ export function BranchDiffOverlay({
           repoPath,
           detail.baseRef,
           detail.targetRef,
-          activeFilePath,
+          resolvedActiveFilePath,
         );
         if (branchDiffFileRequestKeyRef.current !== requestKey) {
           return;
@@ -103,15 +115,15 @@ export function BranchDiffOverlay({
 
         setFileDiffCache((current) => ({
           ...current,
-          [activeFilePath]: nextDetail,
+          [resolvedActiveFilePath]: nextDetail,
         }));
         setFileErrors((current) => {
-          if (!(activeFilePath in current)) {
+          if (!(resolvedActiveFilePath in current)) {
             return current;
           }
 
           const next = { ...current };
-          delete next[activeFilePath];
+          delete next[resolvedActiveFilePath];
           return next;
         });
       } catch {
@@ -121,7 +133,7 @@ export function BranchDiffOverlay({
 
         setFileErrors((current) => ({
           ...current,
-          [activeFilePath]: "差分の取得に失敗しました。",
+          [resolvedActiveFilePath]: "差分の取得に失敗しました。",
         }));
       } finally {
         if (branchDiffFileRequestKeyRef.current === requestKey) {
@@ -129,15 +141,18 @@ export function BranchDiffOverlay({
         }
       }
     })();
-  }, [activeFileDiff, activeFileError, activeFileHasInlineDiff, activeFilePath, detail, repoPath]);
+  }, [
+    activeFileDiff,
+    activeFileError,
+    activeFileHasInlineDiff,
+    detail,
+    repoPath,
+    resolvedActiveFilePath,
+  ]);
 
-  const handleActiveFileChange = useCallback(
-    (filePath: string | null, hasInlineDiff: boolean): void => {
-      setActiveFilePath(filePath);
-      setActiveFileHasInlineDiff(hasInlineDiff);
-    },
-    [],
-  );
+  const handleActiveFileChange = useCallback((filePath: string | null): void => {
+    setActiveFilePath(filePath);
+  }, []);
 
   return (
     <div
@@ -192,12 +207,12 @@ export function BranchDiffOverlay({
               appThemeId={appThemeId}
               files={detail.files}
               isDiffTruncated={branchDiffViewerTruncated}
-              preferredFilePath={activeFilePath}
+              preferredFilePath={resolvedActiveFilePath}
               enableFileFilter
               fileFilterPlaceholder="Filter changed files by path"
               activeFileLoading={
                 showActiveFileLoading ||
-                (Boolean(activeFilePath) && loadingFilePath === activeFilePath)
+                (Boolean(resolvedActiveFilePath) && loadingFilePath === resolvedActiveFilePath)
               }
               activeFileError={activeFileError}
               activeFileLoadingMessage="差分を読み込み中..."

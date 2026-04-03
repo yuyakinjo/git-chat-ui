@@ -74,9 +74,11 @@ describe("BranchTree", () => {
         branchPullStatuses={{}}
         branchPullStatusLoading={{}}
         stashes={[]}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -101,6 +103,44 @@ describe("BranchTree", () => {
     expect(html).not.toContain("No stashes");
   });
 
+  test("renders a collapsed summary rail with local, remote, and stash counts", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branches}
+        branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
+        stashes={stashes}
+        collapsed
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onToggleCollapsed={() => {}}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("branch-tree--collapsed");
+    expect(html).toContain('title="Local branches: 1"');
+    expect(html).toContain('title="Remote branches: 1"');
+    expect(html).toContain('title="Stashes: 2"');
+    expect(html).toContain("branch-tree__summary-item");
+    expect(html).not.toContain("branch-tree__branch-scroll");
+    expect(html).not.toContain("branch-tree__stash-section");
+  });
+
   test("renders stashes in a dedicated footer below the branch scroll area", () => {
     const html = renderToStaticMarkup(
       <BranchTree
@@ -109,9 +149,11 @@ describe("BranchTree", () => {
         branchPullStatuses={{}}
         branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -156,9 +198,11 @@ describe("BranchTree", () => {
         branchPullStatuses={{}}
         branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -195,9 +239,11 @@ describe("BranchTree", () => {
         branchPullStatuses={{}}
         branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -231,9 +277,11 @@ describe("BranchTree", () => {
         branchPullStatuses={{ main: behindPullStatus }}
         branchPullStatusLoading={{ main: false }}
         stashes={[]}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}

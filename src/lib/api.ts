@@ -19,6 +19,9 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantUserProfile,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
   RepositoryAssistantSettings,
@@ -66,6 +69,10 @@ export const api = {
 
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }> {
     return getBusinessTransport().getRepositoryGithubUrl(repoPath);
+  },
+
+  getRepositoryAssistantUserProfile(repoPath: string): Promise<RepositoryAssistantUserProfile> {
+    return getBusinessTransport().getRepositoryAssistantUserProfile(repoPath);
   },
 
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety> {
@@ -330,5 +337,12 @@ export const api = {
     settings: RepositoryAssistantSettings,
   ): Promise<RepositoryAssistantResponse> {
     return getBusinessTransport().chatWithRepositoryAssistant(repoPath, messages, settings);
+  },
+
+  executeRepositoryAssistantAction(
+    repoPath: string,
+    action: RepositoryAssistantAction,
+  ): Promise<RepositoryAssistantActionExecutionResponse> {
+    return getBusinessTransport().executeRepositoryAssistantAction(repoPath, action);
   },
 };

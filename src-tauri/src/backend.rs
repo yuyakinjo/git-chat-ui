@@ -60,6 +60,156 @@ static NEXT_MERGE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 static MERGE_SESSIONS: LazyLock<Mutex<HashMap<String, MergeSession>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[derive(Debug, Clone, Copy)]
+struct RepositoryAssistantActionSpec {
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    group: &'static str,
+    risk: &'static str,
+    mutates_working_tree: bool,
+}
+
+const REPOSITORY_ASSISTANT_ACTION_SPECS: &[RepositoryAssistantActionSpec] = &[
+    RepositoryAssistantActionSpec {
+        id: "git.stage_file",
+        label: "Stage File",
+        description: "Run Git Chat UI's stage-file operation for one file.",
+        group: "git",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.unstage_file",
+        label: "Unstage File",
+        description: "Run Git Chat UI's unstage-file operation for one file.",
+        group: "git",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.stash_file",
+        label: "Stash File",
+        description: "Stash one file with the existing stash-file operation.",
+        group: "git",
+        risk: "medium",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.checkout_ref",
+        label: "Checkout Ref",
+        description: "Checkout a branch or commit ref.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.create_branch",
+        label: "Create Branch",
+        description: "Create and checkout a new branch from a base branch.",
+        group: "git",
+        risk: "medium",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.merge_branches",
+        label: "Merge Branches",
+        description: "Merge a source branch into a target branch.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.pull_current_branch",
+        label: "Pull Branch",
+        description: "Pull upstream changes into the current or specified branch.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.commit",
+        label: "Commit",
+        description: "Create a commit from staged changes.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.push",
+        label: "Push",
+        description: "Push the current branch to its remote.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.resolve_conflict_side",
+        label: "Resolve Conflict",
+        description: "Resolve one conflicted file by choosing merged, ours, or theirs.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.complete_merge_session",
+        label: "Complete Merge Session",
+        description: "Finish an existing merge session after all conflicts are resolved.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.abort_merge_session",
+        label: "Abort Merge Session",
+        description: "Abort an in-progress merge session.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.apply_stash",
+        label: "Apply Stash",
+        description: "Apply a stash entry without dropping it.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.pop_stash",
+        label: "Pop Stash",
+        description: "Apply and drop a stash entry.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "gh.pr.prepare",
+        label: "Prepare Pull Request",
+        description: "Check whether the source branch needs to be pushed before PR creation.",
+        group: "githubPr",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "gh.pr.create",
+        label: "Create Pull Request",
+        description: "Create a GitHub pull request, optionally pushing the source branch first.",
+        group: "githubPr",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantPolicy {
+    #[serde(default)]
+    pub allowed_action_ids: Vec<String>,
+}
+
+pub type RepositoryAssistantPolicies = HashMap<String, RepositoryAssistantPolicy>;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CommitGraphMode {
@@ -138,6 +288,7 @@ pub struct AppConfig {
     pub commit_title_prompt: String,
     pub commit_graph_mode: CommitGraphMode,
     pub repository_scan_depth: usize,
+    pub repository_assistant_policies: RepositoryAssistantPolicies,
     pub recently_used: Vec<RecentRepository>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_state: Option<WindowState>,
@@ -165,6 +316,7 @@ impl Default for AppConfig {
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_mode: CommitGraphMode::Detailed,
             repository_scan_depth: 4,
+            repository_assistant_policies: HashMap::new(),
             recently_used: Vec::new(),
             window_state: None,
         }
@@ -502,6 +654,13 @@ pub struct RepositoryGithubUrlResponse {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantUserProfileResponse {
+    pub login: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchPullRequest {
@@ -608,6 +767,7 @@ pub struct SaveConfigInput {
     pub open_ai_model: Option<String>,
     pub repository_assistant_open_ai_model: Option<String>,
     pub repository_assistant_reasoning_effort: Option<OpenAiReasoningEffort>,
+    pub repository_assistant_policies: Option<Value>,
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
@@ -652,6 +812,40 @@ pub struct RepositoryAssistantMessage {
     pub created_at: String,
 }
 
+fn default_repository_assistant_action_args() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantAction {
+    pub id: String,
+    #[serde(default = "default_repository_assistant_action_args")]
+    pub args: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionResult {
+    pub action: RepositoryAssistantAction,
+    pub status: String,
+    pub message: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionProposal {
+    pub id: String,
+    pub action: RepositoryAssistantAction,
+    pub reason: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<RepositoryAssistantActionResult>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatWithRepositoryAssistantInput {
@@ -665,6 +859,20 @@ pub struct ChatWithRepositoryAssistantInput {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryAssistantResponse {
     pub message: RepositoryAssistantMessage,
+    pub proposed_actions: Vec<RepositoryAssistantActionProposal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionExecutionResponse {
+    pub result: RepositoryAssistantActionResult,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteRepositoryAssistantActionInput {
+    pub repo_path: String,
+    pub action: RepositoryAssistantAction,
 }
 
 #[derive(Debug, Clone)]
@@ -1108,6 +1316,91 @@ fn normalize_open_ai_reasoning_effort_value(value: Option<&Value>) -> OpenAiReas
         .unwrap_or_default()
 }
 
+fn is_repository_assistant_action_id(value: &str) -> bool {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .any(|spec| spec.id == value)
+}
+
+fn repository_assistant_action_sort_key(action_id: &str) -> usize {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .position(|spec| spec.id == action_id)
+        .unwrap_or(REPOSITORY_ASSISTANT_ACTION_SPECS.len())
+}
+
+fn normalize_repository_assistant_allowed_action_ids(value: Option<&Value>) -> Vec<String> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    let mut seen = HashSet::new();
+    let mut normalized = items
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty() && is_repository_assistant_action_id(candidate))
+        .filter_map(|candidate| {
+            let owned = candidate.to_string();
+            if seen.insert(owned.clone()) {
+                Some(owned)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    normalized.sort_by_key(|action_id| repository_assistant_action_sort_key(action_id));
+    normalized
+}
+
+fn normalize_repository_assistant_policies_value(
+    value: Option<&Value>,
+) -> RepositoryAssistantPolicies {
+    let Some(Value::Object(map)) = value else {
+        return HashMap::new();
+    };
+
+    map.iter()
+        .filter_map(|(repo_path, policy_value)| {
+            let trimmed_repo_path = repo_path.trim();
+            if trimmed_repo_path.is_empty() {
+                return None;
+            }
+
+            let allowed_action_ids = match policy_value {
+                Value::Object(policy_map) => normalize_repository_assistant_allowed_action_ids(
+                    policy_map.get("allowedActionIds"),
+                ),
+                _ => Vec::new(),
+            };
+
+            Some((
+                trimmed_repo_path.to_string(),
+                RepositoryAssistantPolicy { allowed_action_ids },
+            ))
+        })
+        .collect()
+}
+
+fn normalize_repository_assistant_policies(
+    policies: &RepositoryAssistantPolicies,
+) -> RepositoryAssistantPolicies {
+    let value = serde_json::to_value(policies).unwrap_or(Value::Null);
+    normalize_repository_assistant_policies_value(Some(&value))
+}
+
+fn is_repository_assistant_action_allowed(
+    policies: &RepositoryAssistantPolicies,
+    repo_path: &str,
+    action_id: &str,
+) -> bool {
+    policies
+        .get(repo_path)
+        .map(|policy| policy.allowed_action_ids.iter().any(|candidate| candidate == action_id))
+        .unwrap_or(false)
+}
+
 fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -1181,6 +1474,8 @@ fn normalize_config_value(value: Value) -> AppConfig {
     );
     let repository_assistant_reasoning_effort =
         normalize_open_ai_reasoning_effort_value(value.get("repositoryAssistantReasoningEffort"));
+    let repository_assistant_policies =
+        normalize_repository_assistant_policies_value(value.get("repositoryAssistantPolicies"));
 
     let claude_code_token = value
         .get("claudeCodeToken")
@@ -1226,6 +1521,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         commit_title_prompt,
         commit_graph_mode,
         repository_scan_depth,
+        repository_assistant_policies,
         recently_used,
         window_state,
     }
@@ -1281,6 +1577,9 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_mode: config.commit_graph_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
+        repository_assistant_policies: normalize_repository_assistant_policies(
+            &config.repository_assistant_policies,
+        ),
         recently_used: config.recently_used.clone(),
         window_state: config.window_state.clone(),
     };
@@ -2716,6 +3015,38 @@ fn get_open_pull_requests(repo_path: &str) -> Result<HashMap<String, BranchPullR
     Ok(pull_requests)
 }
 
+fn parse_github_viewer_response(raw: &str) -> RepositoryAssistantUserProfileResponse {
+    let parsed = serde_json::from_str::<Value>(raw).unwrap_or(Value::Null);
+    let login = parsed
+        .get("login")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let avatar_url = parsed
+        .get("avatar_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    RepositoryAssistantUserProfileResponse { login, avatar_url }
+}
+
+fn get_repository_assistant_user_profile_for_repo(
+    repo_path: &str,
+) -> Result<RepositoryAssistantUserProfileResponse, String> {
+    ensure_repo_path(repo_path)?;
+
+    match run_gh(&["api", "user", "--cache", "1h"], repo_path) {
+        Ok(output) => Ok(parse_github_viewer_response(&output)),
+        Err(_) => Ok(RepositoryAssistantUserProfileResponse {
+            login: None,
+            avatar_url: None,
+        }),
+    }
+}
+
 fn extract_url_from_text(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|token| token.starts_with("https://") || token.starts_with("http://"))
@@ -3889,6 +4220,49 @@ fn build_repository_assistant_context(repo_path: &str) -> Result<String, String>
     .join("\n"))
 }
 
+fn describe_repository_assistant_action_args(action_id: &str) -> &'static str {
+    match action_id {
+        "git.stage_file" | "git.unstage_file" | "git.stash_file" => {
+            r#"{"file":"path/to/file"}"#
+        }
+        "git.checkout_ref" => r#"{"ref":"feature/name"}"#,
+        "git.create_branch" => r#"{"baseBranch":"main","newBranch":"feature/name"}"#,
+        "git.merge_branches" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
+        "git.pull_current_branch" => r#"{"branchName":"main"} or {}"#,
+        "git.commit" => r#"{"title":"feat: summary","description":"- detail"}"#,
+        "git.push" => "{}",
+        "git.resolve_conflict_side" => {
+            r#"{"file":"src/app.ts","side":"ours","sessionId":"session-1"}"#
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => {
+            r#"{"sessionId":"session-1"}"#
+        }
+        "git.apply_stash" | "git.pop_stash" => r#"{"stashId":"stash@{0}"}"#,
+        "gh.pr.prepare" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
+        "gh.pr.create" => {
+            r#"{"sourceBranch":"feature/name","targetBranch":"main","pushSourceBranch":true}"#
+        }
+        _ => "{}",
+    }
+}
+
+fn build_repository_assistant_action_catalog_prompt() -> String {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .map(|spec| {
+            format!(
+                "- {}: {} group={} risk={} args={}",
+                spec.id,
+                spec.description,
+                spec.group,
+                spec.risk,
+                describe_repository_assistant_action_args(spec.id)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn build_repository_assistant_system_prompt(context: &str) -> String {
     [
         "You are Git Chat UI's repository assistant.",
@@ -3897,10 +4271,229 @@ fn build_repository_assistant_system_prompt(context: &str) -> String {
         "Prefer the safest next action and call out destructive or conflict-prone steps.",
         "If the repository state is ambiguous, say what additional detail is needed.",
         "Do not invent repository state beyond the provided context.",
+        "When proposing actions, use only the catalog below and only when the next step is clear enough to run after user approval.",
+        "Return strict JSON only with this shape:",
+        r#"{"message":"short markdown reply","proposedActions":[{"action":{"id":"git.stage_file","args":{"file":"src/app.ts"}},"reason":"why this is the next step"}]}"#,
+        "If no action should be suggested, return an empty proposedActions array.",
+        "Do not include markdown fences, commentary before JSON, or unknown action ids.",
+        "Action catalog:",
+        &build_repository_assistant_action_catalog_prompt(),
         "Repository context:",
         context,
     ]
     .join("\n\n")
+}
+
+fn normalize_trimmed_string_value(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn normalize_repository_assistant_action(
+    action: &RepositoryAssistantAction,
+) -> Option<RepositoryAssistantAction> {
+    if !is_repository_assistant_action_id(&action.id) {
+        return None;
+    }
+
+    let args = match &action.args {
+        Value::Object(map) => map.clone(),
+        Value::Null => serde_json::Map::new(),
+        _ => return None,
+    };
+
+    match action.id.as_str() {
+        "git.stage_file" | "git.unstage_file" | "git.stash_file" => {
+            let file = normalize_trimmed_string_value(args.get("file"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "file": file }),
+            })
+        }
+        "git.checkout_ref" => {
+            let reference = normalize_trimmed_string_value(args.get("ref"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "ref": reference }),
+            })
+        }
+        "git.create_branch" => {
+            let base_branch = normalize_trimmed_string_value(args.get("baseBranch"))?;
+            let new_branch = normalize_trimmed_string_value(args.get("newBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "baseBranch": base_branch,
+                    "newBranch": new_branch,
+                }),
+            })
+        }
+        "git.merge_branches" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                }),
+            })
+        }
+        "git.pull_current_branch" => {
+            let branch_name = normalize_trimmed_string_value(args.get("branchName"));
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: match branch_name {
+                    Some(branch_name) => json!({ "branchName": branch_name }),
+                    None => json!({}),
+                },
+            })
+        }
+        "git.commit" => {
+            let title = normalize_trimmed_string_value(args.get("title"))?;
+            let description = args
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_string();
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "title": title,
+                    "description": description,
+                }),
+            })
+        }
+        "git.push" => Some(RepositoryAssistantAction {
+            id: action.id.clone(),
+            args: json!({}),
+        }),
+        "git.resolve_conflict_side" => {
+            let file = normalize_trimmed_string_value(args.get("file"))?;
+            let side = match args.get("side").and_then(Value::as_str) {
+                Some("merged" | "ours" | "theirs") => {
+                    args.get("side").and_then(Value::as_str).unwrap().to_string()
+                }
+                _ => return None,
+            };
+            let session_id = normalize_trimmed_string_value(args.get("sessionId"));
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: match session_id {
+                    Some(session_id) => {
+                        json!({ "file": file, "side": side, "sessionId": session_id })
+                    }
+                    None => json!({ "file": file, "side": side }),
+                },
+            })
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => {
+            let session_id = normalize_trimmed_string_value(args.get("sessionId"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "sessionId": session_id }),
+            })
+        }
+        "git.apply_stash" | "git.pop_stash" => {
+            let stash_id = normalize_trimmed_string_value(args.get("stashId"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "stashId": stash_id }),
+            })
+        }
+        "gh.pr.prepare" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                }),
+            })
+        }
+        "gh.pr.create" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            let push_source_branch = args.get("pushSourceBranch").and_then(Value::as_bool)?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                    "pushSourceBranch": push_source_branch,
+                }),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn extract_repository_assistant_structured_payload(raw_text: &str) -> Option<Value> {
+    let trimmed = raw_text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(trimmed).ok().or_else(|| {
+        let fence_start = trimmed.find("```")?;
+        let fenced = &trimmed[(fence_start + 3)..];
+        let fenced = fenced
+            .strip_prefix("json")
+            .or_else(|| fenced.strip_prefix("JSON"))
+            .unwrap_or(fenced);
+        let fenced = fenced.trim_start();
+        let fence_end = fenced.rfind("```")?;
+        serde_json::from_str::<Value>(fenced[..fence_end].trim()).ok()
+    })
+}
+
+fn normalize_repository_assistant_proposals(
+    value: Option<&Value>,
+) -> Vec<RepositoryAssistantActionProposal> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    items.iter()
+        .filter_map(|item| {
+            let Value::Object(map) = item else {
+                return None;
+            };
+            let action = map
+                .get("action")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<RepositoryAssistantAction>(value).ok())
+                .and_then(|action| normalize_repository_assistant_action(&action))?;
+            let reason = normalize_trimmed_string_value(map.get("reason"))?;
+            let id = normalize_trimmed_string_value(map.get("id"))
+                .unwrap_or_else(create_repository_assistant_message_id);
+
+            Some(RepositoryAssistantActionProposal {
+                id,
+                action,
+                reason,
+                status: "proposed".to_string(),
+                result: None,
+            })
+        })
+        .collect()
+}
+
+fn parse_repository_assistant_response_payload(
+    raw_text: &str,
+) -> Option<(String, Vec<RepositoryAssistantActionProposal>)> {
+    let Value::Object(map) = extract_repository_assistant_structured_payload(raw_text)? else {
+        return None;
+    };
+    let message = normalize_trimmed_string_value(map.get("message"))?;
+    let proposed_actions = normalize_repository_assistant_proposals(map.get("proposedActions"));
+
+    Some((message, proposed_actions))
 }
 
 fn normalize_repository_assistant_messages(
@@ -3994,6 +4587,369 @@ fn chat_with_openai(
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
         .ok_or_else(|| "OpenAI API returned no text.".to_string())
+}
+
+fn get_repository_assistant_action_spec(
+    action_id: &str,
+) -> Option<&'static RepositoryAssistantActionSpec> {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .find(|spec| spec.id == action_id)
+}
+
+fn create_repository_assistant_action_result(
+    action: &RepositoryAssistantAction,
+    status: &str,
+    message: String,
+    data: Option<Value>,
+) -> RepositoryAssistantActionResult {
+    RepositoryAssistantActionResult {
+        action: action.clone(),
+        status: status.to_string(),
+        message,
+        created_at: current_timestamp_millis(),
+        data,
+    }
+}
+
+fn format_repository_assistant_conflict_message(prefix: &str, file_count: usize) -> String {
+    format!(
+        "{} Conflicts require manual resolution ({} file{}).",
+        prefix,
+        file_count,
+        if file_count == 1 { "" } else { "s" }
+    )
+}
+
+fn is_self_repository_path(repo_path: &str) -> bool {
+    let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    canonicalize_path_string(Path::new(repo_path))
+        .zip(canonicalize_path_string(&app_root))
+        .map(|(repo, root)| repo == root)
+        .unwrap_or(false)
+}
+
+fn assert_repository_assistant_action_safe(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+) -> Result<(), String> {
+    let Some(spec) = get_repository_assistant_action_spec(&action.id) else {
+        return Err("action is invalid.".to_string());
+    };
+
+    if spec.mutates_working_tree && is_self_repository_path(repo_path) {
+        return Err(format!(
+            "Repository assistant cannot run {} against git-chat-ui's own repository while the app is running from that checkout.",
+            spec.label
+        ));
+    }
+
+    Ok(())
+}
+
+fn repository_assistant_action_arg_required_string(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Result<String, String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| "action is invalid.".to_string())
+}
+
+fn repository_assistant_action_arg_optional_string(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Option<String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn repository_assistant_action_arg_bool(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Result<bool, String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "action is invalid.".to_string())
+}
+
+fn dispatch_repository_assistant_action(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+) -> Result<RepositoryAssistantActionResult, String> {
+    match action.id.as_str() {
+        "git.stage_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            stage_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Staged {}.", file),
+                None,
+            ))
+        }
+        "git.unstage_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            unstage_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Unstaged {}.", file),
+                None,
+            ))
+        }
+        "git.stash_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            stash_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Stashed {}.", file),
+                None,
+            ))
+        }
+        "git.checkout_ref" => {
+            let reference = repository_assistant_action_arg_required_string(action, "ref")?;
+            checkout(repo_path.to_string(), reference.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Checked out {}.", reference),
+                None,
+            ))
+        }
+        "git.create_branch" => {
+            let base_branch =
+                repository_assistant_action_arg_required_string(action, "baseBranch")?;
+            let new_branch = repository_assistant_action_arg_required_string(action, "newBranch")?;
+            create_branch(repo_path.to_string(), base_branch.clone(), new_branch.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!(
+                    "Created and checked out {} from {}.",
+                    new_branch, base_branch
+                ),
+                None,
+            ))
+        }
+        "git.merge_branches" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let result =
+                merge_branches(repo_path.to_string(), source_branch.clone(), target_branch.clone())?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!(
+                            "Merge from {} into {} started.",
+                            source_branch, target_branch
+                        ),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Merged {} into {}.", source_branch, target_branch),
+                None,
+            ))
+        }
+        "git.pull_current_branch" => {
+            let branch_name = repository_assistant_action_arg_optional_string(action, "branchName");
+            pull_current_branch(repo_path.to_string(), branch_name.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                match branch_name {
+                    Some(branch_name) => {
+                        format!("Pulled upstream changes into {}.", branch_name)
+                    }
+                    None => "Pulled upstream changes into the current branch.".to_string(),
+                },
+                None,
+            ))
+        }
+        "git.commit" => {
+            let title = repository_assistant_action_arg_required_string(action, "title")?;
+            let description = repository_assistant_action_arg_required_string(action, "description")
+                .unwrap_or_default();
+            commit(repo_path.to_string(), title.clone(), description)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Committed: {}", title),
+                None,
+            ))
+        }
+        "git.push" => {
+            push(repo_path.to_string())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Pushed the current branch.".to_string(),
+                None,
+            ))
+        }
+        "git.resolve_conflict_side" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            let side = match repository_assistant_action_arg_required_string(action, "side")?
+                .as_str()
+            {
+                "merged" => ConflictResolutionSide::Merged,
+                "ours" => ConflictResolutionSide::Ours,
+                "theirs" => ConflictResolutionSide::Theirs,
+                _ => return Err("action is invalid.".to_string()),
+            };
+            let session_id = repository_assistant_action_arg_optional_string(action, "sessionId");
+            let side_label = match side {
+                ConflictResolutionSide::Merged => "merged",
+                ConflictResolutionSide::Ours => "ours",
+                ConflictResolutionSide::Theirs => "theirs",
+            };
+            resolve_conflict_version(repo_path.to_string(), file.clone(), side, session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Resolved {} using {}.", file, side_label),
+                None,
+            ))
+        }
+        "git.complete_merge_session" => {
+            let session_id =
+                repository_assistant_action_arg_required_string(action, "sessionId")?;
+            complete_merge_session(repo_path.to_string(), session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Completed the merge session.".to_string(),
+                None,
+            ))
+        }
+        "git.abort_merge_session" => {
+            let session_id =
+                repository_assistant_action_arg_required_string(action, "sessionId")?;
+            abort_merge_session(repo_path.to_string(), session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Aborted the merge session.".to_string(),
+                None,
+            ))
+        }
+        "git.apply_stash" => {
+            let stash_id = repository_assistant_action_arg_required_string(action, "stashId")?;
+            let result = apply_stash(repo_path.to_string(), stash_id.clone())?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!("Applied {}.", stash_id),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Applied {}.", stash_id),
+                None,
+            ))
+        }
+        "git.pop_stash" => {
+            let stash_id = repository_assistant_action_arg_required_string(action, "stashId")?;
+            let result = pop_stash(repo_path.to_string(), stash_id.clone())?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!("Popped {}.", stash_id),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Popped {}.", stash_id),
+                None,
+            ))
+        }
+        "gh.pr.prepare" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let result = prepare_pull_request(
+                repo_path.to_string(),
+                source_branch.clone(),
+                target_branch,
+            )?;
+            let message = if result.push_required {
+                format!("{} needs a push before creating the pull request.", source_branch)
+            } else {
+                format!("{} is ready for pull request creation.", source_branch)
+            };
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                message,
+                serde_json::to_value(&result).ok(),
+            ))
+        }
+        "gh.pr.create" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let push_source_branch =
+                repository_assistant_action_arg_bool(action, "pushSourceBranch")?;
+            let result = create_pull_request(
+                repo_path.to_string(),
+                source_branch,
+                target_branch,
+                push_source_branch,
+            )?;
+            let url = result.url.clone();
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Created pull request: {}", url),
+                serde_json::to_value(&result).ok(),
+            ))
+        }
+        _ => Err("action is invalid.".to_string()),
+    }
 }
 
 fn generate_commit_title_internal(
@@ -4195,6 +5151,13 @@ pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUr
 }
 
 #[tauri::command]
+pub fn get_repository_assistant_user_profile(
+    repo_path: String,
+) -> Result<RepositoryAssistantUserProfileResponse, String> {
+    get_repository_assistant_user_profile_for_repo(&repo_path)
+}
+
+#[tauri::command]
 pub fn get_branch_pull_requests(repo_path: String) -> Result<BranchPullRequestsResponse, String> {
     ensure_repo_path(&repo_path)?;
     Ok(BranchPullRequestsResponse {
@@ -4208,13 +5171,9 @@ pub fn get_repository_mutation_safety(
 ) -> Result<RepositoryMutationSafetyResponse, String> {
     ensure_repo_path(&repo_path)?;
 
-    let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let is_self_repository = canonicalize_path_string(Path::new(&repo_path))
-        .zip(canonicalize_path_string(&app_root))
-        .map(|(repo, root)| repo == root)
-        .unwrap_or(false);
-
-    Ok(RepositoryMutationSafetyResponse { is_self_repository })
+    Ok(RepositoryMutationSafetyResponse {
+        is_self_repository: is_self_repository_path(&repo_path),
+    })
 }
 
 #[tauri::command]
@@ -5924,6 +6883,11 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
                 .repository_scan_depth
                 .unwrap_or(current.repository_scan_depth),
         ),
+        repository_assistant_policies: input
+            .repository_assistant_policies
+            .as_ref()
+            .map(|value| normalize_repository_assistant_policies_value(Some(value)))
+            .unwrap_or(current.repository_assistant_policies),
         recently_used: current.recently_used,
         window_state: current.window_state,
     };
@@ -5955,6 +6919,7 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: current.commit_graph_mode,
         repository_scan_depth: current.repository_scan_depth,
+        repository_assistant_policies: current.repository_assistant_policies,
         recently_used: current.recently_used,
         window_state: current.window_state,
     };
@@ -5991,15 +6956,47 @@ pub fn chat_with_repository_assistant(
         &system_prompt,
         &input.messages,
     )?;
+    let (content, proposed_actions) = parse_repository_assistant_response_payload(&message)
+        .unwrap_or_else(|| (message.clone(), Vec::new()));
 
     Ok(RepositoryAssistantResponse {
         message: RepositoryAssistantMessage {
             id: create_repository_assistant_message_id(),
             role: RepositoryAssistantMessageRole::Assistant,
-            content: message,
+            content,
             created_at: current_timestamp_millis(),
         },
+        proposed_actions,
     })
+}
+
+#[tauri::command]
+pub fn execute_repository_assistant_action(
+    input: ExecuteRepositoryAssistantActionInput,
+) -> Result<RepositoryAssistantActionExecutionResponse, String> {
+    ensure_repo_path(&input.repo_path)?;
+
+    let action =
+        normalize_repository_assistant_action(&input.action).ok_or_else(|| "action is invalid.".to_string())?;
+    let config = read_config()?;
+    if !is_repository_assistant_action_allowed(
+        &config.repository_assistant_policies,
+        &input.repo_path,
+        &action.id,
+    ) {
+        return Err(format!("{} is not allowlisted for this repository.", action.id));
+    }
+
+    assert_repository_assistant_action_safe(&input.repo_path, &action)?;
+
+    let result = match dispatch_repository_assistant_action(&input.repo_path, &action) {
+        Ok(result) => result,
+        Err(error) => {
+            create_repository_assistant_action_result(&action, "failed", error, None)
+        }
+    };
+
+    Ok(RepositoryAssistantActionExecutionResponse { result })
 }
 
 #[cfg(test)]
@@ -6591,6 +7588,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_github_viewer_response_extracts_login_and_avatar_url() {
+        assert_eq!(
+            parse_github_viewer_response(
+                r#"{"login":"octocat","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"}"#
+            ),
+            RepositoryAssistantUserProfileResponse {
+                login: Some("octocat".to_string()),
+                avatar_url: Some("https://avatars.githubusercontent.com/u/1?v=4".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_github_viewer_response_normalizes_blank_fields_to_none() {
+        assert_eq!(
+            parse_github_viewer_response(r#"{"login":"   ","avatar_url":""}"#),
+            RepositoryAssistantUserProfileResponse {
+                login: None,
+                avatar_url: None,
+            }
+        );
+    }
+
+    #[test]
     fn normalize_config_value_falls_back_to_commit_model_for_repository_assistant() {
         let config = normalize_config_value(json!({
             "openAiModel": "gpt-4.1",
@@ -6602,6 +7623,130 @@ mod tests {
             config.repository_assistant_reasoning_effort,
             OpenAiReasoningEffort::Default
         );
+    }
+
+    #[test]
+    fn normalize_config_value_normalizes_repository_assistant_policies() {
+        let config = normalize_config_value(json!({
+            "repositoryAssistantPolicies": {
+                " /tmp/repo-a ": {
+                    "allowedActionIds": [
+                        "git.push",
+                        "gh.pr.create",
+                        "git.push",
+                        "not.valid"
+                    ]
+                },
+                "": {
+                    "allowedActionIds": ["git.stage_file"]
+                }
+            }
+        }));
+
+        assert_eq!(config.repository_assistant_policies.len(), 1);
+        assert_eq!(
+            config
+                .repository_assistant_policies
+                .get("/tmp/repo-a")
+                .expect("policy should exist")
+                .allowed_action_ids,
+            vec!["git.push".to_string(), "gh.pr.create".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_repository_assistant_action_rejects_blank_strings() {
+        let action = RepositoryAssistantAction {
+            id: "git.stage_file".to_string(),
+            args: json!({
+                "file": "   "
+            }),
+        };
+
+        assert!(normalize_repository_assistant_action(&action).is_none());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_metadata_only_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+
+        let stage_action = RepositoryAssistantAction {
+            id: "git.stage_file".to_string(),
+            args: json!({
+                "file": "src/App.tsx"
+            }),
+        };
+        let commit_action = RepositoryAssistantAction {
+            id: "git.commit".to_string(),
+            args: json!({
+                "title": "test: metadata only",
+                "description": ""
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &stage_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &commit_action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_blocks_working_tree_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.checkout_ref".to_string(),
+            args: json!({
+                "ref": "main"
+            }),
+        };
+
+        assert_eq!(
+            assert_repository_assistant_action_safe(&repo_path, &action),
+            Err("Repository assistant cannot run Checkout Ref against git-chat-ui's own repository while the app is running from that checkout.".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_repository_assistant_response_payload_extracts_message_and_actions() {
+        let payload = r#"```json
+{
+  "message": "Stage the file first.",
+  "proposedActions": [
+    {
+      "action": {
+        "id": "git.stage_file",
+        "args": {
+          "file": "src/App.tsx"
+        }
+      },
+      "reason": "The file is ready to be staged."
+    }
+  ]
+}
+```"#;
+
+        let (message, proposed_actions) = parse_repository_assistant_response_payload(payload)
+            .expect("payload should parse");
+
+        assert_eq!(message, "Stage the file first.");
+        assert_eq!(proposed_actions.len(), 1);
+        assert_eq!(proposed_actions[0].action.id, "git.stage_file");
+        assert_eq!(
+            proposed_actions[0].action.args,
+            json!({
+                "file": "src/App.tsx"
+            })
+        );
+        assert_eq!(
+            proposed_actions[0].reason,
+            "The file is ready to be staged."
+        );
+        assert_eq!(proposed_actions[0].status, "proposed");
+        assert!(proposed_actions[0].result.is_none());
     }
 
     #[test]

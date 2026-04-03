@@ -1,4 +1,8 @@
 import type { Repository, RepositoryAssistantMessage } from "../types";
+import {
+  normalizeRepositoryAssistantActionProposal,
+  normalizeRepositoryAssistantActionResult,
+} from "../../shared/repositoryAssistant.js";
 
 import { DEFAULT_APP_THEME, normalizeAppTheme, type AppThemeId } from "./appTheme";
 
@@ -119,6 +123,18 @@ function normalizeRepositoryAssistantMessage(
     role: candidate.role,
     content: candidate.content,
     createdAt: candidate.createdAt,
+    ...(Array.isArray(candidate.proposedActions)
+      ? {
+          proposedActions: candidate.proposedActions
+            .map((proposal) => normalizeRepositoryAssistantActionProposal(proposal))
+            .filter((proposal): proposal is NonNullable<typeof proposal> => proposal !== null),
+        }
+      : {}),
+    ...(normalizeRepositoryAssistantActionResult(candidate.actionResult)
+      ? {
+          actionResult: normalizeRepositoryAssistantActionResult(candidate.actionResult),
+        }
+      : {}),
   };
 }
 

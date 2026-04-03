@@ -66,4 +66,33 @@ describe("StashDiffOverlay", () => {
     expect(html).toContain("Changed Files");
     expect(html).toContain("Split View");
   });
+
+  test("shows a loading state immediately when the initial stash file is missing from the aggregate diff", () => {
+    const html = renderToStaticMarkup(
+      <StashDiffOverlay
+        repoPath="/tmp/example"
+        stash={{
+          ...stash,
+          files: ["src/components/Missing.tsx", ...stash.files],
+        }}
+        detail={{
+          ...detail,
+          files: [
+            {
+              file: "src/components/Missing.tsx",
+              additions: 3,
+              deletions: 1,
+            },
+            ...detail.files,
+          ],
+          isDiffTruncated: true,
+        }}
+        loading={false}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(html).toContain("差分を読み込み中...");
+    expect(html).not.toContain("Text diff unavailable for this file.");
+  });
 });

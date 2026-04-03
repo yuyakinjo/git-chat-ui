@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { normalizeOpenAiReasoningEffort, resolveCommitTitlePrompt } from "../shared/ai.js";
 import { DEFAULT_APP_CONFIG } from "../shared/config.js";
+import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssistant.js";
 import type { AppConfig, CommitGraphMode } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -140,6 +141,9 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
+    repositoryAssistantPolicies: normalizeRepositoryAssistantPolicies(
+      value.repositoryAssistantPolicies,
+    ),
     recentlyUsed: normalizeRecentlyUsed(value.recentlyUsed),
     windowState: normalizeWindowState(value.windowState),
   };
