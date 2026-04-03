@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import type {
   BranchDiffDetail,
   BranchDiffFileDetail,
+  DiffFileStat,
   WorkingTreeDiffArea,
   WorkingTreeDiffDetail,
 } from "../types.js";
@@ -64,14 +65,14 @@ export async function listUntrackedFiles(repoPath: string, files: string[]): Pro
 export async function buildUntrackedFileDiffSnapshot(
   repoPath: string,
   file: string,
-): Promise<{ fileStat: { file: string; additions: number; deletions: number }; diff: string }> {
+): Promise<{ fileStat: DiffFileStat; diff: string }> {
   const absolutePath = resolveWorkingTreeFilePath(repoPath, file);
   const [metadata, buffer] = await Promise.all([fs.stat(absolutePath), fs.readFile(absolutePath)]);
   const mode = resolveNewFileMode(metadata.mode);
 
   if (buffer.includes(0)) {
     return {
-      fileStat: { file, additions: 0, deletions: 0 },
+      fileStat: { file, additions: 0, deletions: 0, kind: "added" },
       diff: [
         `diff --git a/${file} b/${file}`,
         `new file mode ${mode}`,
@@ -91,6 +92,7 @@ export async function buildUntrackedFileDiffSnapshot(
       file,
       additions: lines.length,
       deletions: 0,
+      kind: "added",
     },
     diff: buildUntrackedTextDiff(file, normalizedContent, mode),
   };
@@ -116,8 +118,11 @@ export async function getBranchDiffDetail(options: {
 
   const mergeBaseSha = await runGit(["merge-base", baseRef, targetRef], options.repoPath);
   const range = `${mergeBaseSha}..${targetRef}`;
-  const fileStatsOutput = await runGit(["diff", "--numstat", range], options.repoPath);
-  const files = parseCommitFileStats(fileStatsOutput);
+  const [fileStatsOutput, fileStatusOutput] = await Promise.all([
+    runGit(["diff", "--numstat", range], options.repoPath),
+    runGit(["diff", "--name-status", range], options.repoPath),
+  ]);
+  const files = parseCommitFileStats(fileStatsOutput, fileStatusOutput);
 
   const diff = await runGit(["diff", range], options.repoPath);
   const isDiffTruncated = diff.length > 25000;
@@ -187,8 +192,12 @@ export async function getWorkingTreeDiffDetail(options: {
   }
 
   const numstatArgs = [...workingTreeDiffArgs(options.area, "--numstat"), "--", file];
-  const fileStatsOutput = await runGit(numstatArgs, options.repoPath);
-  let files = parseCommitFileStats(fileStatsOutput);
+  const nameStatusArgs = [...workingTreeDiffArgs(options.area, "--name-status"), "--", file];
+  const [fileStatsOutput, fileStatusOutput] = await Promise.all([
+    runGit(numstatArgs, options.repoPath),
+    runGit(nameStatusArgs, options.repoPath),
+  ]);
+  let files: DiffFileStat[] = parseCommitFileStats(fileStatsOutput, fileStatusOutput);
 
   const diffArgs = [...workingTreeDiffArgs(options.area, ""), "--", file];
   let diff = await runGit(diffArgs, options.repoPath);

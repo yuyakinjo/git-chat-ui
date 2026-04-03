@@ -59,6 +59,15 @@ export interface RepositoryAssistantUserProfile {
   avatarUrl: string | null;
 }
 
+export type DiffFileKind = "modified" | "added" | "deleted" | "renamed" | "changed";
+
+export interface DiffFileStat {
+  file: string;
+  additions: number;
+  deletions: number;
+  kind?: DiffFileKind;
+}
+
 export interface CommitDetail {
   sha: string;
   parentShas: string[];
@@ -66,11 +75,7 @@ export interface CommitDetail {
   email: string;
   date: string;
   body: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
 }
 
@@ -85,11 +90,7 @@ export interface BranchDiffDetail {
   baseRef: string;
   targetRef: string;
   mergeBaseSha: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }
@@ -183,22 +184,14 @@ export type WorkingTreeDiffArea = "staged" | "unstaged";
 export interface WorkingTreeDiffDetail {
   file: string;
   area: WorkingTreeDiffArea;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }
 
 export interface StashDiffDetail {
   stashId: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }

@@ -439,11 +439,22 @@ struct GithubCommitAvatarGraphQlUser {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommitFileKind {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Changed,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitFileStat {
     pub file: String,
     pub additions: i64,
     pub deletions: i64,
+    pub kind: CommitFileKind,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3090,6 +3101,40 @@ fn status_label(x: char, y: char) -> String {
     }
 }
 
+fn diff_status_kind(code: char) -> CommitFileKind {
+    match code {
+        'A' => CommitFileKind::Added,
+        'D' => CommitFileKind::Deleted,
+        'M' => CommitFileKind::Modified,
+        'R' => CommitFileKind::Renamed,
+        _ => CommitFileKind::Changed,
+    }
+}
+
+fn parse_diff_file_kinds(output: &str) -> Vec<(String, CommitFileKind)> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let status_raw = parts.next()?.trim();
+            let status_code = status_raw.chars().next()?;
+            let paths: Vec<&str> = parts.collect();
+            let file = match status_code {
+                'R' | 'C' => paths.last().copied().unwrap_or(""),
+                _ => paths.first().copied().unwrap_or(""),
+            }
+            .trim();
+
+            if file.is_empty() {
+                return None;
+            }
+
+            Some((file.to_string(), diff_status_kind(status_code)))
+        })
+        .collect()
+}
+
 fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
     match raw_path.split_once(" -> ") {
         Some((left, right)) => (Some(left.to_string()), right.to_string()),
@@ -3097,8 +3142,8 @@ fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
     }
 }
 
-fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
-    output
+fn parse_commit_file_stats(output: &str, status_output: Option<&str>) -> Vec<CommitFileStat> {
+    let stats: Vec<CommitFileStat> = output
         .lines()
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| {
@@ -3114,7 +3159,48 @@ fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
                 file: parts[2].to_string(),
                 additions,
                 deletions,
+                kind: CommitFileKind::Changed,
             })
+        })
+        .collect();
+
+    let statuses = status_output.map(parse_diff_file_kinds).unwrap_or_default();
+    if statuses.is_empty() {
+        return stats;
+    }
+
+    if statuses.len() == stats.len() {
+        return stats
+            .into_iter()
+            .enumerate()
+            .map(|(index, stat)| {
+                let (status_file, kind) = statuses
+                    .get(index)
+                    .cloned()
+                    .unwrap_or((stat.file.clone(), CommitFileKind::Changed));
+
+                CommitFileStat {
+                    file: if status_file.trim().is_empty() {
+                        stat.file
+                    } else {
+                        status_file
+                    },
+                    additions: stat.additions,
+                    deletions: stat.deletions,
+                    kind,
+                }
+            })
+            .collect();
+    }
+
+    let kind_by_file: HashMap<String, CommitFileKind> = statuses.into_iter().collect();
+    stats.into_iter()
+        .map(|stat| CommitFileStat {
+            kind: kind_by_file
+                .get(&stat.file)
+                .cloned()
+                .unwrap_or(CommitFileKind::Changed),
+            ..stat
         })
         .collect()
 }
@@ -3265,6 +3351,7 @@ fn build_untracked_file_diff_snapshot(
                 file: file.to_string(),
                 additions: 0,
                 deletions: 0,
+                kind: CommitFileKind::Added,
             },
             [
                 format!("diff --git a/{file} b/{file}"),
@@ -3285,6 +3372,7 @@ fn build_untracked_file_diff_snapshot(
             file: file.to_string(),
             additions: lines.len() as i64,
             deletions: 0,
+            kind: CommitFileKind::Added,
         },
         build_untracked_text_diff(file, &content, mode),
     ))
@@ -5357,7 +5445,9 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
     }
 
     let file_stats_raw = run_git(&["show", "--pretty=format:", "--numstat", &sha], &repo_path)?;
-    let files = parse_commit_file_stats(&file_stats_raw);
+    let file_status_raw =
+        run_git(&["show", "--pretty=format:", "--name-status", &sha], &repo_path)?;
+    let files = parse_commit_file_stats(&file_stats_raw, Some(&file_status_raw));
 
     let diff = run_git(&["show", "--pretty=format:", &sha], &repo_path)?;
 
@@ -5448,7 +5538,8 @@ pub fn get_branch_diff_detail(
     let range = format!("{merge_base_sha}..{target_ref}");
 
     let file_stats_raw = run_git(&["diff", "--numstat", range.as_str()], &repo_path)?;
-    let files = parse_commit_file_stats(&file_stats_raw);
+    let file_status_raw = run_git(&["diff", "--name-status", range.as_str()], &repo_path)?;
+    let files = parse_commit_file_stats(&file_stats_raw, Some(&file_status_raw));
 
     let diff = run_git(&["diff", range.as_str()], &repo_path)?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -5524,7 +5615,11 @@ pub fn get_working_tree_diff_detail(
     numstat_args.push("--".to_string());
     numstat_args.push(file.clone());
     let file_stats_output = run_git_owned(&numstat_args, &repo_path)?;
-    let mut files = parse_commit_file_stats(&file_stats_output);
+    let mut name_status_args = working_tree_diff_args(&area, Some("--name-status"))?;
+    name_status_args.push("--".to_string());
+    name_status_args.push(file.clone());
+    let file_status_output = run_git_owned(&name_status_args, &repo_path)?;
+    let mut files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
 
     let mut diff_args = working_tree_diff_args(&area, None)?;
     diff_args.push("--".to_string());
@@ -6228,7 +6323,11 @@ pub fn get_stash_diff_detail(
         &["stash", "show", "--numstat", "--format=", stash_id.as_str()],
         &repo_path,
     )?;
-    let files = parse_commit_file_stats(&file_stats_output);
+    let file_status_output = run_git(
+        &["stash", "show", "--name-status", "--format=", stash_id.as_str()],
+        &repo_path,
+    )?;
+    let files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
 
     let diff = run_git(
         &["stash", "show", "--patch", "--format=", stash_id.as_str()],

@@ -272,11 +272,11 @@ export async function getStashDiffDetail(
   const normalizedStashId = stashId.trim();
   parseStashIndex(normalizedStashId);
 
-  const fileStatsOutput = await runGit(
-    ["stash", "show", "--numstat", "--format=", normalizedStashId],
-    repoPath,
-  );
-  const files = parseCommitFileStats(fileStatsOutput);
+  const [fileStatsOutput, fileStatusOutput] = await Promise.all([
+    runGit(["stash", "show", "--numstat", "--format=", normalizedStashId], repoPath),
+    runGit(["stash", "show", "--name-status", "--format=", normalizedStashId], repoPath),
+  ]);
+  const files = parseCommitFileStats(fileStatsOutput, fileStatusOutput);
 
   const diff = await runGit(["stash", "show", "--patch", "--format=", normalizedStashId], repoPath);
   const isDiffTruncated = diff.length > 25000;

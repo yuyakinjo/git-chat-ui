@@ -37,6 +37,7 @@ interface SplitDiffFileStat {
   file: string;
   additions: number;
   deletions: number;
+  kind?: SplitDiffFileKind;
 }
 
 interface SplitDiffViewerProps {
@@ -97,6 +98,7 @@ function summarizeFile(
   if (matched) {
     return {
       ...file,
+      kind: matched.kind ?? file.kind,
       additions: matched.additions,
       deletions: matched.deletions,
     };
@@ -127,7 +129,7 @@ function summarizeFile(
 function createStatOnlyFile(stat: SplitDiffFileStat): SplitDiffDisplayFile {
   return {
     key: stat.file,
-    kind: "changed",
+    kind: stat.kind ?? "changed",
     oldPath: stat.file,
     newPath: stat.file,
     displayPath: stat.file,

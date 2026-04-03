@@ -277,6 +277,46 @@ index 1111111..2222222 100644
     expect(html).not.toContain("Text diff unavailable for this file.");
   });
 
+  test("prefers the stable file kind from stats when a focused file diff is loaded on demand", () => {
+    const html = renderToStaticMarkup(
+      <SplitDiffViewer
+        diff={`diff --git a/src/fetched.ts b/src/fetched.ts
+index 1111111..2222222 100644
+--- a/src/fetched.ts
++++ b/src/fetched.ts
+@@ -1 +1 @@
+-before
++after
+`}
+        files={[
+          {
+            file: "src/fetched.ts",
+            additions: 1,
+            deletions: 1,
+            kind: "modified",
+          },
+          {
+            file: "src/missing.ts",
+            additions: 12,
+            deletions: 3,
+            kind: "deleted",
+          },
+        ]}
+        preferredFilePath="src/fetched.ts"
+      />,
+    );
+
+    expect(html).toContain(
+      'diff-file__badge diff-file__badge--modified">Modified</span><span class="diff-workbench__file-tab-stats"',
+    );
+    expect(html).toContain(
+      'diff-file__heading"><span class="diff-file__badge diff-file__badge--modified">Modified</span><span class="diff-file__path">src/fetched.ts<',
+    );
+    expect(html).not.toContain(
+      'diff-file__heading"><span class="diff-file__badge diff-file__badge--changed">Changed</span><span class="diff-file__path">src/fetched.ts<',
+    );
+  });
+
   test("uses the passed app theme id for syntax colors during theme switches", () => {
     const diff = `diff --git a/src/app.ts b/src/app.ts
 index 1111111..2222222 100644
