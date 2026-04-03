@@ -9,6 +9,7 @@ import type {
   CommitAuthorAvatarResponse,
   CommitDetail,
   CommitFileDiffDetail,
+  ControllerSnapshot,
   CommitResponse,
   ConflictFileDetail,
   ConflictOperationResult,
@@ -94,6 +95,19 @@ export const api = {
 
   getBranchPullRequests(repoPath: string): Promise<BranchPullRequestsResponse> {
     return getBusinessTransport().getBranchPullRequests(repoPath);
+  },
+
+  getControllerSnapshot(
+    repoPath: string,
+    options?: {
+      ref?: string;
+      compareRefs?: string[];
+      offset?: number;
+      limit?: number;
+      includeCommits?: boolean;
+    },
+  ): Promise<ControllerSnapshot> {
+    return getBusinessTransport().getControllerSnapshot(repoPath, options);
   },
 
   getCommits(
@@ -199,6 +213,10 @@ export const api = {
 
   stashFile(repoPath: string, file: string): Promise<{ ok: boolean }> {
     return getBusinessTransport().stashFile(repoPath, file);
+  },
+
+  stashAllChanges(repoPath: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().stashAllChanges(repoPath);
   },
 
   appendFileToStash(repoPath: string, stashId: string, file: string): Promise<{ ok: boolean }> {

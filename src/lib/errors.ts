@@ -3,6 +3,17 @@ export interface UiError {
   detail: string;
 }
 
+export function formatUiErrorForClipboard(error: UiError): string {
+  const title = error.title.trim();
+  const detail = error.detail.trim();
+
+  if (!detail || detail === title) {
+    return title;
+  }
+
+  return `${title}\n${detail}`;
+}
+
 function stringifyError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

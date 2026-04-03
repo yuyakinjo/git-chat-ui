@@ -3,6 +3,7 @@ import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "./ai.js";
 import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
 export type CommitGraphMode = "simple" | "detailed";
+export type CommitGraphStyle = "standard" | "japaneseExpress";
 
 export interface WindowState {
   x: number;
@@ -21,6 +22,7 @@ export interface AppConfig {
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
+  commitGraphStyle: CommitGraphStyle;
   repositoryScanDepth: number;
   repositoryAssistantPolicies: RepositoryAssistantPolicies;
   recentlyUsed: Array<{
@@ -44,6 +46,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
+  commitGraphStyle: "standard",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],

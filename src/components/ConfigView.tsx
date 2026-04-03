@@ -13,6 +13,7 @@ import type {
   AiProvider,
   AppConfig,
   CommitGraphMode,
+  CommitGraphStyle,
   TokenValidationResult,
 } from "../types";
 
@@ -53,6 +54,7 @@ function applyConfigToState(config: AppConfig): {
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
+  commitGraphStyle: CommitGraphStyle;
   repositoryScanDepth: number;
 } {
   return {
@@ -62,6 +64,7 @@ function applyConfigToState(config: AppConfig): {
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
     commitGraphMode: config.commitGraphMode,
+    commitGraphStyle: config.commitGraphStyle,
     repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
   };
 }
@@ -212,6 +215,9 @@ export function ConfigView({
   );
   const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>(
     initialConfigState?.commitGraphMode ?? "detailed",
+  );
+  const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>(
+    initialConfigState?.commitGraphStyle ?? "standard",
   );
   const [repositoryScanDepth, setRepositoryScanDepth] = useState(
     initialConfigState?.repositoryScanDepth ?? 4,
@@ -378,6 +384,7 @@ export function ConfigView({
     );
     setCommitTitlePrompt(next.commitTitlePrompt);
     setCommitGraphMode(next.commitGraphMode);
+    setCommitGraphStyle(next.commitGraphStyle);
     setRepositoryScanDepth(next.repositoryScanDepth);
     setLoading(false);
   }, [config]);
@@ -413,6 +420,7 @@ export function ConfigView({
         );
         setCommitTitlePrompt(next.commitTitlePrompt);
         setCommitGraphMode(next.commitGraphMode);
+        setCommitGraphStyle(next.commitGraphStyle);
         setRepositoryScanDepth(next.repositoryScanDepth);
         onConfigSaved(loadedConfig);
       } catch (error) {
@@ -675,6 +683,7 @@ export function ConfigView({
         selectedAiProvider,
         commitTitlePrompt,
         commitGraphMode,
+        commitGraphStyle,
         repositoryScanDepth: normalizedDepth,
       });
 
@@ -697,6 +706,7 @@ export function ConfigView({
       onConfigSaved(nextConfig);
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitGraphMode(nextConfig.commitGraphMode);
+      setCommitGraphStyle(nextConfig.commitGraphStyle);
 
       onNotify("Config を保存しました。");
     } catch (error) {
@@ -737,6 +747,22 @@ export function ConfigView({
                   >
                     <option value="detailed">Detailed (分岐・合流レーン)</option>
                     <option value="simple">Simple (簡易レーン)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Commit Graph Style
+                  </label>
+                  <select
+                    className="input input-select"
+                    value={commitGraphStyle}
+                    onChange={(event) =>
+                      setCommitGraphStyle(event.target.value as CommitGraphStyle)
+                    }
+                  >
+                    <option value="standard">Standard</option>
+                    <option value="japaneseExpress">Japanese Express</option>
                   </select>
                 </div>
 

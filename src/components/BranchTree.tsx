@@ -73,6 +73,13 @@ interface BranchTreeProps {
 const SINGLE_CLICK_DELAY_MS = 400;
 const DRAG_THRESHOLD_PX = 6;
 
+function isRemoteHeadAlias(branch: Branch): boolean {
+  return (
+    branch.type === "remote" &&
+    (branch.name.endsWith("/HEAD") || branch.fullRef.endsWith("/HEAD"))
+  );
+}
+
 export function BranchTree({
   branches,
   branchPullRequests,
@@ -138,8 +145,12 @@ export function BranchTree({
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
+  const visibleRemoteBranches = useMemo(
+    () => (branches?.remote ?? []).filter((branch) => !isRemoteHeadAlias(branch)),
+    [branches],
+  );
   const localTree = useMemo(() => buildTree(branches?.local ?? []), [branches]);
-  const remoteTree = useMemo(() => buildTree(branches?.remote ?? []), [branches]);
+  const remoteTree = useMemo(() => buildTree(visibleRemoteBranches), [visibleRemoteBranches]);
   const localBranchMap = useMemo(
     () => new Map((branches?.local ?? []).map((branch) => [branch.name, branch])),
     [branches],
@@ -761,7 +772,7 @@ export function BranchTree({
     {
       key: "remote",
       label: "Remote branches",
-      count: branches?.remote.length ?? 0,
+      count: visibleRemoteBranches.length,
       Icon: Cloud,
       iconClassName: "branch-tree__summary-icon branch-tree__summary-icon--remote",
     },

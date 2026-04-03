@@ -1,6 +1,15 @@
 import { animate, stagger } from "animejs";
 import { Check } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+} from "react";
 
 import { useContainerWidth } from "../hooks/useContainerWidth";
 import { copyTextToClipboard } from "../lib/clipboard";
@@ -8,13 +17,13 @@ import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows } from "../lib/commitGraphLayout";
 import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
-import type { BranchResponse, CommitGraphMode, CommitListItem } from "../types";
+import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem } from "../types";
 import {
   buildCommitRefBadges,
+  buildPrimaryParentCurvePath,
   buildDefaultBranchAnchorLaneIndices,
   clampColumnWidth,
-  LANE_GAP,
-  LANE_PADDING,
+  getLaneDisplayOffset,
   laneColor,
   laneX,
   LINE_OVERDRAW,
@@ -27,8 +36,7 @@ import {
   refLabelIcon,
   refLabelIconClass,
   ROW_HEIGHT,
-  WIP_NODE_CENTER,
-  WIP_NODE_LINE_CLEARANCE,
+  resolveCommitGraphStyleMetrics,
   WipNode,
 } from "./CommitGraphHelpers";
 
@@ -36,6 +44,7 @@ interface CommitGraphProps {
   commits: CommitListItem[];
   commitAuthorAvatars?: Record<string, string>;
   mode: CommitGraphMode;
+  graphStyle: CommitGraphStyle;
   activeCommitSha: string | null;
   highlightedCommitSha: string | null;
   checkedOutCommitSha: string | null;
@@ -59,10 +68,26 @@ interface CommitGraphProps {
   branchContext?: BranchResponse | null;
 }
 
+export function resolveCommitEnterAnimationTargets<T>(
+  nodes: readonly T[],
+  previousCommitCount: number,
+): T[] {
+  if (previousCommitCount <= 0) {
+    return [...nodes];
+  }
+
+  if (previousCommitCount >= nodes.length) {
+    return [];
+  }
+
+  return nodes.slice(previousCommitCount);
+}
+
 export function CommitGraph({
   commits,
   commitAuthorAvatars = {},
   mode,
+  graphStyle,
   activeCommitSha,
   highlightedCommitSha,
   checkedOutCommitSha,
@@ -85,10 +110,9 @@ export function CommitGraph({
   headerAccessory,
   branchContext = null,
 }: CommitGraphProps): JSX.Element {
-  const COMMIT_DOT_NODE_SIZE = 12;
-  const COMMIT_AVATAR_NODE_SIZE = 24;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
+  const previousVisibleCommitCountRef = useRef(0);
   const shaJumpContainerRef = useRef<HTMLDivElement | null>(null);
   const shaJumpInputRef = useRef<HTMLInputElement | null>(null);
   const containerWidth = useContainerWidth(rootRef);
@@ -114,7 +138,11 @@ export function CommitGraph({
     () => resolveDefaultBranch(branchContext)?.commit ?? null,
     [branchContext],
   );
-  const reservedLaneHeadSha = normalizedCheckedOutCommitSha || defaultBranchHeadSha;
+  const graphStyleMetrics = useMemo(() => resolveCommitGraphStyleMetrics(graphStyle), [graphStyle]);
+  const reservedLaneHeadSha =
+    graphStyle === "japaneseExpress"
+      ? (defaultBranchHeadSha ?? normalizedCheckedOutCommitSha)
+      : normalizedCheckedOutCommitSha || defaultBranchHeadSha;
   const laneLayout = useMemo(
     () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
     [commits, reservedLaneHeadSha],
@@ -123,6 +151,107 @@ export function CommitGraph({
     () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
     [commits, defaultBranchHeadSha, laneLayout.rows],
   );
+  const rowIndexBySha = useMemo(
+    () =>
+      new Map(
+        visibleCommits.map(
+          (commit, index) => [commit.sha.trim(), index] satisfies [string, number],
+        ),
+      ),
+    [visibleCommits],
+  );
+  const firstParentRowIndices = useMemo(
+    () =>
+      visibleCommits.map((commit) => {
+        const firstParentSha = commit.parentShas[0]?.trim();
+        if (!firstParentSha) {
+          return null;
+        }
+
+        return rowIndexBySha.get(firstParentSha) ?? null;
+      }),
+    [rowIndexBySha, visibleCommits],
+  );
+  const defaultBranchRowIndices = useMemo(() => {
+    const indices = new Set<number>();
+    const defaultHeadRowIndex = defaultBranchHeadSha
+      ? (rowIndexBySha.get(defaultBranchHeadSha.trim()) ?? null)
+      : null;
+    let currentRowIndex = defaultHeadRowIndex;
+
+    while (currentRowIndex !== null) {
+      indices.add(currentRowIndex);
+      currentRowIndex = firstParentRowIndices[currentRowIndex] ?? null;
+    }
+
+    return indices;
+  }, [defaultBranchHeadSha, firstParentRowIndices, rowIndexBySha]);
+  const japaneseExpressStemTargets = useMemo(
+    () =>
+      visibleCommits.map((_, rowIndex) => {
+        if (graphStyle !== "japaneseExpress") {
+          return null;
+        }
+
+        const row = laneLayout.rows[rowIndex];
+        if (
+          !row ||
+          row.primaryParentLaneIndex === null ||
+          row.primaryParentLaneIndex === row.laneIndex ||
+          row.primaryParentRowIndex === null
+        ) {
+          return null;
+        }
+
+        let targetRowIndex: number | null = row.primaryParentRowIndex;
+        while (targetRowIndex !== null && !defaultBranchRowIndices.has(targetRowIndex)) {
+          targetRowIndex = firstParentRowIndices[targetRowIndex] ?? null;
+        }
+
+        if (targetRowIndex === null) {
+          return null;
+        }
+
+        return {
+          laneIndex:
+            defaultBranchAnchorLaneIndices[targetRowIndex] ??
+            laneLayout.rows[targetRowIndex]?.laneIndex ??
+            0,
+          rowIndex: targetRowIndex,
+        };
+      }),
+    [
+      defaultBranchAnchorLaneIndices,
+      defaultBranchRowIndices,
+      firstParentRowIndices,
+      graphStyle,
+      laneLayout.rows,
+      visibleCommits,
+    ],
+  );
+  const sharedStemLaneIndicesByRow = useMemo(() => {
+    const byRow = new Map<number, number[]>();
+    if (graphStyle !== "japaneseExpress") {
+      return byRow;
+    }
+
+    visibleCommits.forEach((_, rowIndex) => {
+      const row = laneLayout.rows[rowIndex];
+      const target = japaneseExpressStemTargets[rowIndex];
+      if (!row || !target || target.rowIndex === rowIndex || target.laneIndex === row.laneIndex) {
+        return;
+      }
+
+      const lanes = byRow.get(target.rowIndex) ?? [];
+      if (!lanes.includes(row.laneIndex)) {
+        lanes.push(row.laneIndex);
+        lanes.sort((left, right) => left - right);
+      }
+      byRow.set(target.rowIndex, lanes);
+    });
+
+    return byRow;
+  }, [graphStyle, japaneseExpressStemTargets, laneLayout.rows, visibleCommits]);
   const commitRefScopeContext = useMemo(
     () =>
       branchContext
@@ -235,7 +364,18 @@ export function CommitGraph({
       return;
     }
 
-    animate(rootRef.current.querySelectorAll('[data-animate="commit-enter"]'), {
+    const nextVisibleCommitCount = visibleCommits.length;
+    const animationTargets = resolveCommitEnterAnimationTargets(
+      Array.from(rootRef.current.querySelectorAll('[data-animate="commit-enter"]')),
+      previousVisibleCommitCountRef.current,
+    );
+    previousVisibleCommitCountRef.current = nextVisibleCommitCount;
+
+    if (animationTargets.length === 0) {
+      return;
+    }
+
+    animate(animationTargets, {
       opacity: [0, 1],
       translateY: [6, 0],
       delay: stagger(18),
@@ -294,11 +434,40 @@ export function CommitGraph({
   }, [onScrollToCommitHandled, scrollToCommitSha, visibleCommits.length]);
 
   const isDetailedMode = mode === "detailed";
+  const laneDisplayOffsets = useMemo(
+    () =>
+      Array.from({ length: Math.max(laneLayout.maxLanes, 1) }, (_, laneIndex) =>
+        getLaneDisplayOffset(laneIndex, graphStyle),
+      ),
+    [graphStyle, laneLayout.maxLanes],
+  );
+  const minLaneDisplayOffset = useMemo(
+    () => Math.min(0, ...laneDisplayOffsets),
+    [laneDisplayOffsets],
+  );
+  const maxLaneDisplayOffset = useMemo(
+    () => Math.max(0, ...laneDisplayOffsets),
+    [laneDisplayOffsets],
+  );
+  const resolveLaneX = useCallback(
+    (laneIndex: number) =>
+      laneX(laneIndex, {
+        style: graphStyle,
+        minLaneDisplayOffset,
+        laneGap: graphStyleMetrics.laneGap,
+        lanePadding: graphStyleMetrics.lanePadding,
+      }),
+    [graphStyleMetrics.laneGap, graphStyleMetrics.lanePadding, minLaneDisplayOffset, graphStyle],
+  );
   const hasWipRow =
     (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
   const graphColumnWidth = isDetailedMode
-    ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
-    : 22;
+    ? Math.max(
+        graphStyleMetrics.minDetailedGraphWidth,
+        (maxLaneDisplayOffset - minLaneDisplayOffset) * graphStyleMetrics.laneGap +
+          graphStyleMetrics.lanePadding * 2,
+      )
+    : graphStyleMetrics.compactGraphWidth;
   const columnLayout = resolveCommitGraphColumnLayout({
     containerWidth,
     graphColumnWidth,
@@ -307,8 +476,9 @@ export function CommitGraph({
   const isCompactLayout = columnLayout.isCompact;
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
   const gridTemplateColumns = columnLayout.templateColumns;
-  const wipLineTopEnd = ROW_HEIGHT / 2 - WIP_NODE_LINE_CLEARANCE;
-  const wipLineBottomStart = ROW_HEIGHT / 2 + WIP_NODE_LINE_CLEARANCE;
+  const wipNodeCenter = graphStyleMetrics.wipNodeSize / 2;
+  const wipLineTopEnd = ROW_HEIGHT / 2 - graphStyleMetrics.wipNodeLineClearance;
+  const wipLineBottomStart = ROW_HEIGHT / 2 + graphStyleMetrics.wipNodeLineClearance;
   const wipAnchor = useMemo(() => {
     if (!hasWipRow) {
       return {
@@ -318,29 +488,79 @@ export function CommitGraph({
       };
     }
 
-    const checkedOutRowIndex = normalizedCheckedOutCommitSha
-      ? visibleCommits.findIndex((commit) => commit.sha.trim() === normalizedCheckedOutCommitSha)
+    const anchorHeadSha = (reservedLaneHeadSha ?? "").trim();
+    const anchorRowIndex = anchorHeadSha
+      ? visibleCommits.findIndex((commit) => commit.sha.trim() === anchorHeadSha)
       : -1;
-    const rowIndex = checkedOutRowIndex >= 0 ? checkedOutRowIndex : 0;
+    const anchorLaneIndex =
+      anchorRowIndex >= 0 ? (laneLayout.rows[anchorRowIndex]?.laneIndex ?? 0) : 0;
 
     return {
-      incomingLaneIndices: laneLayout.rows[rowIndex]?.incomingLaneIndices ?? [],
-      rowIndex,
-      laneIndex: laneLayout.rows[rowIndex]?.laneIndex ?? 0,
+      incomingLaneIndices: [] as number[],
+      rowIndex: 0,
+      laneIndex: anchorLaneIndex,
     };
-  }, [hasWipRow, laneLayout.rows, normalizedCheckedOutCommitSha, visibleCommits]);
+  }, [hasWipRow, laneLayout.rows, reservedLaneHeadSha, visibleCommits]);
   const resolveLaneStroke = useCallback(
     (rowIndex: number, laneIndex: number) =>
-      laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0),
-    [defaultBranchAnchorLaneIndices],
+      laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0, graphStyle),
+    [defaultBranchAnchorLaneIndices, graphStyle],
   );
   const resolveLaneStrokeWidth = useCallback(
-    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) => 2.2,
-    [],
+    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) =>
+      graphStyleMetrics.detailedLineWidth,
+    [graphStyleMetrics.detailedLineWidth],
   );
   const resolveLaneOpacity = useCallback(
-    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) => 0.85,
-    [],
+    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) =>
+      graphStyleMetrics.detailedLineOpacity,
+    [graphStyleMetrics.detailedLineOpacity],
+  );
+  const resolveLaneStrokeDasharray = useCallback(
+    (_rowIndex: number, laneIndex: number) => {
+      if (!hasWipRow || laneIndex !== wipAnchor.laneIndex) {
+        return undefined;
+      }
+
+      return graphStyle === "japaneseExpress" ? "0 8" : "0 5";
+    },
+    [graphStyle, hasWipRow, wipAnchor.laneIndex],
+  );
+  const buildCommitNodeStyle = useCallback(
+    (
+      laneStroke: string,
+      nodeSize: number,
+      laneIndex: number,
+      avatarSrc: string | undefined,
+    ): CSSProperties => {
+      const baseStyle: CSSProperties = {
+        width: `${nodeSize}px`,
+        height: `${nodeSize}px`,
+        left: `${resolveLaneX(laneIndex) - nodeSize / 2}px`,
+        top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
+      };
+
+      if (graphStyle === "japaneseExpress") {
+        return {
+          ...baseStyle,
+          background: "rgb(var(--theme-elevated-rgb) / 0.98)",
+          border: `${avatarSrc ? 3 : graphStyleMetrics.nodeRingWidth}px solid ${laneStroke}`,
+          boxShadow: avatarSrc
+            ? "0 10px 24px rgb(15 23 42 / 0.16)"
+            : "0 8px 18px rgb(15 23 42 / 0.12)",
+        };
+      }
+
+      if (!avatarSrc) {
+        return {
+          ...baseStyle,
+          background: laneStroke,
+        };
+      }
+
+      return baseStyle;
+    },
+    [graphStyle, graphStyleMetrics.nodeRingWidth, resolveLaneX],
   );
   const handleCopySha = useCallback(
     (sha: string) => {
@@ -398,9 +618,6 @@ export function CommitGraph({
     [onJumpToCommit, onNotify, shaJumpPending, shaJumpValue],
   );
   const renderWipRow = useCallback((): JSX.Element => {
-    const passthroughLaneIndices = wipAnchor.incomingLaneIndices.filter(
-      (laneIndex) => laneIndex !== wipAnchor.laneIndex,
-    );
     const anchorLaneHasIncoming = wipAnchor.incomingLaneIndices.includes(wipAnchor.laneIndex);
     const anchorLaneStrokeWidth = resolveLaneStrokeWidth(
       wipAnchor.rowIndex,
@@ -410,6 +627,10 @@ export function CommitGraph({
     const anchorLaneOpacity = resolveLaneOpacity(
       wipAnchor.rowIndex,
       wipAnchor.laneIndex,
+      wipAnchor.laneIndex,
+    );
+    const anchorLaneStrokeDasharray = resolveLaneStrokeDasharray(
+      wipAnchor.rowIndex,
       wipAnchor.laneIndex,
     );
 
@@ -430,66 +651,65 @@ export function CommitGraph({
               viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
               fill="none"
             >
-              {passthroughLaneIndices.map((laneIndex) => {
-                const strokeWidth = resolveLaneStrokeWidth(wipAnchor.rowIndex, laneIndex, null);
-                return (
-                  <line
-                    className="wip-row__lane-line wip-row__lane-line--passthrough"
-                    key={`wip-passthrough-${laneIndex}`}
-                    x1={laneX(laneIndex)}
-                    y1={-LINE_OVERDRAW}
-                    x2={laneX(laneIndex)}
-                    y2={ROW_HEIGHT + LINE_OVERDRAW}
-                    stroke={resolveLaneStroke(wipAnchor.rowIndex, laneIndex)}
-                    strokeWidth={strokeWidth}
-                    opacity={resolveLaneOpacity(wipAnchor.rowIndex, laneIndex, null)}
-                    strokeLinecap="round"
-                  />
-                );
-              })}
               {anchorLaneHasIncoming ? (
                 <line
                   className="wip-row__lane-line wip-row__lane-line--connector-top"
-                  x1={laneX(wipAnchor.laneIndex)}
+                  x1={resolveLaneX(wipAnchor.laneIndex)}
                   y1={-LINE_OVERDRAW}
-                  x2={laneX(wipAnchor.laneIndex)}
+                  x2={resolveLaneX(wipAnchor.laneIndex)}
                   y2={wipLineTopEnd}
                   stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
                   strokeWidth={anchorLaneStrokeWidth}
                   opacity={anchorLaneOpacity}
                   strokeLinecap="round"
+                  strokeDasharray={anchorLaneStrokeDasharray}
                 />
               ) : null}
               <line
                 className="wip-row__lane-line wip-row__lane-line--connector"
-                x1={laneX(wipAnchor.laneIndex)}
+                x1={resolveLaneX(wipAnchor.laneIndex)}
                 y1={wipLineBottomStart}
-                x2={laneX(wipAnchor.laneIndex)}
+                x2={resolveLaneX(wipAnchor.laneIndex)}
                 y2={ROW_HEIGHT + LINE_OVERDRAW}
                 stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
                 strokeWidth={anchorLaneStrokeWidth}
                 opacity={anchorLaneOpacity}
                 strokeLinecap="round"
+                strokeDasharray={anchorLaneStrokeDasharray}
               />
             </svg>
             <WipNode
               className="absolute block"
               style={{
-                left: `${laneX(wipAnchor.laneIndex) - WIP_NODE_CENTER}px`,
-                top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
+                left: `${resolveLaneX(wipAnchor.laneIndex) - wipNodeCenter}px`,
+                top: `${ROW_HEIGHT / 2 - wipNodeCenter}px`,
               }}
+              size={graphStyleMetrics.wipNodeSize}
+              ringRadius={graphStyleMetrics.wipNodeRingRadius}
+              strokeWidth={graphStyleMetrics.wipNodeStrokeWidth}
+              variant={graphStyle}
             />
           </div>
         ) : (
           <div className="relative flex h-8 items-center justify-center">
             <div
-              className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
+              className="wip-row__lane-line wip-row__lane-line--compact absolute"
               style={{
+                width: `${graphStyleMetrics.compactLineWidth}px`,
                 top: `${wipLineBottomStart}px`,
                 height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
+                background:
+                  graphStyle === "japaneseExpress"
+                    ? resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)
+                    : "rgb(var(--color-accent) / 0.2)",
               }}
             />
-            <WipNode />
+            <WipNode
+              size={graphStyleMetrics.wipNodeSize}
+              ringRadius={graphStyleMetrics.wipNodeRingRadius}
+              strokeWidth={graphStyleMetrics.wipNodeStrokeWidth}
+              variant={graphStyle}
+            />
           </div>
         )}
         <div className="overflow-hidden whitespace-nowrap text-xs">
@@ -518,25 +738,40 @@ export function CommitGraph({
     );
   }, [
     graphColumnWidth,
+    graphStyleMetrics.compactLineWidth,
+    graphStyleMetrics.wipNodeRingRadius,
+    graphStyleMetrics.wipNodeSize,
+    graphStyleMetrics.wipNodeStrokeWidth,
     gridTemplateColumns,
     isCompactLayout,
     isDetailedMode,
     onSelectWip,
     resolveLaneOpacity,
+    resolveLaneStrokeDasharray,
     resolveLaneStroke,
     resolveLaneStrokeWidth,
+    resolveLaneX,
+    graphStyle,
     wipAnchor.incomingLaneIndices,
     wipAnchor.laneIndex,
     wipAnchor.rowIndex,
     wipConflictedCount,
     wipLineBottomStart,
     wipLineTopEnd,
+    wipNodeCenter,
     wipStagedCount,
     wipUnstagedCount,
   ]);
 
   return (
-    <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
+    <section
+      className={`commit-graph panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3 ${
+        graphStyle === "japaneseExpress"
+          ? "commit-graph--japanese-express"
+          : "commit-graph--standard"
+      }`}
+      data-commit-graph-style={graphStyle}
+    >
       <div className="commit-graph__header mb-2 flex items-center justify-between px-2">
         <div>
           <div className="section-title">Commit Graph</div>
@@ -559,13 +794,10 @@ export function CommitGraph({
           }
         }}
       >
-        <div
-          className="sticky top-0 z-10 grid gap-2 bg-white/80 px-2 py-2 text-[11px] uppercase tracking-[0.08em] text-ink-subtle backdrop-blur-sm"
-          style={{ gridTemplateColumns }}
-        >
-          <span />
-          <span className="relative flex items-center">
-            Refs
+        <div className="commit-graph__columns" style={{ gridTemplateColumns }}>
+          <span className="commit-graph__column-spacer" aria-hidden="true" />
+          <span className="commit-graph__column-header commit-graph__column-header--refs">
+            <span className="commit-graph__column-label">Refs</span>
             <button
               type="button"
               className="absolute -right-2 top-[-6px] h-[calc(100%+12px)] w-4 cursor-col-resize rounded-xs bg-transparent hover:bg-black/5"
@@ -578,11 +810,22 @@ export function CommitGraph({
               aria-label="Resize refs column"
             />
           </span>
-          {!isCompactLayout ? <span>Date</span> : null}
-          <span>Message</span>
-          <span>Author</span>
           {!isCompactLayout ? (
-            <div className="commit-id-column relative" ref={shaJumpContainerRef}>
+            <span className="commit-graph__column-header">
+              <span className="commit-graph__column-label">Date</span>
+            </span>
+          ) : null}
+          <span className="commit-graph__column-header">
+            <span className="commit-graph__column-label">Message</span>
+          </span>
+          <span className="commit-graph__column-header">
+            <span className="commit-graph__column-label">Author</span>
+          </span>
+          {!isCompactLayout ? (
+            <div
+              className="commit-graph__column-header commit-graph__column-header--sha commit-id-column relative"
+              ref={shaJumpContainerRef}
+            >
               {onJumpToCommit ? (
                 <>
                   <button
@@ -638,7 +881,7 @@ export function CommitGraph({
                   ) : null}
                 </>
               ) : (
-                <span>SHA</span>
+                <span className="commit-graph__column-label">SHA</span>
               )}
             </div>
           ) : null}
@@ -648,29 +891,98 @@ export function CommitGraph({
           <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div>
         ) : null}
 
-        {hasWipRow && visibleCommits.length === 0 ? renderWipRow() : null}
+        {hasWipRow ? renderWipRow() : null}
 
         {visibleCommits.map((commit, index) => {
           const isHighlighted = highlightedCommitSha === commit.sha;
           const isActive = activeCommitSha === commit.sha;
           const isCheckedOutCommit = checkedOutCommitSha === commit.sha;
           const avatarSrc = commitAuthorAvatars[commit.sha];
-          const nodeSize = avatarSrc ? COMMIT_AVATAR_NODE_SIZE : COMMIT_DOT_NODE_SIZE;
+          const nodeSize = avatarSrc
+            ? graphStyleMetrics.avatarNodeSize
+            : graphStyleMetrics.nodeSize;
           const row = laneLayout.rows[index] ?? {
             laneIndex: 0,
             activeLaneIndices: [0],
             incomingLaneIndices: [0],
             outgoingLaneIndices: [0],
             primaryParentLaneIndex: null,
+            primaryParentRowIndex: null,
             mergeTargetLaneIndices: [],
           };
           const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
+          const isPrimaryBranchSourceRow =
+            row.primaryParentLaneIndex !== null && row.primaryParentLaneIndex !== row.laneIndex;
+          const primaryParentCommit =
+            row.primaryParentRowIndex !== null
+              ? (visibleCommits[row.primaryParentRowIndex] ?? null)
+              : null;
+          const primaryParentAvatarSrc = primaryParentCommit
+            ? commitAuthorAvatars[primaryParentCommit.sha]
+            : undefined;
+          const nodeHorizontalOverlap =
+            graphStyle === "japaneseExpress" && avatarSrc
+              ? Math.max(2, Math.min(4, nodeSize * 0.12))
+              : null;
+          const nodeJoinInset =
+            graphStyle === "japaneseExpress" && avatarSrc
+              ? Math.max(1, Math.min(2, nodeSize * 0.06))
+              : Math.max(1, Math.min(3, nodeSize * 0.18));
+          const primaryParentNodeSize = primaryParentAvatarSrc
+            ? graphStyleMetrics.avatarNodeSize
+            : graphStyleMetrics.nodeSize;
+          const primaryParentHorizontalOverlap =
+            graphStyle === "japaneseExpress" && primaryParentAvatarSrc
+              ? Math.max(2, Math.min(4, primaryParentNodeSize * 0.12))
+              : null;
+          const primaryParentJoinInset =
+            graphStyle === "japaneseExpress" && primaryParentAvatarSrc
+              ? Math.max(1, Math.min(2, primaryParentNodeSize * 0.06))
+              : Math.max(1, Math.min(3, primaryParentNodeSize * 0.18));
+          const primaryParentJoinX =
+            row.primaryParentLaneIndex !== null
+              ? (() => {
+                  const primaryParentLaneX = resolveLaneX(row.primaryParentLaneIndex);
+                  const primaryParentDirection =
+                    Math.sign(resolveLaneX(row.laneIndex) - primaryParentLaneX) || 1;
+                  if (primaryParentHorizontalOverlap !== null) {
+                    // Keep the horizontal segment hidden under the avatar long enough
+                    // that it reads as leaving from the node's side, not the WIP stem.
+                    return (
+                      primaryParentLaneX - primaryParentDirection * primaryParentHorizontalOverlap
+                    );
+                  }
+
+                  return (
+                    primaryParentLaneX +
+                    primaryParentDirection * (primaryParentNodeSize / 2 - primaryParentJoinInset)
+                  );
+                })()
+              : null;
+          const primaryParentTargetY =
+            isPrimaryBranchSourceRow &&
+            row.primaryParentRowIndex !== null &&
+            row.primaryParentRowIndex > index
+              ? (row.primaryParentRowIndex - index) * ROW_HEIGHT + ROW_HEIGHT / 2
+              : null;
+          const sharedStemLaneIndices = sharedStemLaneIndicesByRow.get(index) ?? [];
+          const graphSvgHeight = Math.max(
+            ROW_HEIGHT + LINE_OVERDRAW * 2,
+            primaryParentTargetY !== null ? primaryParentTargetY + LINE_OVERDRAW * 2 : 0,
+          );
+          const rowLaneStroke = resolveLaneStroke(index, row.laneIndex);
+          const nodeClassName = [
+            "absolute block commit-node",
+            avatarSrc ? "commit-node--avatar" : "",
+            graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
+            !avatarSrc && graphStyle === "standard" ? "border border-white/90 shadow-sm" : "",
+            isCheckedOutCommit ? "commit-node-head-glow" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
 
           return (
             <Fragment key={commit.sha}>
-              {hasWipRow && visibleCommits.length > 0 && index === wipAnchor.rowIndex
-                ? renderWipRow()
-                : null}
               <div
                 className={`commit-row ${isActive || isHighlighted ? "active" : ""}`}
                 style={{ gridTemplateColumns }}
@@ -688,19 +1000,19 @@ export function CommitGraph({
                     <svg
                       className="absolute left-0"
                       width={graphColumnWidth}
-                      height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+                      height={graphSvgHeight}
                       style={{ top: `${-LINE_OVERDRAW}px` }}
-                      viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+                      viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${graphSvgHeight}`}
                       fill="none"
                     >
                       {row.activeLaneIndices.map((laneIndex) => {
                         const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
                         const hasIncoming =
                           (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                          (hasWipRow &&
-                            index === wipAnchor.rowIndex &&
-                            laneIndex === wipAnchor.laneIndex);
-                        const hasOutgoingRaw = row.outgoingLaneIndices.includes(laneIndex);
+                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex);
+                        const hasOutgoingRaw =
+                          row.outgoingLaneIndices.includes(laneIndex) &&
+                          !(isPrimaryBranchSourceRow && laneIndex === row.laneIndex);
                         const hasOutgoing =
                           hasOutgoingRaw && !(index === visibleCommits.length - 1 && !hasMore);
 
@@ -712,26 +1024,28 @@ export function CommitGraph({
                         const y2 = hasOutgoing
                           ? ROW_HEIGHT + LINE_OVERDRAW
                           : ROW_HEIGHT / 2 - strokeWidth / 2;
+                        const strokeDasharray = resolveLaneStrokeDasharray(index, laneIndex);
 
                         return (
                           <line
                             className="commit-graph__lane-line"
                             key={`${commit.sha}-${laneIndex}`}
-                            x1={laneX(laneIndex)}
+                            x1={resolveLaneX(laneIndex)}
                             y1={y1}
-                            x2={laneX(laneIndex)}
+                            x2={resolveLaneX(laneIndex)}
                             y2={y2}
                             stroke={resolveLaneStroke(index, laneIndex)}
                             strokeWidth={strokeWidth}
                             opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
                             strokeLinecap="round"
+                            strokeDasharray={strokeDasharray}
                           />
                         );
                       })}
 
                       {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
-                        const sourceX = laneX(row.laneIndex);
-                        const targetX = laneX(targetLaneIndex);
+                        const sourceX = resolveLaneX(row.laneIndex);
+                        const targetX = resolveLaneX(targetLaneIndex);
                         const midY = ROW_HEIGHT / 2;
                         return (
                           <path
@@ -744,32 +1058,60 @@ export function CommitGraph({
                         );
                       })}
 
+                      {sharedStemLaneIndices.map((laneIndex) => {
+                        const laneXValue = resolveLaneX(laneIndex);
+                        const joinDirection =
+                          Math.sign(laneXValue - resolveLaneX(row.laneIndex)) || 1;
+                        const joinX =
+                          nodeHorizontalOverlap !== null
+                            ? resolveLaneX(row.laneIndex) - joinDirection * nodeHorizontalOverlap
+                            : resolveLaneX(row.laneIndex) +
+                              joinDirection * (nodeSize / 2 - nodeJoinInset);
+
+                        return (
+                          <line
+                            className="commit-graph__lane-line"
+                            key={`${commit.sha}-stem-${laneIndex}`}
+                            x1={laneXValue}
+                            y1={ROW_HEIGHT / 2}
+                            x2={joinX}
+                            y2={ROW_HEIGHT / 2}
+                            stroke={resolveLaneStroke(index, laneIndex)}
+                            strokeWidth={resolveLaneStrokeWidth(index, laneIndex, row.laneIndex)}
+                            opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
+                            strokeLinecap="round"
+                          />
+                        );
+                      })}
+
                       {row.primaryParentLaneIndex !== null &&
                       row.primaryParentLaneIndex !== row.laneIndex ? (
                         <path
-                          d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
-                          stroke={resolveLaneStroke(index, row.primaryParentLaneIndex)}
-                          strokeWidth={resolveLaneStrokeWidth(
-                            index,
-                            row.primaryParentLaneIndex,
-                            row.primaryParentLaneIndex,
-                          )}
-                          opacity={resolveLaneOpacity(
-                            index,
-                            row.primaryParentLaneIndex,
-                            row.primaryParentLaneIndex,
-                          )}
+                          d={buildPrimaryParentCurvePath({
+                            sourceLaneIndex: row.laneIndex,
+                            targetLaneIndex: row.primaryParentLaneIndex,
+                            targetY: primaryParentTargetY ?? ROW_HEIGHT,
+                            resolveLaneX,
+                            targetJoinX: primaryParentJoinX ?? undefined,
+                          })}
+                          stroke={rowLaneStroke}
+                          strokeWidth={resolveLaneStrokeWidth(index, row.laneIndex, row.laneIndex)}
+                          opacity={resolveLaneOpacity(index, row.laneIndex, row.laneIndex)}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                         />
                       ) : null}
                     </svg>
 
                     <span
-                      className={`absolute block commit-node ${avatarSrc ? "commit-node--avatar" : "border border-white/90 shadow-sm"} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                      style={{
-                        left: `${laneX(row.laneIndex) - nodeSize / 2}px`,
-                        top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
-                        background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
-                      }}
+                      className={nodeClassName}
+                      style={buildCommitNodeStyle(
+                        rowLaneStroke,
+                        nodeSize,
+                        row.laneIndex,
+                        avatarSrc,
+                      )}
                     >
                       {avatarSrc ? (
                         <img
@@ -785,17 +1127,32 @@ export function CommitGraph({
                 ) : (
                   <div className="relative flex h-8 items-center justify-center">
                     <div
-                      className="absolute w-[2px] bg-accent/20"
+                      className="absolute"
                       style={{
+                        width: `${graphStyleMetrics.compactLineWidth}px`,
                         top: `${-LINE_OVERDRAW}px`,
                         height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`,
+                        background:
+                          graphStyle === "japaneseExpress"
+                            ? rowLaneStroke
+                            : "rgb(var(--color-accent) / 0.2)",
                       }}
                     />
                     <span
-                      className={`commit-node ${avatarSrc ? "commit-node--avatar" : ""} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                      style={{
-                        background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
-                      }}
+                      className={[
+                        "commit-node",
+                        avatarSrc ? "commit-node--avatar" : "",
+                        graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
+                        isCheckedOutCommit ? "commit-node-head-glow" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      style={buildCommitNodeStyle(
+                        rowLaneStroke,
+                        nodeSize,
+                        row.laneIndex,
+                        avatarSrc,
+                      )}
                     >
                       {avatarSrc ? (
                         <img
@@ -865,9 +1222,7 @@ export function CommitGraph({
                         );
                       })}
                     </div>
-                  ) : (
-                    <span className="text-ink-subtle">-</span>
-                  )}
+                  ) : null}
                 </div>
 
                 {!isCompactLayout ? (

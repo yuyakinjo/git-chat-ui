@@ -7,6 +7,7 @@ export interface SearchableCommandPaletteItem {
 }
 
 const MAX_RECENT_COMMAND_PALETTE_ITEMS = 50;
+const OPEN_COMMAND_PALETTE_REQUEST_EVENT = "git-chat-ui:open-command-palette-request";
 
 interface CommandPaletteShortcutLike {
   key: string;
@@ -18,6 +19,29 @@ interface CommandPaletteShortcutLike {
 
 function normalizeCommandPaletteText(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+export function requestOpenCommandPalette(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_REQUEST_EVENT));
+}
+
+export function addOpenCommandPaletteRequestListener(listener: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const handleRequest = (): void => {
+    listener();
+  };
+
+  window.addEventListener(OPEN_COMMAND_PALETTE_REQUEST_EVENT, handleRequest);
+  return () => {
+    window.removeEventListener(OPEN_COMMAND_PALETTE_REQUEST_EVENT, handleRequest);
+  };
 }
 
 function normalizeCommandPaletteItemId(value: string | null | undefined): string {

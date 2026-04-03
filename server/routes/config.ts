@@ -8,6 +8,7 @@ import type { AppConfig } from "../types.js";
 
 import {
   parseCommitGraphMode,
+  parseCommitGraphStyle,
   parseRepositoryScanDepth,
   parseSelectedAiProvider,
 } from "./helpers.js";
@@ -41,6 +42,7 @@ export function createConfigRouter({
     try {
       const current = await readConfigImpl();
       const parsedGraphMode = parseCommitGraphMode(request.body.commitGraphMode);
+      const parsedGraphStyle = parseCommitGraphStyle(request.body.commitGraphStyle);
       const parsedSelectedAiProvider = parseSelectedAiProvider(request.body.selectedAiProvider);
       const parsedRepositoryScanDepth = parseRepositoryScanDepth(request.body.repositoryScanDepth);
 
@@ -72,6 +74,7 @@ export function createConfigRouter({
             ? request.body.commitTitlePrompt
             : current.commitTitlePrompt,
         commitGraphMode: parsedGraphMode ?? current.commitGraphMode,
+        commitGraphStyle: parsedGraphStyle ?? current.commitGraphStyle,
         repositoryScanDepth: parsedRepositoryScanDepth ?? current.repositoryScanDepth,
         repositoryAssistantPolicies:
           request.body.repositoryAssistantPolicies === undefined

@@ -71,6 +71,35 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/branches/pull-requests?${params.toString()}`);
     },
 
+    getControllerSnapshot(repoPath, options) {
+      const params = new URLSearchParams({ repoPath });
+
+      if (options?.ref?.trim()) {
+        params.set("ref", options.ref.trim());
+      }
+
+      const normalizedCompareRefs =
+        options?.compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ??
+        [];
+      for (const compareRef of normalizedCompareRefs) {
+        params.append("compareRef", compareRef);
+      }
+
+      if (typeof options?.offset === "number" && Number.isFinite(options.offset)) {
+        params.set("offset", String(options.offset));
+      }
+
+      if (typeof options?.limit === "number" && Number.isFinite(options.limit)) {
+        params.set("limit", String(options.limit));
+      }
+
+      if (typeof options?.includeCommits === "boolean") {
+        params.set("includeCommits", String(options.includeCommits));
+      }
+
+      return request(baseUrl, `/controller/snapshot?${params.toString()}`);
+    },
+
     getCommits(repoPath, ref, offset, limit = 50, compareRefs) {
       const params = new URLSearchParams({
         repoPath,
@@ -202,6 +231,13 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, "/stash", {
         method: "POST",
         body: JSON.stringify({ repoPath, file }),
+      });
+    },
+
+    stashAllChanges(repoPath) {
+      return request(baseUrl, "/stashes/all", {
+        method: "POST",
+        body: JSON.stringify({ repoPath }),
       });
     },
 

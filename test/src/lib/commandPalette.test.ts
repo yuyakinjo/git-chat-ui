@@ -1,14 +1,31 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  addOpenCommandPaletteRequestListener,
   filterCommandPaletteItems,
   getDefaultActiveCommandPaletteItemId,
   getNextActiveCommandPaletteItemId,
   isCommandPaletteShortcut,
   parseRecentCommandPaletteItemIds,
+  requestOpenCommandPalette,
   sortCommandPaletteItemsByRecency,
   updateRecentCommandPaletteItemIds,
 } from "../../../src/lib/commandPalette";
+
+const originalWindow = globalThis.window;
+
+afterEach(() => {
+  if (originalWindow === undefined) {
+    delete (globalThis as { window?: unknown }).window;
+    return;
+  }
+
+  Object.defineProperty(globalThis, "window", {
+    value: originalWindow,
+    configurable: true,
+    writable: true,
+  });
+});
 
 describe("filterCommandPaletteItems", () => {
   const items = [
@@ -74,6 +91,34 @@ describe("isCommandPaletteShortcut", () => {
         shiftKey: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("command palette open requests", () => {
+  test("dispatches window events to registered listeners", () => {
+    const eventTarget = new EventTarget();
+
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        addEventListener: eventTarget.addEventListener.bind(eventTarget),
+        removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+        dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    let count = 0;
+    const dispose = addOpenCommandPaletteRequestListener(() => {
+      count += 1;
+    });
+
+    requestOpenCommandPalette();
+    expect(count).toBe(1);
+
+    dispose();
+    requestOpenCommandPalette();
+    expect(count).toBe(1);
   });
 });
 

@@ -39,6 +39,26 @@ const branchesWithVisibleRemoteLeaf: BranchResponse = {
   ],
 };
 
+const branchesWithRemoteHeadAlias: BranchResponse = {
+  current: "main",
+  local: branches.local,
+  remote: [
+    {
+      name: "origin/main",
+      fullRef: "refs/remotes/origin/main",
+      type: "remote",
+      commit: "abc1234",
+      isRemoteDefault: true,
+    },
+    {
+      name: "origin",
+      fullRef: "refs/remotes/origin/HEAD",
+      type: "remote",
+      commit: "abc1234",
+    },
+  ],
+};
+
 const stashes: StashEntry[] = [
   {
     id: "stash@{0}",
@@ -224,6 +244,66 @@ describe("BranchTree", () => {
     expect(html).not.toContain("branch-list-item__ref-badge");
     expect(html).not.toContain('aria-label="Local ref"');
     expect(html).not.toContain('aria-label="Remote ref"');
+  });
+
+  test("hides remote HEAD aliases from the branch list and collapsed counts", () => {
+    const expandedHtml = renderToStaticMarkup(
+      <BranchTree
+        branches={branchesWithRemoteHeadAlias}
+        branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
+        stashes={[]}
+        collapsed={false}
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onToggleCollapsed={() => {}}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
+      />,
+    );
+    const collapsedHtml = renderToStaticMarkup(
+      <BranchTree
+        branches={branchesWithRemoteHeadAlias}
+        branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
+        stashes={[]}
+        collapsed
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onToggleCollapsed={() => {}}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
+      />,
+    );
+
+    expect(expandedHtml).not.toContain("branch-list-item__icon branch-list-item__icon--remote");
+    expect(collapsedHtml).toContain('title="Remote branches: 1"');
   });
 
   test("renders pull request actions only for local branches that have an open pull request", () => {

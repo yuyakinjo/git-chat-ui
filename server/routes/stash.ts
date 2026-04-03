@@ -9,6 +9,7 @@ import {
   getStashes,
   popStash,
   renameStash,
+  stashAllChanges,
   stashFile,
 } from "../gitService.js";
 
@@ -21,6 +22,16 @@ router.post("/api/stash", async (request, response, next) => {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
     const file = getRequiredString(request.body.file, "file");
     await stashFile(repoPath, file);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/api/stashes/all", async (request, response, next) => {
+  try {
+    const repoPath = getRequiredString(request.body.repoPath, "repoPath");
+    await stashAllChanges(repoPath);
     response.json({ ok: true });
   } catch (error) {
     next(error);

@@ -14,15 +14,18 @@ import {
   writeCommitMessageDraftToStorage,
   type CommitMessageDraftInput,
 } from "../lib/commitMessageDrafts";
-import { isHeadDecoration, resolveCompareRefs, resolveLogRef } from "../lib/controllerViewUtils";
+import { isHeadDecoration } from "../lib/controllerViewUtils";
 import { describeGitError } from "../lib/errors";
 import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
   BranchPullRequest,
   BranchResponse,
+  CommitResponse,
+  ControllerSnapshot,
   CommitDetail,
   CommitGraphMode,
+  CommitGraphStyle,
   CommitListItem,
   ConflictFileDetail,
   ConflictResolutionSide,
@@ -130,6 +133,7 @@ export function useControllerData({
     initialCommitMessageDraft.description,
   );
   const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>("detailed");
+  const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>("standard");
   const [inlineError, setInlineError] = useState<UiError | null>(null);
 
   const [fingerprint, setFingerprint] = useState<string>("");
@@ -594,6 +598,58 @@ export function useControllerData({
     [closeWorkingTreeDiffOverlay, repoPath, reportError],
   );
 
+  const applyCommitPage = useCallback(
+    async (options: {
+      append: boolean;
+      ref: string;
+      compareRefs?: string[];
+      commitResponse: CommitResponse;
+      focusCommitSha?: string;
+    }): Promise<LoadCommitsResult> => {
+      const normalizedRef = options.ref.trim() || "HEAD";
+      const normalizedCompareRefs = (options.compareRefs ?? [])
+        .map((ref) => ref.trim())
+        .filter((ref) => ref.length > 0 && ref !== normalizedRef);
+      const nextCommits = options.commitResponse.commits;
+      const nextHasMore = options.commitResponse.hasMore;
+      const focusCommitSha = options.append ? "" : (options.focusCommitSha?.trim() ?? "");
+      const focusCommitFound =
+        focusCommitSha.length === 0 || nextCommits.some((commit) => commit.sha === focusCommitSha);
+
+      if (!options.append && focusCommitSha && !focusCommitFound) {
+        return { status: "focus-miss" };
+      }
+
+      setCommits((current) => (options.append ? [...current, ...nextCommits] : nextCommits));
+      setHasMoreCommits(nextHasMore);
+      if (!options.append) {
+        setActiveCompareRefs(normalizedCompareRefs);
+      }
+
+      const allowRemoteFetch = !commitAvatarRemotePrefetchDoneRef.current && !options.append;
+      if (allowRemoteFetch) {
+        commitAvatarRemotePrefetchDoneRef.current = true;
+      }
+      void hydrateCommitAuthorAvatars(nextCommits, normalizedRef, {
+        allowRemoteFetch,
+      });
+
+      if (!options.append && nextCommits.length > 0) {
+        const focusedCommit = focusCommitSha
+          ? (nextCommits.find((commit) => commit.sha === focusCommitSha) ?? null)
+          : null;
+        const nextActiveCommit = focusedCommit ?? nextCommits[0];
+
+        setIsWipSelected(false);
+        setActiveCommit(nextActiveCommit);
+        await loadCommitDetail(nextActiveCommit.sha);
+      }
+
+      return { status: "updated" };
+    },
+    [hydrateCommitAuthorAvatars, loadCommitDetail],
+  );
+
   const loadCommits = useCallback(
     async (options: {
       append: boolean;
@@ -636,38 +692,16 @@ export function useControllerData({
           }
         }
 
-        const focusCommitFound =
-          focusCommitSha.length === 0 || nextCommits.some((commit) => commit.sha === focusCommitSha);
-        if (!options.append && focusCommitSha && !focusCommitFound) {
-          return { status: "focus-miss" };
-        }
-
-        setCommits((current) => (options.append ? [...current, ...nextCommits] : nextCommits));
-        setHasMoreCommits(nextHasMore);
-        if (!options.append) {
-          setActiveCompareRefs(normalizedCompareRefs);
-        }
-
-        const allowRemoteFetch = !commitAvatarRemotePrefetchDoneRef.current && !options.append;
-        if (allowRemoteFetch) {
-          commitAvatarRemotePrefetchDoneRef.current = true;
-        }
-        void hydrateCommitAuthorAvatars(nextCommits, normalizedRef, {
-          allowRemoteFetch,
+        return await applyCommitPage({
+          append: options.append,
+          ref: normalizedRef,
+          compareRefs: normalizedCompareRefs,
+          commitResponse: {
+            commits: nextCommits,
+            hasMore: nextHasMore,
+          },
+          focusCommitSha,
         });
-
-        if (!options.append && nextCommits.length > 0) {
-          const focusedCommit = focusCommitSha
-            ? (nextCommits.find((commit) => commit.sha === focusCommitSha) ?? null)
-            : null;
-          const nextActiveCommit = focusedCommit ?? nextCommits[0];
-
-          setIsWipSelected(false);
-          setActiveCommit(nextActiveCommit);
-          await loadCommitDetail(nextActiveCommit.sha);
-        }
-
-        return { status: "updated" };
       } catch (error) {
         reportError(error, "コミット一覧の取得に失敗しました。");
         return { status: "error" };
@@ -676,7 +710,65 @@ export function useControllerData({
         setLoadingMoreCommits(false);
       }
     },
-    [hydrateCommitAuthorAvatars, loadCommitDetail, repoPath, reportError],
+    [applyCommitPage, repoPath, reportError],
+  );
+
+  const applyControllerSnapshot = useCallback(
+    async (snapshot: ControllerSnapshot): Promise<LoadCommitsResult> => {
+      setBranches(snapshot.branches);
+      setWorkingStatus(snapshot.workingTreeStatus);
+      setStashes(snapshot.stashes);
+      setPullStatus(snapshot.pullStatus);
+      setFingerprint(snapshot.fingerprint);
+      setActiveLogRef(snapshot.logRef);
+
+      if (!snapshot.commits) {
+        setActiveCompareRefs(snapshot.compareRefs);
+        return { status: "updated" };
+      }
+
+      return await applyCommitPage({
+        append: false,
+        ref: snapshot.logRef,
+        compareRefs: snapshot.compareRefs,
+        commitResponse: snapshot.commits,
+      });
+    },
+    [applyCommitPage],
+  );
+
+  const loadControllerSnapshot = useCallback(
+    async (
+      options: {
+        ref?: string;
+        includeCommits?: boolean;
+      } = {},
+    ): Promise<boolean> => {
+      const includeCommits = options.includeCommits !== false;
+      if (includeCommits) {
+        setLoadingCommits(true);
+        setLoadingMoreCommits(false);
+      }
+
+      try {
+        const snapshot = await api.getControllerSnapshot(repoPath, {
+          ref: options.ref,
+          offset: 0,
+          limit: 50,
+          includeCommits,
+        });
+        const result = await applyControllerSnapshot(snapshot);
+        return result.status === "updated";
+      } catch (error) {
+        reportError(error, "画面情報の取得に失敗しました。");
+        return false;
+      } finally {
+        if (includeCommits) {
+          setLoadingCommits(false);
+        }
+      }
+    },
+    [applyControllerSnapshot, repoPath, reportError],
   );
 
   const loadBranches = useCallback(async (): Promise<BranchResponse | null> => {
@@ -744,74 +836,31 @@ export function useControllerData({
       refreshLockRef.current = true;
 
       try {
-        const targetRef = refOverride ?? activeLogRef;
-        const [nextBranches] = await Promise.all([
-          loadBranches(),
+        await Promise.all([
           loadBranchPullRequests(),
-          loadWorkingState(),
-          loadPullStatus(),
+          loadControllerSnapshot({
+            ref: refOverride ?? activeLogRef,
+            includeCommits: true,
+          }),
         ]);
-        const branchContext = nextBranches ?? branches;
-        const resolvedRef = resolveLogRef(targetRef, branchContext);
-        const compareRefs = resolveCompareRefs(resolvedRef, branchContext);
-
-        setActiveLogRef(resolvedRef);
-        await loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs });
-        const fingerprintResponse = await api.getFingerprint(repoPath);
-        setFingerprint(fingerprintResponse.fingerprint);
       } finally {
         refreshLockRef.current = false;
       }
     },
-    [
-      activeLogRef,
-      branches,
-      loadBranchPullRequests,
-      loadBranches,
-      loadCommits,
-      loadPullStatus,
-      loadWorkingState,
-      repoPath,
-    ],
+    [activeLogRef, loadBranchPullRequests, loadControllerSnapshot],
   );
 
   const reloadAfterBranchMutation = useCallback(
     async (preferredBranchName?: string): Promise<void> => {
-      const [nextBranches] = await Promise.all([
-        loadBranches(),
+      await Promise.all([
         loadBranchPullRequests(),
-        loadWorkingState(),
-        loadPullStatus(),
+        loadControllerSnapshot({
+          ref: preferredBranchName,
+          includeCommits: true,
+        }),
       ]);
-      const branchContext = nextBranches ?? branches;
-      const preferredBranch = preferredBranchName
-        ? (branchContext?.local.find((branch) => branch.name === preferredBranchName) ?? null)
-        : null;
-      const currentBranch =
-        branchContext?.local.find((branch) => branch.name === branchContext.current) ?? null;
-      const resolvedBranch = preferredBranch ?? currentBranch;
-      const resolvedRef =
-        resolvedBranch?.fullRef ||
-        resolvedBranch?.name ||
-        resolveLogRef(activeLogRef, branchContext);
-      const compareRefs = resolveCompareRefs(resolvedRef, branchContext);
-
-      setActiveLogRef(resolvedRef);
-      await loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs });
-
-      const fingerprintResponse = await api.getFingerprint(repoPath);
-      setFingerprint(fingerprintResponse.fingerprint);
     },
-    [
-      activeLogRef,
-      branches,
-      loadBranchPullRequests,
-      loadBranches,
-      loadCommits,
-      loadPullStatus,
-      loadWorkingState,
-      repoPath,
-    ],
+    [loadBranchPullRequests, loadControllerSnapshot],
   );
 
   const completeActiveMergeSession = useCallback(async (): Promise<void> => {
@@ -887,22 +936,40 @@ export function useControllerData({
         await task();
         setInlineError(null);
         const shouldReloadCommits = options.reloadCommits ?? true;
-
-        if (shouldReloadCommits) {
-          const resolvedRef = resolveLogRef(activeLogRef, branches);
-          const compareRefs = resolveCompareRefs(resolvedRef, branches);
-          setActiveLogRef(resolvedRef);
-          await Promise.all([
-            loadWorkingState(),
-            loadPullStatus(),
-            loadCommits({ append: false, offset: 0, ref: resolvedRef, compareRefs }),
-          ]);
-        } else {
-          await Promise.all([loadWorkingState(), loadPullStatus()]);
+        const reloaded = await loadControllerSnapshot({
+          ref: activeLogRef,
+          includeCommits: shouldReloadCommits,
+        });
+        if (reloaded) {
+          await options.onSuccess?.();
         }
+      } catch (error) {
+        reportError(error, "Git 操作に失敗しました。");
+      } finally {
+        setOperationBusy(false);
+      }
+    },
+    [activeLogRef, loadControllerSnapshot, reportError],
+  );
 
-        const fingerprintResponse = await api.getFingerprint(repoPath);
-        setFingerprint(fingerprintResponse.fingerprint);
+  const mutateWorkingState = useCallback(
+    async (
+      task: () => Promise<void>,
+      options: {
+        onSuccess?: () => void | Promise<void>;
+      } = {},
+    ): Promise<void> => {
+      setOperationBusy(true);
+      try {
+        await task();
+        setInlineError(null);
+        await loadWorkingState();
+        try {
+          const response = await api.getFingerprint(repoPath);
+          setFingerprint(response.fingerprint);
+        } catch {
+          // Fingerprint sync is best-effort; polling will recover if this fails.
+        }
         await options.onSuccess?.();
       } catch (error) {
         reportError(error, "Git 操作に失敗しました。");
@@ -910,7 +977,7 @@ export function useControllerData({
         setOperationBusy(false);
       }
     },
-    [activeLogRef, branches, loadCommits, loadPullStatus, loadWorkingState, repoPath, reportError],
+    [loadWorkingState, repoPath, reportError],
   );
 
   // Notify parent when current branch changes
@@ -1079,6 +1146,10 @@ export function useControllerData({
     setCommitGraphMode(appConfig?.commitGraphMode ?? "detailed");
   }, [appConfig?.commitGraphMode]);
 
+  useEffect(() => {
+    setCommitGraphStyle(appConfig?.commitGraphStyle ?? "standard");
+  }, [appConfig?.commitGraphStyle]);
+
   // Validate focused diff file exists
   useEffect(() => {
     if (!focusedCommitDiffFile) {
@@ -1188,6 +1259,7 @@ export function useControllerData({
     clearCommitMessageDraft,
 
     commitGraphMode,
+    commitGraphStyle,
     inlineError,
     setInlineError,
 
@@ -1214,6 +1286,7 @@ export function useControllerData({
     loadPullStatus,
     refreshAll,
     reloadAfterBranchMutation,
+    mutateWorkingState,
     mutateAndReload,
   };
 }

@@ -12,6 +12,8 @@ import type {
 import { ensureRepoPath, parseCommitFileStats, runGit } from "./command.js";
 import { getConflictSummaryForContext } from "./conflict.js";
 
+const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 interface StashReflogEntry {
   newOid: string;
   committerName: string;
@@ -182,6 +184,10 @@ async function applyPatchFile(
   await runGit(args, worktreePath);
 }
 
+async function restoreTrackedFileFromHead(repoPath: string, file: string): Promise<void> {
+  await runGit(["restore", "--source=HEAD", "--staged", "--worktree", "--", file], repoPath);
+}
+
 async function createReplacementStashCommit(options: {
   repoPath: string;
   stashId: string;
@@ -248,7 +254,7 @@ export async function getStashes(repoPath: string): Promise<StashEntry[]> {
   for (const stash of stashes) {
     try {
       const filesOutput = await runGit(
-        ["stash", "show", "--name-only", "--format=", stash.id],
+        ["stash", "show", "--include-untracked", "--name-only", "--format=", stash.id],
         repoPath,
       );
       stash.files = filesOutput
@@ -273,12 +279,21 @@ export async function getStashDiffDetail(
   parseStashIndex(normalizedStashId);
 
   const [fileStatsOutput, fileStatusOutput] = await Promise.all([
-    runGit(["stash", "show", "--numstat", "--format=", normalizedStashId], repoPath),
-    runGit(["stash", "show", "--name-status", "--format=", normalizedStashId], repoPath),
+    runGit(
+      ["stash", "show", "--include-untracked", "--numstat", "--format=", normalizedStashId],
+      repoPath,
+    ),
+    runGit(
+      ["stash", "show", "--include-untracked", "--name-status", "--format=", normalizedStashId],
+      repoPath,
+    ),
   ]);
   const files = parseCommitFileStats(fileStatsOutput, fileStatusOutput);
 
-  const diff = await runGit(["stash", "show", "--patch", "--format=", normalizedStashId], repoPath);
+  const diff = await runGit(
+    ["stash", "show", "--include-untracked", "--patch", "--format=", normalizedStashId],
+    repoPath,
+  );
   const isDiffTruncated = diff.length > 25000;
 
   return {
@@ -304,8 +319,17 @@ export async function getStashDiffFileDetail(
     throw new Error("file is required.");
   }
 
+  const hasUntrackedParentFile = await runGit(
+    ["ls-tree", "-r", "--name-only", `${normalizedStashId}^3`, "--", normalizedFile],
+    repoPath,
+  )
+    .then((output) => output.split("\n").some((candidate) => candidate.trim() === normalizedFile))
+    .catch(() => false);
+
   const diff = await runGit(
-    ["diff", `${normalizedStashId}^1`, normalizedStashId, "--", normalizedFile],
+    hasUntrackedParentFile
+      ? ["diff", EMPTY_TREE_SHA, `${normalizedStashId}^3`, "--", normalizedFile]
+      : ["diff", `${normalizedStashId}^1`, normalizedStashId, "--", normalizedFile],
     repoPath,
   );
   const isDiffTruncated = diff.length > 25000;
@@ -401,6 +425,7 @@ export async function appendFileToStash(
 
   try {
     await rebuildStashReflog(repoPath, stashLogPath, updatedEntries);
+    await restoreTrackedFileFromHead(repoPath, normalizedFile);
   } catch (error) {
     try {
       await rebuildStashReflog(repoPath, stashLogPath, entries);

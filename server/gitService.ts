@@ -25,6 +25,7 @@ export {
   commitChanges,
   pushChanges,
 } from "./git/commit.js";
+export { getControllerSnapshot } from "./git/controllerSnapshot.js";
 export { getCommitAuthorAvatars } from "./git/commitAvatars.js";
 export {
   getBranchDiffDetail,
@@ -60,4 +61,5 @@ export {
   unstageFile,
   discardFile,
   stashFile,
+  stashAllChanges,
 } from "./git/workingTree.js";

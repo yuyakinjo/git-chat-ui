@@ -6,6 +6,7 @@ import type {
   BranchResponse,
   CommitDetail,
   CommitGraphMode,
+  CommitGraphStyle,
   CommitListItem,
   ConflictFileDetail,
   ConflictResolutionSide,
@@ -100,6 +101,7 @@ export interface UseControllerDataResult {
   clearCommitMessageDraft: () => void;
 
   commitGraphMode: CommitGraphMode;
+  commitGraphStyle: CommitGraphStyle;
   inlineError: UiError | null;
   setInlineError: (error: UiError | null) => void;
 
@@ -135,6 +137,12 @@ export interface UseControllerDataResult {
   loadPullStatus: () => Promise<void>;
   refreshAll: (refOverride?: string) => Promise<void>;
   reloadAfterBranchMutation: (preferredBranchName?: string) => Promise<void>;
+  mutateWorkingState: (
+    task: () => Promise<void>,
+    options?: {
+      onSuccess?: () => void | Promise<void>;
+    },
+  ) => Promise<void>;
   mutateAndReload: (
     task: () => Promise<void>,
     options?: {

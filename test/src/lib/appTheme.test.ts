@@ -8,11 +8,13 @@ import {
   getNativeWindowAppearance,
   normalizeAppTheme,
 } from "../../../src/lib/appTheme";
+import { shouldCollapseAppThemePickerOnSelect } from "../../../src/lib/appThemePicker";
 
 describe("appTheme", () => {
-  test("falls back to Default Light for unknown values", () => {
+  test("falls back to Default Light for unknown or removed values", () => {
     expect(normalizeAppTheme("")).toBe(DEFAULT_APP_THEME);
     expect(normalizeAppTheme("midnight")).toBe(DEFAULT_APP_THEME);
+    expect(normalizeAppTheme("old-game")).toBe(DEFAULT_APP_THEME);
     expect(normalizeAppTheme(null)).toBe(DEFAULT_APP_THEME);
   });
 
@@ -62,5 +64,11 @@ describe("appTheme", () => {
       theme: "dark",
       backgroundColor: [18, 21, 27, 255],
     });
+  });
+
+  test("only collapses the theme picker after pointer-driven selections", () => {
+    expect(shouldCollapseAppThemePickerOnSelect("pointer")).toBe(true);
+    expect(shouldCollapseAppThemePickerOnSelect("keyboard")).toBe(false);
+    expect(shouldCollapseAppThemePickerOnSelect(null)).toBe(false);
   });
 });

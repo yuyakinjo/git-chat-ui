@@ -21,7 +21,10 @@ describe("globals.css", () => {
     expect(globalsCss).toContain('body[data-theme="graphite-dark"] {');
     expect(globalsCss).toContain('body[data-theme-mode="light"] {');
     expect(globalsCss).toContain('body[data-theme-mode="dark"] {');
+    expect(globalsCss).toContain("--color-canvas: 246 241 232;");
+    expect(globalsCss).toContain("--color-accent: 16 102 192;");
     expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 8% -28%");
+    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 10% -30%");
     expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 12% -22%");
   });
 
@@ -37,6 +40,11 @@ describe("globals.css", () => {
     const tabbarSection = getSection(".app-tabbar {", ".panel {");
 
     expect(tabbarSection).toContain(".app-toolbar-button {");
+    expect(tabbarSection).toContain(".app-toolbar-item {");
+    expect(tabbarSection).toContain(".app-toolbar-button--disclosure {");
+    expect(tabbarSection).toContain(
+      ".app-toolbar-button--disclosure:is(:hover, :focus-visible):not(:disabled)",
+    );
     expect(tabbarSection).toContain(".app-toolbar-button__shortcut {");
     expect(tabbarSection).toContain(".app-content-shell {");
     expect(tabbarSection).toContain(".app-content-shell.is-assistant-open {");
@@ -44,6 +52,42 @@ describe("globals.css", () => {
     expect(globalsCss).toContain("@media (max-width: 1100px) {");
     expect(globalsCss).toContain(".app-content-shell.is-assistant-open {");
     expect(globalsCss).toContain("grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);");
+  });
+
+  test("theme picker lets the native select cover the full visible hit area", () => {
+    const themePickerSection = getSection(
+      ".app-theme-picker {",
+      ".app-controller-layout-slot .controller-layout-picker__trigger {",
+    );
+
+    expect(themePickerSection).toContain("align-items: center;");
+    expect(themePickerSection).toContain("padding: 0 11px;");
+    expect(themePickerSection).toContain(".app-theme-picker__chrome {");
+    expect(themePickerSection).toContain(".app-theme-picker__icon {");
+    expect(themePickerSection).toContain(".app-theme-picker__label {");
+    expect(themePickerSection).toContain(".app-theme-picker__select {");
+    expect(themePickerSection).toContain("position: absolute;");
+    expect(themePickerSection).toContain("inset: 0;");
+    expect(themePickerSection).toContain("width: 100%;");
+    expect(themePickerSection).toContain("height: 100%;");
+    expect(themePickerSection).toContain("opacity: 0;");
+    expect(themePickerSection).toContain(".app-theme-picker:not(.is-hover-suppressed):hover {");
+    expect(themePickerSection).toContain(".app-theme-picker:focus-within {");
+    expect(themePickerSection).toContain(
+      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within {",
+    );
+    expect(themePickerSection).toContain(
+      ".app-theme-picker:not(.is-hover-suppressed):hover .app-theme-picker__chrome {",
+    );
+    expect(themePickerSection).toContain(
+      ".app-theme-picker:not(.is-hover-suppressed):hover .app-toolbar-disclosure__label {",
+    );
+    expect(themePickerSection).toContain(
+      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within .app-theme-picker__chrome,",
+    );
+    expect(themePickerSection).toContain(
+      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within .app-toolbar-disclosure__label,",
+    );
   });
 
   test("app tabbar uses a segmented repository selector instead of browser-style tabs", () => {
@@ -96,8 +140,11 @@ describe("globals.css", () => {
     expect(globalsCss).toContain(".controller-activity-glow::after {");
     expect(controllerPanelSection).toContain(".controller-panels-toolbar {");
     expect(controllerPanelSection).toContain(".controller-layout-picker {");
+    expect(controllerPanelSection).toContain(".controller-layout-picker__content {");
+    expect(controllerPanelSection).toContain(".controller-layout-picker__icon {");
     expect(controllerPanelSection).toContain(".controller-layout-picker__menu {");
     expect(controllerPanelSection).toContain(".controller-layout-picker__option {");
+    expect(controllerPanelSection).not.toContain(".controller-layout-picker__chevron {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.3fr) minmax(320px, 1.15fr) minmax(170px, 0.72fr);",
     );
@@ -370,6 +417,21 @@ describe("globals.css", () => {
     expect(refBadgeSection).toContain(
       'body[data-theme-mode="dark"] .commit-graph__ref-badge--tag {',
     );
+  });
+
+  test("commit graph column headers share the section title color and stay centered", () => {
+    const headerSection = getSection(
+      ".commit-graph__header {",
+      ".commit-graph__sha-jump-trigger {",
+    );
+
+    expect(headerSection).toContain("color: var(--text-subtle);");
+    expect(headerSection).toContain(".commit-graph__columns {");
+    expect(headerSection).toContain("background: rgb(var(--theme-elevated-rgb) / 0.82);");
+    expect(headerSection).toContain(".commit-graph__column-header {");
+    expect(headerSection).toContain("justify-content: center;");
+    expect(headerSection).toContain("text-align: center;");
+    expect(headerSection).toContain(".commit-graph__column-label {");
   });
 
   test("commit nodes support cached author avatars without losing the fallback node styling", () => {

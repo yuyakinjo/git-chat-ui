@@ -21,6 +21,7 @@ const config: AppConfig = {
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
+  commitGraphStyle: "standard",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],
@@ -183,7 +184,10 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(1);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(2);
+    expect(html).toContain("Commit Graph Style");
+    expect(html).toContain(">Standard</option>");
+    expect(html).toContain(">Japanese Express</option>");
   });
 
   test("renders an OpenAI model combobox control", () => {

@@ -1,7 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use git2::{
-    build::CheckoutBuilder, Commit as GitCommit, Repository as GitRepository, Status, StatusOptions,
-};
+use git2::{build::CheckoutBuilder, Commit as GitCommit, Repository as GitRepository, Status};
 use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Url;
@@ -21,6 +19,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_REPOSITORIES: usize = 300;
+const MAX_CONTROLLER_SNAPSHOT_CACHE_ENTRIES: usize = 128;
 const MIN_SCAN_DEPTH: usize = 1;
 const MAX_SCAN_DEPTH: usize = 8;
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -58,6 +57,8 @@ const KEYCHAIN_SERVICE_CLAUDE: &str = "git-chat-ui.claudecode-token";
 static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 static NEXT_MERGE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 static MERGE_SESSIONS: LazyLock<Mutex<HashMap<String, MergeSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CONTROLLER_SNAPSHOT_CACHE: LazyLock<Mutex<HashMap<String, ControllerSnapshotResponse>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Copy)]
@@ -231,6 +232,19 @@ impl Default for CommitGraphMode {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum CommitGraphStyle {
+    Standard,
+    JapaneseExpress,
+}
+
+impl Default for CommitGraphStyle {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum AiProvider {
     OpenAi,
     ClaudeCode,
@@ -293,6 +307,7 @@ pub struct AppConfig {
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
     pub commit_graph_mode: CommitGraphMode,
+    pub commit_graph_style: CommitGraphStyle,
     pub repository_scan_depth: usize,
     pub repository_assistant_policies: RepositoryAssistantPolicies,
     pub recently_used: Vec<RecentRepository>,
@@ -321,6 +336,7 @@ impl Default for AppConfig {
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_mode: CommitGraphMode::Detailed,
+            commit_graph_style: CommitGraphStyle::Standard,
             repository_scan_depth: 4,
             repository_assistant_policies: HashMap::new(),
             recently_used: Vec::new(),
@@ -667,6 +683,19 @@ pub struct FingerprintResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ControllerSnapshotResponse {
+    pub fingerprint: String,
+    pub branches: BranchResponse,
+    pub log_ref: String,
+    pub compare_refs: Vec<String>,
+    pub commits: Option<CommitsResponse>,
+    pub working_tree_status: WorkingTreeStatus,
+    pub stashes: Vec<StashEntry>,
+    pub pull_status: PullStatusResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RepositoryGithubUrlResponse {
     pub url: Option<String>,
 }
@@ -789,6 +818,7 @@ pub struct SaveConfigInput {
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
     pub commit_graph_mode: Option<CommitGraphMode>,
+    pub commit_graph_style: Option<CommitGraphStyle>,
     pub repository_scan_depth: Option<usize>,
 }
 
@@ -1522,6 +1552,11 @@ fn normalize_config_value(value: Value) -> AppConfig {
         Some("detailed") => CommitGraphMode::Detailed,
         _ => default.commit_graph_mode,
     };
+    let commit_graph_style = match value.get("commitGraphStyle").and_then(Value::as_str) {
+        Some("standard") => CommitGraphStyle::Standard,
+        Some("japaneseExpress") => CommitGraphStyle::JapaneseExpress,
+        _ => default.commit_graph_style,
+    };
 
     let repository_scan_depth = match value.get("repositoryScanDepth") {
         Some(Value::Number(number)) => {
@@ -1546,6 +1581,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         selected_ai_provider,
         commit_title_prompt,
         commit_graph_mode,
+        commit_graph_style,
         repository_scan_depth,
         repository_assistant_policies,
         recently_used,
@@ -1602,6 +1638,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_mode: config.commit_graph_mode,
+        commit_graph_style: config.commit_graph_style,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         repository_assistant_policies: normalize_repository_assistant_policies(
             &config.repository_assistant_policies,
@@ -2593,6 +2630,148 @@ fn get_remote_default_branch_name(repo_path: &str, remote_name: &str) -> Option<
     get_local_default_branch_name(repo_path).ok().flatten()
 }
 
+fn resolve_controller_snapshot_default_branch_ref(branches: &BranchResponse) -> Option<String> {
+    let candidate = branches
+        .local
+        .iter()
+        .find(|branch| branch.name == "main")
+        .or_else(|| branches.local.iter().find(|branch| branch.name == "master"))
+        .or_else(|| {
+            branches
+                .local
+                .iter()
+                .find(|branch| branch.name == branches.current)
+        })
+        .or_else(|| branches.local.first());
+
+    candidate.map(|branch| {
+        if branch.full_ref.trim().is_empty() {
+            branch.name.clone()
+        } else {
+            branch.full_ref.clone()
+        }
+    })
+}
+
+fn resolve_controller_snapshot_log_ref(requested_ref: &str, branches: &BranchResponse) -> String {
+    let normalized_requested_ref = requested_ref.trim();
+    if !normalized_requested_ref.is_empty() && normalized_requested_ref != "HEAD" {
+        return normalized_requested_ref.to_string();
+    }
+
+    branches
+        .local
+        .iter()
+        .find(|branch| branch.name == branches.current)
+        .map(|branch| {
+            if branch.full_ref.trim().is_empty() {
+                branch.name.clone()
+            } else {
+                branch.full_ref.clone()
+            }
+        })
+        .unwrap_or_else(|| "HEAD".to_string())
+}
+
+fn normalize_explicit_controller_snapshot_compare_refs(
+    log_ref: &str,
+    compare_refs: &[String],
+) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+    seen.insert(log_ref.to_string());
+
+    for compare_ref in compare_refs {
+        let candidate = compare_ref.trim();
+        if candidate.is_empty() || !seen.insert(candidate.to_string()) {
+            continue;
+        }
+
+        normalized.push(candidate.to_string());
+    }
+
+    normalized
+}
+
+fn build_automatic_controller_snapshot_compare_refs(
+    log_ref: &str,
+    branches: &BranchResponse,
+) -> Vec<String> {
+    let default_ref = resolve_controller_snapshot_default_branch_ref(branches);
+    let refs = branches
+        .local
+        .iter()
+        .map(|branch| {
+            if branch.full_ref.trim().is_empty() {
+                branch.name.clone()
+            } else {
+                branch.full_ref.clone()
+            }
+        })
+        .collect::<Vec<String>>();
+    let mut ordered = Vec::new();
+
+    if let Some(default_ref) = default_ref {
+        ordered.push(default_ref.clone());
+        ordered.extend(refs.into_iter().filter(|reference| reference != &default_ref));
+    } else {
+        ordered.extend(refs);
+    }
+
+    let mut deduped = Vec::new();
+    let mut seen = HashSet::new();
+    for reference in ordered {
+        if reference.is_empty() || reference == log_ref || !seen.insert(reference.clone()) {
+            continue;
+        }
+
+        deduped.push(reference);
+    }
+
+    deduped
+}
+
+fn build_controller_snapshot_cache_key(
+    repo_path: &str,
+    fingerprint: &str,
+    requested_ref: &str,
+    compare_refs_mode: &str,
+    compare_refs: &[String],
+    offset: usize,
+    limit: usize,
+    include_commits: bool,
+) -> String {
+    let compare_refs_key = compare_refs.join("\u{001f}");
+    format!(
+        "{repo_path}\u{001e}{fingerprint}\u{001e}{requested_ref}\u{001e}{compare_refs_mode}\u{001e}{compare_refs_key}\u{001e}{offset}\u{001e}{limit}\u{001e}{include_commits}"
+    )
+}
+
+fn get_cached_controller_snapshot(key: &str) -> Result<Option<ControllerSnapshotResponse>, String> {
+    let cache = CONTROLLER_SNAPSHOT_CACHE
+        .lock()
+        .map_err(|_| "Controller snapshot cache is unavailable.".to_string())?;
+    Ok(cache.get(key).cloned())
+}
+
+fn store_controller_snapshot(
+    key: String,
+    snapshot: ControllerSnapshotResponse,
+) -> Result<(), String> {
+    let mut cache = CONTROLLER_SNAPSHOT_CACHE
+        .lock()
+        .map_err(|_| "Controller snapshot cache is unavailable.".to_string())?;
+
+    if !cache.contains_key(&key) && cache.len() >= MAX_CONTROLLER_SNAPSHOT_CACHE_ENTRIES {
+        if let Some(oldest_key) = cache.keys().next().cloned() {
+            cache.remove(&oldest_key);
+        }
+    }
+
+    cache.insert(key, snapshot);
+    Ok(())
+}
+
 fn ensure_deletable_remote_branch(
     repo_path: &str,
     branch_name: &str,
@@ -3392,60 +3571,6 @@ fn build_untracked_file_diff_snapshot(
         },
         build_untracked_text_diff(file, &content, mode),
     ))
-}
-
-fn git_status_index_code(status: Status) -> char {
-    if status.contains(Status::CONFLICTED) {
-        'U'
-    } else if status.contains(Status::INDEX_NEW) {
-        'A'
-    } else if status.contains(Status::INDEX_MODIFIED) {
-        'M'
-    } else if status.contains(Status::INDEX_DELETED) {
-        'D'
-    } else if status.contains(Status::INDEX_RENAMED) {
-        'R'
-    } else if status.contains(Status::INDEX_TYPECHANGE) {
-        'T'
-    } else {
-        ' '
-    }
-}
-
-fn git_status_worktree_code(status: Status) -> char {
-    if status.contains(Status::CONFLICTED) {
-        'U'
-    } else if status.contains(Status::WT_NEW) {
-        '?'
-    } else if status.contains(Status::WT_MODIFIED) {
-        'M'
-    } else if status.contains(Status::WT_DELETED) {
-        'D'
-    } else if status.contains(Status::WT_RENAMED) {
-        'R'
-    } else if status.contains(Status::WT_TYPECHANGE) {
-        'T'
-    } else {
-        ' '
-    }
-}
-
-fn status_entry_path(entry: &git2::StatusEntry<'_>) -> Option<String> {
-    entry.path().map(ToString::to_string)
-}
-
-fn build_status_options(include_untracked_dirs: bool) -> StatusOptions {
-    let mut options = StatusOptions::new();
-    options
-        .include_untracked(true)
-        .renames_head_to_index(true)
-        .renames_index_to_workdir(true);
-
-    if include_untracked_dirs {
-        options.recurse_untracked_dirs(true);
-    }
-
-    options
 }
 
 fn should_skip_dir(home: &Path, current: &Path, dir_name: &str) -> bool {
@@ -4794,6 +4919,7 @@ fn assert_repository_assistant_action_safe_with_overrides(
     Ok(())
 }
 
+#[cfg(test)]
 fn assert_repository_assistant_action_safe(
     repo_path: &str,
     action: &RepositoryAssistantAction,
@@ -5296,7 +5422,7 @@ pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
             continue;
         }
 
-        if name.ends_with("/HEAD") {
+        if full_ref.ends_with("/HEAD") || name.ends_with("/HEAD") {
             continue;
         }
 
@@ -5937,6 +6063,8 @@ struct ConflictContext {
     target_branch: Option<String>,
 }
 
+const EMPTY_TREE_SHA: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 fn parse_working_tree_status_entry(line: &str) -> Option<WorkingTreeFileStatusEntryRecord> {
     if line.trim().is_empty() {
         return None;
@@ -6340,12 +6468,39 @@ pub fn discard_file(repo_path: String, file: String) -> Result<OkResponse, Strin
 pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String> {
     ensure_repo_path(&repo_path)?;
 
-    if file.trim().is_empty() {
+    let normalized_file = file.trim().to_string();
+    if normalized_file.is_empty() {
         return Err("file is required.".to_string());
     }
 
-    let message = format!("git-chat-ui: {file}");
-    run_git(&["stash", "push", "-m", &message, "--", &file], &repo_path)?;
+    let entry = get_working_tree_file_status_entry(&repo_path, &normalized_file)?;
+    let message = format!("git-chat-ui: {normalized_file}");
+    let mut args = vec!["stash", "push"];
+    if matches!(entry, Some(WorkingTreeFileStatusEntryRecord { x: '?', y: '?', .. })) {
+        args.push("--include-untracked");
+    }
+    args.push("-m");
+    args.push(message.as_str());
+    args.push("--");
+    args.push(normalized_file.as_str());
+    run_git(&args, &repo_path)?;
+
+    Ok(OkResponse { ok: true })
+}
+
+#[tauri::command]
+pub fn stash_all_changes(repo_path: String) -> Result<OkResponse, String> {
+    ensure_repo_path(&repo_path)?;
+    run_git(
+        &[
+            "stash",
+            "push",
+            "--include-untracked",
+            "-m",
+            "git-chat-ui: Working tree",
+        ],
+        &repo_path,
+    )?;
 
     Ok(OkResponse { ok: true })
 }
@@ -6409,13 +6564,21 @@ pub fn get_stash_diff_detail(
     parse_stash_index(&stash_id)?;
 
     let file_stats_output = run_git(
-        &["stash", "show", "--numstat", "--format=", stash_id.as_str()],
+        &[
+            "stash",
+            "show",
+            "--include-untracked",
+            "--numstat",
+            "--format=",
+            stash_id.as_str(),
+        ],
         &repo_path,
     )?;
     let file_status_output = run_git(
         &[
             "stash",
             "show",
+            "--include-untracked",
             "--name-status",
             "--format=",
             stash_id.as_str(),
@@ -6425,7 +6588,14 @@ pub fn get_stash_diff_detail(
     let files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
 
     let diff = run_git(
-        &["stash", "show", "--patch", "--format=", stash_id.as_str()],
+        &[
+            "stash",
+            "show",
+            "--include-untracked",
+            "--patch",
+            "--format=",
+            stash_id.as_str(),
+        ],
         &repo_path,
     )?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -6454,12 +6624,35 @@ pub fn get_stash_diff_file_detail(
         return Err("file is required.".to_string());
     }
 
-    let stash_base = format!("{stash_id}^1");
+    let untracked_parent = format!("{stash_id}^3");
+    let has_untracked_parent_file = run_git(
+        &[
+            "ls-tree",
+            "-r",
+            "--name-only",
+            untracked_parent.as_str(),
+            "--",
+            file.as_str(),
+        ],
+        &repo_path,
+    )
+    .map(|output| output.lines().any(|line| line.trim() == file))
+    .unwrap_or(false);
+    let stash_base = if has_untracked_parent_file {
+        EMPTY_TREE_SHA.to_string()
+    } else {
+        format!("{stash_id}^1")
+    };
+    let stash_target = if has_untracked_parent_file {
+        untracked_parent
+    } else {
+        stash_id.clone()
+    };
     let diff = run_git(
         &[
             "diff",
             stash_base.as_str(),
-            stash_id.as_str(),
+            stash_target.as_str(),
             "--",
             file.as_str(),
         ],
@@ -6504,6 +6697,7 @@ pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
             &[
                 "stash",
                 "show",
+                "--include-untracked",
                 "--name-only",
                 "--format=",
                 stash.id.as_str(),
@@ -6689,6 +6883,88 @@ pub fn get_pull_status(
     branch_name: Option<String>,
 ) -> Result<PullStatusResponse, String> {
     get_pull_status_for_branch(&repo_path, branch_name.as_deref())
+}
+
+#[tauri::command]
+pub fn get_controller_snapshot(
+    repo_path: String,
+    ref_name: Option<String>,
+    compare_refs: Option<Vec<String>>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    include_commits: Option<bool>,
+) -> Result<ControllerSnapshotResponse, String> {
+    ensure_repo_path(&repo_path)?;
+
+    let requested_ref = ref_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "HEAD".to_string());
+    let has_explicit_compare_refs = compare_refs.is_some();
+    let requested_compare_refs = compare_refs
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<String>>();
+    let compare_refs_mode = if has_explicit_compare_refs {
+        "explicit"
+    } else {
+        "auto"
+    };
+    let bounded_offset = offset.unwrap_or(0);
+    let bounded_limit = limit.unwrap_or(50).clamp(1, 100);
+    let should_include_commits = include_commits.unwrap_or(true);
+    let fingerprint = get_fingerprint(repo_path.clone())?.fingerprint;
+    let cache_key = build_controller_snapshot_cache_key(
+        &repo_path,
+        &fingerprint,
+        &requested_ref,
+        compare_refs_mode,
+        &requested_compare_refs,
+        bounded_offset,
+        bounded_limit,
+        should_include_commits,
+    );
+
+    if let Some(cached) = get_cached_controller_snapshot(&cache_key)? {
+        return Ok(cached);
+    }
+
+    let branches = get_branches(repo_path.clone())?;
+    let working_tree_status = get_working_tree_status(repo_path.clone())?;
+    let stashes = get_stashes(repo_path.clone())?.stashes;
+    let pull_status = get_pull_status(repo_path.clone(), None)?;
+    let log_ref = resolve_controller_snapshot_log_ref(&requested_ref, &branches);
+    let compare_refs = if compare_refs_mode == "explicit" {
+        normalize_explicit_controller_snapshot_compare_refs(&log_ref, &requested_compare_refs)
+    } else {
+        build_automatic_controller_snapshot_compare_refs(&log_ref, &branches)
+    };
+    let commits = if should_include_commits {
+        Some(get_commits(
+            repo_path.clone(),
+            Some(log_ref.clone()),
+            Some(compare_refs.clone()),
+            bounded_offset,
+            bounded_limit,
+        )?)
+    } else {
+        None
+    };
+    let snapshot = ControllerSnapshotResponse {
+        fingerprint,
+        branches,
+        log_ref,
+        compare_refs,
+        commits,
+        working_tree_status,
+        stashes,
+        pull_status,
+    };
+
+    store_controller_snapshot(cache_key, snapshot.clone())?;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -7006,11 +7282,8 @@ pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String>
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => "HEAD".to_string(),
         Err(error) => return Err(map_git2_error(error)),
     };
-
-    let mut options = build_status_options(false);
-    let statuses = repository
-        .statuses(Some(&mut options))
-        .map_err(map_git2_error)?;
+    let status = run_git(&["status", "--porcelain=v1", "-uall"], &repo_path)?;
+    let stash_list = run_git(&["stash", "list", "--format=%gd%x1f%H%x1f%gs"], &repo_path)?;
 
     let mut snapshot = String::new();
     snapshot.push_str(&head);
@@ -7031,14 +7304,13 @@ pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String>
         }
     }
 
-    for entry in statuses.iter() {
+    if !status.is_empty() {
         snapshot.push('\n');
-        snapshot.push(git_status_index_code(entry.status()));
-        snapshot.push(git_status_worktree_code(entry.status()));
-        snapshot.push(' ');
-        if let Some(path) = status_entry_path(&entry) {
-            snapshot.push_str(&path);
-        }
+        snapshot.push_str(&status);
+    }
+    if !stash_list.is_empty() {
+        snapshot.push('\n');
+        snapshot.push_str(&stash_list);
     }
 
     Ok(FingerprintResponse {
@@ -7072,6 +7344,7 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: input.commit_graph_mode.unwrap_or(current.commit_graph_mode),
+        commit_graph_style: input.commit_graph_style.unwrap_or(current.commit_graph_style),
         repository_scan_depth: normalize_repository_scan_depth(
             input
                 .repository_scan_depth
@@ -7112,6 +7385,7 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: current.commit_graph_mode,
+        commit_graph_style: current.commit_graph_style,
         repository_scan_depth: current.repository_scan_depth,
         repository_assistant_policies: current.repository_assistant_policies,
         recently_used: current.recently_used,
@@ -7753,6 +8027,7 @@ mod tests {
             "selectedAiProvider": "claudeCode",
             "commitTitlePrompt": "Write a short Japanese commit message.",
             "commitGraphMode": "simple",
+            "commitGraphStyle": "japaneseExpress",
             "repositoryScanDepth": 6
         }));
 
@@ -7770,6 +8045,7 @@ mod tests {
             "Write a short Japanese commit message."
         );
         assert_eq!(config.commit_graph_mode, CommitGraphMode::Simple);
+        assert_eq!(config.commit_graph_style, CommitGraphStyle::JapaneseExpress);
         assert_eq!(config.repository_scan_depth, 6);
     }
 
@@ -8411,6 +8687,28 @@ mod tests {
     }
 
     #[test]
+    fn get_fingerprint_changes_when_untracked_directory_contents_change() {
+        let fixture = create_working_tree_diff_fixture();
+        let scratch_dir = Path::new(&fixture.repo_path).join("scratch");
+        fs::create_dir(&scratch_dir).expect("scratch dir should be created");
+        fs::write(scratch_dir.join("a.txt"), "alpha\n")
+            .expect("first untracked file should be written");
+
+        let first = get_fingerprint(fixture.repo_path.clone())
+            .expect("first fingerprint should be returned")
+            .fingerprint;
+
+        fs::write(scratch_dir.join("b.txt"), "beta\n")
+            .expect("second untracked file should be written");
+
+        let second = get_fingerprint(fixture.repo_path.clone())
+            .expect("second fingerprint should be returned")
+            .fingerprint;
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
     fn get_stash_diff_detail_returns_selected_stash_diff() {
         let fixture = create_stash_fixture();
 
@@ -8443,6 +8741,116 @@ mod tests {
         assert!(detail.diff.contains("diff --git a/beta.txt b/beta.txt"));
         assert!(detail.diff.contains("+beta updated"));
         assert!(!detail.is_diff_truncated);
+    }
+
+    #[test]
+    fn stash_file_stashes_untracked_file_for_unstaged_drag_drop() {
+        let fixture = create_stash_fixture();
+        let draft_path = Path::new(&fixture.repo_path).join("draft.txt");
+        fs::write(&draft_path, "draft\n").expect("draft should be written");
+
+        stash_file(fixture.repo_path.clone(), "draft.txt".to_string())
+            .expect("untracked stash should succeed");
+
+        let status = get_working_tree_status(fixture.repo_path.clone())
+            .expect("working tree status should be returned");
+        assert!(status.unstaged.is_empty());
+
+        let stashes = get_stashes(fixture.repo_path.clone()).expect("stashes should be returned");
+        assert_eq!(stashes.stashes[0].files, vec!["draft.txt".to_string()]);
+
+        let detail = get_stash_diff_detail(fixture.repo_path.clone(), "stash@{0}".to_string())
+            .expect("stash diff detail should be returned");
+        let detail_files: Vec<String> = detail.files.iter().map(|file| file.file.clone()).collect();
+        assert_eq!(detail_files, vec!["draft.txt".to_string()]);
+
+        let file_detail = get_stash_diff_file_detail(
+            fixture.repo_path.clone(),
+            "stash@{0}".to_string(),
+            "draft.txt".to_string(),
+        )
+        .expect("stash file diff detail should be returned");
+        assert!(file_detail.diff.contains("new file mode"));
+    }
+
+    #[test]
+    fn stash_all_changes_stashes_staged_unstaged_and_untracked_files() {
+        let fixture = create_working_tree_diff_fixture();
+        run_command("git", &["add", "README.md"], &fixture.repo_path)
+            .expect("README should be staged");
+        fs::write(Path::new(&fixture.repo_path).join("notes.txt"), "note base\n")
+            .expect("notes base should be written");
+        run_command("git", &["add", "notes.txt"], &fixture.repo_path)
+            .expect("notes should be staged");
+        run_command("git", &["commit", "-m", "add notes"], &fixture.repo_path)
+            .expect("notes commit should succeed");
+
+        fs::write(
+            Path::new(&fixture.repo_path).join("README.md"),
+            "line 1\nline staged\nline 3\n",
+        )
+        .expect("staged README change should be written");
+        run_command("git", &["add", "README.md"], &fixture.repo_path)
+            .expect("README should be re-staged");
+        fs::write(Path::new(&fixture.repo_path).join("notes.txt"), "note updated\n")
+            .expect("unstaged notes change should be written");
+        fs::write(Path::new(&fixture.repo_path).join("draft.txt"), "draft\n")
+            .expect("untracked draft should be written");
+
+        stash_all_changes(fixture.repo_path.clone()).expect("stash-all should succeed");
+
+        let status = get_working_tree_status(fixture.repo_path.clone())
+            .expect("working tree status should be returned");
+        assert!(status.conflicted.is_empty());
+        assert!(status.staged.is_empty());
+        assert!(status.unstaged.is_empty());
+
+        let stashes = get_stashes(fixture.repo_path.clone()).expect("stashes should be returned");
+        assert_eq!(stashes.stashes.len(), 1);
+        let mut files = stashes.stashes[0].files.clone();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                "README.md".to_string(),
+                "draft.txt".to_string(),
+                "notes.txt".to_string()
+            ]
+        );
+
+        let detail = get_stash_diff_detail(fixture.repo_path.clone(), "stash@{0}".to_string())
+            .expect("stash diff detail should be returned");
+        let mut detail_files: Vec<String> =
+            detail.files.iter().map(|file| file.file.clone()).collect();
+        detail_files.sort();
+        assert_eq!(
+            detail_files,
+            vec![
+                "README.md".to_string(),
+                "draft.txt".to_string(),
+                "notes.txt".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn get_fingerprint_changes_when_stash_stack_changes() {
+        let fixture = create_stash_fixture();
+        let before = get_fingerprint(fixture.repo_path.clone())
+            .expect("fingerprint should be returned")
+            .fingerprint;
+
+        rename_stash(
+            fixture.repo_path.clone(),
+            "stash@{1}".to_string(),
+            "Renamed first stash".to_string(),
+        )
+        .expect("stash rename should succeed");
+
+        let after = get_fingerprint(fixture.repo_path.clone())
+            .expect("fingerprint should be returned")
+            .fingerprint;
+        assert_ne!(before, after);
     }
 
     #[test]
@@ -8955,6 +9363,27 @@ mod tests {
         assert_eq!(status.behind_count, 1);
         assert!(status.can_pull);
         assert_eq!(status.state, "behind");
+    }
+
+    #[test]
+    fn get_branches_omits_remote_head_alias_refs() {
+        let (fixture, _collaborator_path) = create_pull_fixture();
+
+        let branches = get_branches(fixture.repo_path.clone()).expect("branches should resolve");
+
+        assert!(
+            branches
+                .remote
+                .iter()
+                .any(|branch| branch.name == "origin/main")
+        );
+        assert!(
+            branches
+                .remote
+                .iter()
+                .all(|branch| !branch.full_ref.ends_with("/HEAD"))
+        );
+        assert!(branches.remote.iter().all(|branch| branch.name != "origin"));
     }
 
     #[test]

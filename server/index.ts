@@ -6,6 +6,7 @@ import branchRoutes from "./routes/branches.js";
 import commitRoutes from "./routes/commits.js";
 import configRoutes from "./routes/config.js";
 import conflictRoutes from "./routes/conflicts.js";
+import controllerRoutes from "./routes/controller.js";
 import pullRequestRoutes from "./routes/pullRequests.js";
 import repositoryRoutes from "./routes/repositories.js";
 import stashRoutes from "./routes/stash.js";
@@ -18,6 +19,7 @@ app.use(cors());
 app.use(express.json({ limit: "4mb" }));
 
 app.use(repositoryRoutes);
+app.use(controllerRoutes);
 app.use(branchRoutes);
 app.use(commitRoutes);
 app.use(conflictRoutes);

@@ -1,4 +1,4 @@
-import { Bot, Cog, ExternalLink, FolderGit2, Plus, Search, X } from "lucide-react";
+import { Bot, Cog, ExternalLink, FolderGit2, Moon, Plus, Search, Sun, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { getRepositoryAssistantActionSpec } from "../shared/repositoryAssistant.js";
@@ -26,6 +26,11 @@ import {
 } from "./lib/appTabs";
 import { api } from "./lib/api";
 import {
+  DEFAULT_APP_TOOLBAR_ITEM_ORDER,
+  getVisibleAppToolbarItemOrder,
+  type AppToolbarItemId,
+} from "./lib/appToolbarOrder";
+import {
   APP_THEME_OPTIONS,
   getAppThemeLabel,
   getAppThemeMode,
@@ -34,12 +39,17 @@ import {
   type AppThemeId,
 } from "./lib/appTheme";
 import {
+  shouldCollapseAppThemePickerOnSelect,
+  type AppThemePickerInteraction,
+} from "./lib/appThemePicker";
+import {
   APP_SESSION_STORAGE_KEY,
   APP_THEME_STORAGE_KEY,
   getInitialLaunchState,
   getInitialPersistedAppSession,
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
+import { requestOpenCommandPalette } from "./lib/commandPalette";
 import { isConfigShortcut } from "./lib/configShortcut";
 import {
   createRepositoryAssistantMessage,
@@ -118,6 +128,10 @@ function createRepositoryAssistantConversationStateFromPersisted(
   };
 }
 
+function getThemeToolbarLabel(label: string): string {
+  return label.replace(/^[^\p{L}\p{N}]+\s+/u, "");
+}
+
 function createInitialRepositoryAssistantConversations(
   session: PersistedAppSession,
 ): Record<string, RepositoryAssistantConversationState> {
@@ -178,7 +192,6 @@ export default function App(): JSX.Element {
     useState<HTMLDivElement | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
-  const [commandPaletteOpenRequestId, setCommandPaletteOpenRequestId] = useState(0);
   const [isRepositoryAssistantOpen, setRepositoryAssistantOpen] = useState(
     initialPersistedAppSession.isRepositoryAssistantOpen,
   );
@@ -200,6 +213,10 @@ export default function App(): JSX.Element {
   const [assistantConflictOpenRequests, setAssistantConflictOpenRequests] = useState<
     Record<string, AssistantConflictOpenRequest>
   >({});
+  const lastThemePickerInteractionRef = useRef<AppThemePickerInteraction>(null);
+  const [isThemePickerHoverSuppressed, setThemePickerHoverSuppressed] = useState(false);
+  const [isThemePickerFocusDisclosureSuppressed, setThemePickerFocusDisclosureSuppressed] =
+    useState(false);
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -218,6 +235,26 @@ export default function App(): JSX.Element {
   );
   const configReturnTabId = configEscapeTabId ?? DASHBOARD_TAB_ID;
   const activeThemeLabel = getAppThemeLabel(appTheme);
+  const activeThemeToolbarLabel = getThemeToolbarLabel(activeThemeLabel);
+  const ActiveThemeIcon = getAppThemeMode(appTheme) === "light" ? Sun : Moon;
+  const visibleToolbarItemIds = useMemo(() => {
+    const visibleIds = new Set<AppToolbarItemId>([
+      "commandPalette",
+      "assistant",
+      "theme",
+      "config",
+    ]);
+
+    if (githubButtonUrl) {
+      visibleIds.add("github");
+    }
+
+    if (activeRepository) {
+      visibleIds.add("layout");
+    }
+
+    return getVisibleAppToolbarItemOrder(DEFAULT_APP_TOOLBAR_ITEM_ORDER, visibleIds);
+  }, [activeRepository, githubButtonUrl]);
   const isTauriDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const activeRepositoryAssistantConversation = useMemo(
     () =>
@@ -652,7 +689,7 @@ export default function App(): JSX.Element {
       return;
     }
 
-    setCommandPaletteOpenRequestId((current) => current + 1);
+    requestOpenCommandPalette();
   };
 
   const handleOpenConfig = useCallback((): void => {
@@ -660,7 +697,31 @@ export default function App(): JSX.Element {
   }, []);
 
   const handleSelectAppTheme = useCallback((themeId: AppThemeId): void => {
+    const shouldCollapseThemePicker = shouldCollapseAppThemePickerOnSelect(
+      lastThemePickerInteractionRef.current,
+    );
     setAppTheme(normalizeAppTheme(themeId));
+    setThemePickerHoverSuppressed(shouldCollapseThemePicker);
+    setThemePickerFocusDisclosureSuppressed(shouldCollapseThemePicker);
+    lastThemePickerInteractionRef.current = null;
+  }, []);
+  const handleThemePickerPointerDown = useCallback((): void => {
+    setThemePickerHoverSuppressed(false);
+    setThemePickerFocusDisclosureSuppressed(false);
+    lastThemePickerInteractionRef.current = "pointer";
+  }, []);
+  const handleThemePickerKeyDown = useCallback((): void => {
+    setThemePickerHoverSuppressed(false);
+    setThemePickerFocusDisclosureSuppressed(false);
+    lastThemePickerInteractionRef.current = "keyboard";
+  }, []);
+  const handleThemePickerBlur = useCallback((): void => {
+    setThemePickerHoverSuppressed(false);
+    setThemePickerFocusDisclosureSuppressed(false);
+    lastThemePickerInteractionRef.current = null;
+  }, []);
+  const handleThemePickerPointerLeave = useCallback((): void => {
+    setThemePickerHoverSuppressed(false);
   }, []);
 
   const handleAssistantDraftChange = (value: string): void => {
@@ -1018,6 +1079,112 @@ export default function App(): JSX.Element {
     },
     [activeRepository, activeRepositoryAssistantConversation],
   );
+  const renderToolbarItem = (itemId: AppToolbarItemId): JSX.Element | null => {
+    switch (itemId) {
+      case "commandPalette":
+        return (
+          <button
+            type="button"
+            className="app-toolbar-button app-toolbar-button--disclosure"
+            aria-label="Palette"
+            title="Palette (Cmd/Ctrl + P)"
+            disabled={!activeRepository}
+            onClick={handleOpenCommandPalette}
+          >
+            <Search size={16} />
+            <span className="app-toolbar-button__label">Palette</span>
+            <span className="app-toolbar-button__shortcut">Cmd + P</span>
+          </button>
+        );
+
+      case "assistant":
+        return (
+          <button
+            type="button"
+            className={`app-toolbar-button app-toolbar-button--disclosure ${
+              isRepositoryAssistantOpen ? "is-active" : ""
+            }`}
+            aria-label="Assistant"
+            title="Assistant (Cmd/Ctrl + I)"
+            disabled={!activeRepository}
+            onClick={() => setRepositoryAssistantOpen((current) => !current)}
+          >
+            <Bot size={16} />
+            <span className="app-toolbar-button__label">Assistant</span>
+            <span className="app-toolbar-button__shortcut">Cmd + I</span>
+          </button>
+        );
+
+      case "theme":
+        return (
+          <label
+            className={`app-theme-picker app-tab--utility ${
+              isThemePickerHoverSuppressed ? "is-hover-suppressed" : ""
+            } ${isThemePickerFocusDisclosureSuppressed ? "is-focus-disclosure-suppressed" : ""}`}
+            title={`Theme: ${activeThemeToolbarLabel}`}
+            onPointerLeave={handleThemePickerPointerLeave}
+          >
+            <span className="app-theme-picker__chrome" aria-hidden="true">
+              <ActiveThemeIcon size={16} className="app-theme-picker__icon" />
+              <span className="app-theme-picker__label app-toolbar-disclosure__label">
+                {activeThemeToolbarLabel}
+              </span>
+            </span>
+            <select
+              className="app-theme-picker__select"
+              aria-label="Application theme"
+              value={appTheme}
+              onPointerDown={handleThemePickerPointerDown}
+              onKeyDown={handleThemePickerKeyDown}
+              onBlur={handleThemePickerBlur}
+              onChange={(event) => handleSelectAppTheme(normalizeAppTheme(event.target.value))}
+            >
+              {APP_THEME_OPTIONS.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {theme.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+
+      case "github":
+        return githubButtonUrl ? (
+          <button
+            type="button"
+            className="app-tab app-tab--utility app-tab--icon"
+            aria-label={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
+            title={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
+            onClick={() => {
+              void handleOpenGithubRepository();
+            }}
+          >
+            <ExternalLink size={18} />
+          </button>
+        ) : null;
+
+      case "layout":
+        return activeRepository ? (
+          <div
+            ref={setControllerLayoutPickerPortalContainer}
+            className="app-controller-layout-slot"
+          />
+        ) : null;
+
+      case "config":
+        return (
+          <button
+            type="button"
+            className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? "is-active" : ""}`}
+            aria-label="Config"
+            title="Config (Cmd/Ctrl + ,)"
+            onClick={handleOpenConfig}
+          >
+            <Cog size={18} />
+          </button>
+        );
+    }
+  };
 
   return (
     <main className="app-shell">
@@ -1081,78 +1248,18 @@ export default function App(): JSX.Element {
           </div>
 
           <div className="app-tabbar__actions">
-            <button
-              type="button"
-              className="app-toolbar-button"
-              aria-label="Command Palette"
-              title="Command Palette (Cmd/Ctrl + P)"
-              disabled={!activeRepository}
-              onClick={handleOpenCommandPalette}
-            >
-              <Search size={16} />
-              <span className="app-toolbar-button__label">Palette</span>
-              <span className="app-toolbar-button__shortcut">Cmd + P</span>
-            </button>
-            <button
-              type="button"
-              className={`app-toolbar-button ${isRepositoryAssistantOpen ? "is-active" : ""}`}
-              aria-label="AI sidebar"
-              title="AI sidebar (Cmd/Ctrl + I)"
-              disabled={!activeRepository}
-              onClick={() => setRepositoryAssistantOpen((current) => !current)}
-            >
-              <Bot size={16} />
-              <span className="app-toolbar-button__label">Assistant</span>
-              <span className="app-toolbar-button__shortcut">Cmd + I</span>
-            </button>
-            <label
-              className="app-theme-picker app-tab--utility"
-              title={`Theme: ${activeThemeLabel}`}
-            >
-              <select
-                className="app-theme-picker__select"
-                aria-label="Application theme"
-                value={appTheme}
-                onChange={(event) => handleSelectAppTheme(normalizeAppTheme(event.target.value))}
-              >
-                {APP_THEME_OPTIONS.map((theme) => (
-                  <option key={theme.id} value={theme.id}>
-                    {theme.label}
-                  </option>
-                ))}
-              </select>
-              <span className="app-theme-picker__chevron" aria-hidden="true">
-                ▾
-              </span>
-            </label>
-            {githubButtonUrl ? (
-              <button
-                type="button"
-                className="app-tab app-tab--utility app-tab--icon"
-                aria-label={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
-                title={`${githubButtonRepository?.name ?? "Repository"} を GitHub で開く`}
-                onClick={() => {
-                  void handleOpenGithubRepository();
-                }}
-              >
-                <ExternalLink size={18} />
-              </button>
-            ) : null}
-            {activeRepository ? (
-              <div
-                ref={setControllerLayoutPickerPortalContainer}
-                className="app-controller-layout-slot"
-              />
-            ) : null}
-            <button
-              type="button"
-              className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? "is-active" : ""}`}
-              aria-label="Config"
-              title="Config (Cmd/Ctrl + ,)"
-              onClick={handleOpenConfig}
-            >
-              <Cog size={18} />
-            </button>
+            {visibleToolbarItemIds.map((itemId) => {
+              const item = renderToolbarItem(itemId);
+              if (!item) {
+                return null;
+              }
+
+              return (
+                <div key={itemId} className="app-toolbar-item">
+                  {item}
+                </div>
+              );
+            })}
           </div>
         </div>
       </header>
@@ -1195,7 +1302,6 @@ export default function App(): JSX.Element {
                   onCurrentBranchChange={handleRepositoryBranchChange}
                   active={isActive}
                   repositoryGithubUrl={isActive ? githubButtonUrl : null}
-                  commandPaletteOpenRequestId={commandPaletteOpenRequestId}
                   assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
                   assistantConflictOpenRequest={
                     assistantConflictOpenRequests[repository.path] ?? null

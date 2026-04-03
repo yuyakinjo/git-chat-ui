@@ -17,11 +17,12 @@ describe("StashDeleteDialog", () => {
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain("Delete Stash");
-    expect(html).toContain("stash@{0}");
     expect(html).toContain("WIP on develop");
-    expect(html).toContain("この操作は取り消せません");
+    expect(html).toContain("Target Stash");
     expect(html).toContain("Delete Stash");
     expect(html).toContain('title="Close"');
     expect(html).not.toContain(">Close<");
+    expect(html).not.toContain("stash@{0}</div>");
+    expect(html).not.toContain("この操作は取り消せません");
   });
 });

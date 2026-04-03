@@ -1,4 +1,4 @@
-import { Archive, Pencil, X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
 
 interface StashRenameDialogProps {
@@ -47,10 +47,6 @@ export function StashRenameDialog({
         <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4 sm:gap-4">
           <div className="min-w-0">
             <div className="section-title">Rename Stash</div>
-            <div className="break-all text-base font-semibold text-ink">{stashId}</div>
-            <div className="mt-1 text-sm leading-6 text-ink-subtle">
-              stash の message だけを更新します。stash の順序や差分内容は変更しません。
-            </div>
           </div>
 
           <button
@@ -76,15 +72,7 @@ export function StashRenameDialog({
             onRename(normalizedMessage);
           }}
         >
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 sm:space-y-4">
-            <div className="rounded-2xl border border-black/10 bg-white/70 p-3 text-sm text-ink-soft sm:p-4">
-              <div className="flex items-center gap-2 font-semibold text-ink">
-                <Archive size={15} />
-                <span>Target Stash</span>
-              </div>
-              <div className="mt-2 break-all text-base font-semibold text-ink">{stashId}</div>
-            </div>
-
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div>
               <label htmlFor="stash-rename-message" className="text-sm font-semibold text-ink">
                 Stash Message
@@ -98,13 +86,6 @@ export function StashRenameDialog({
                 autoFocus
                 disabled={busy}
               />
-              <div className="mt-1.5 text-xs leading-5 text-ink-subtle sm:mt-2">
-                識別子{" "}
-                <span className="font-mono">
-                  stash@{"{"}n{"}"}
-                </span>{" "}
-                は変わらず、一覧表示される message だけ更新します。
-              </div>
             </div>
           </div>
 
@@ -119,7 +100,7 @@ export function StashRenameDialog({
             </button>
             <button
               type="submit"
-              className="button button-primary"
+              className="button button-primary inline-flex items-center gap-2"
               disabled={busy || !normalizedMessage}
             >
               <Pencil size={14} />

@@ -13,6 +13,7 @@ export interface LaneRow {
   incomingLaneIndices: number[];
   outgoingLaneIndices: number[];
   primaryParentLaneIndex: number | null;
+  primaryParentRowIndex: number | null;
   mergeTargetLaneIndices: number[];
 }
 
@@ -21,13 +22,19 @@ export interface LaneLayout {
   maxLanes: number;
 }
 
+const CLOSED_LANE_TOKEN = "__closed_lane__";
+
 function normalizeSha(sha: string | null | undefined): string {
   return sha?.trim() ?? "";
 }
 
+function isClosedLaneToken(value: string | null): boolean {
+  return value === CLOSED_LANE_TOKEN;
+}
+
 function collectActiveLaneIndices(activeLanes: Array<string | null>): number[] {
   return activeLanes.reduce<number[]>((accumulator, sha, index) => {
-    if (sha) {
+    if (sha && !isClosedLaneToken(sha)) {
       accumulator.push(index);
     }
     return accumulator;
@@ -39,6 +46,9 @@ export function buildLaneRows(
   options: LaneLayoutOptions = {},
 ): LaneLayout {
   const reservedHeadSha = normalizeSha(options.reservedHeadSha);
+  const rowIndexBySha = new Map(
+    commits.map((commit, index) => [normalizeSha(commit.sha), index] satisfies [string, number]),
+  );
   const reservedHeadRowIndex = reservedHeadSha
     ? commits.findIndex((commit) => normalizeSha(commit.sha) === reservedHeadSha)
     : -1;
@@ -47,12 +57,13 @@ export function buildLaneRows(
   const rows: LaneRow[] = [];
   let maxLanes = 1;
 
-  for (const commit of commits) {
+  for (const [rowIndex, commit] of commits.entries()) {
     const incomingLaneIndices = collectActiveLaneIndices(activeLanes);
     const commitSha = normalizeSha(commit.sha);
     const parentShas = commit.parentShas.map((sha) => normalizeSha(sha)).filter(Boolean);
     let laneIndex = activeLanes.findIndex((sha) => sha === commitSha);
     let primaryParentLaneIndex: number | null = null;
+    let primaryParentRowIndex: number | null = null;
 
     if (laneIndex === -1) {
       laneIndex = activeLanes.findIndex((sha) => sha === null);
@@ -78,9 +89,15 @@ export function buildLaneRows(
       );
       if (!isReservedLaneCommit && existingPrimaryParentLaneIndex !== -1) {
         primaryParentLaneIndex = existingPrimaryParentLaneIndex;
+        const matchingPrimaryParentRowIndex = rowIndexBySha.get(primaryParent) ?? null;
+        primaryParentRowIndex =
+          matchingPrimaryParentRowIndex !== null && matchingPrimaryParentRowIndex > rowIndex
+            ? matchingPrimaryParentRowIndex
+            : null;
+        activeLanes[laneIndex] = CLOSED_LANE_TOKEN;
+      } else {
+        activeLanes[laneIndex] = parentShas[0];
       }
-
-      activeLanes[laneIndex] = parentShas[0];
 
       for (let index = 1; index < parentShas.length; index += 1) {
         const targetLaneIndex = laneIndex + index;
@@ -108,6 +125,7 @@ export function buildLaneRows(
       incomingLaneIndices,
       outgoingLaneIndices: after,
       primaryParentLaneIndex,
+      primaryParentRowIndex,
       mergeTargetLaneIndices,
     });
   }

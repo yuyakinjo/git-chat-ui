@@ -114,4 +114,50 @@ describe("createConfigRouter", () => {
       repositoryAssistantReasoningEffort: "high",
     });
   });
+
+  test("persists commit graph style updates alongside the rest of the config", async () => {
+    let persisted = {
+      ...DEFAULT_APP_CONFIG,
+      commitGraphStyle: "standard" as const,
+    };
+    const readConfig = mock(async () => persisted);
+    const writeConfig = mock(async (nextConfig) => {
+      persisted = nextConfig;
+    });
+
+    await expect(
+      invokeJsonRoute(
+        createConfigRouter({
+          aiService: {
+            validateOpenAiToken: mock(async () => true),
+            validateClaudeCodeToken: mock(async () => false),
+            listOpenAiModels: mock(async () => []),
+          },
+          readConfig,
+          writeConfig,
+        }),
+        "put",
+        "/api/config",
+        {
+          body: {
+            commitGraphStyle: "japaneseExpress",
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        config: {
+          ...DEFAULT_APP_CONFIG,
+          commitGraphStyle: "japaneseExpress",
+        },
+      },
+    });
+
+    expect(writeConfig).toHaveBeenCalledWith({
+      ...DEFAULT_APP_CONFIG,
+      commitGraphStyle: "japaneseExpress",
+    });
+  });
 });

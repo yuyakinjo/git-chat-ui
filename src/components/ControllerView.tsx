@@ -1,5 +1,5 @@
 import {
-  AlertTriangle,
+  Archive,
   Cog,
   Copy,
   Download,
@@ -8,10 +8,10 @@ import {
   GitCommitHorizontal,
   GripVertical,
   Moon,
+  PanelsTopLeft,
   Plus,
   Sun,
   UploadCloud,
-  X,
 } from "lucide-react";
 import {
   startTransition,
@@ -31,12 +31,11 @@ import { buildAppCommandPaletteActionSpecs } from "../lib/appCommandPalette";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import {
-  isCommandPaletteShortcut,
   parseRecentCommandPaletteItemIds,
   sortCommandPaletteItemsByRecency,
   updateRecentCommandPaletteItemIds,
 } from "../lib/commandPalette";
-import { describeGitError, type UiError } from "../lib/errors";
+import { describeGitError, formatUiErrorForClipboard, type UiError } from "../lib/errors";
 import { shortSha } from "../lib/format";
 import { getPullCommandDisabledReason } from "../lib/pullCommand";
 import {
@@ -59,6 +58,7 @@ import {
   getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
 } from "../lib/repositoryMutationSafety";
+import { stashFilesAsSingleEntry } from "../lib/stashFiles";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
 import {
   getWorkingTreeDiscardConfirmMessage,
@@ -69,11 +69,13 @@ import { BranchCreateDialog } from "./BranchCreateDialog";
 import { BranchDeleteDialog } from "./BranchDeleteDialog";
 import { BranchDiffOverlay } from "./BranchDiffOverlay";
 import { BranchTree } from "./BranchTree";
-import { CommandPalette, type CommandPaletteCommand } from "./CommandPalette";
+import { type CommandPaletteCommand } from "./CommandPalette";
 import { CommitDetailPanel } from "./CommitDetailPanel";
 import { CommitDiffOverlay } from "./CommitDiffOverlay";
 import { CommitGraph } from "./CommitGraph";
 import { ConflictOverlay } from "./ConflictOverlay";
+import { ControllerCommandPaletteHost } from "./ControllerCommandPaletteHost";
+import { ControllerInlineErrorAlert } from "./ControllerInlineErrorAlert";
 import { GitOperationPanel } from "./GitOperationPanel";
 import { StashDiffOverlay } from "./StashDiffOverlay";
 import { StashDeleteDialog } from "./StashDeleteDialog";
@@ -102,7 +104,6 @@ interface ControllerViewProps {
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
   active?: boolean;
   repositoryGithubUrl?: string | null;
-  commandPaletteOpenRequestId?: number;
   assistantRefreshRequestId?: number;
   assistantConflictOpenRequest?: AssistantConflictOpenRequest | null;
 }
@@ -189,7 +190,6 @@ export function ControllerView({
   onCurrentBranchChange,
   active = false,
   repositoryGithubUrl = null,
-  commandPaletteOpenRequestId = 0,
   assistantRefreshRequestId = 0,
   assistantConflictOpenRequest = null,
 }: ControllerViewProps): JSX.Element {
@@ -200,7 +200,6 @@ export function ControllerView({
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
   const [pendingCommitMessageGenerationResult, setPendingCommitMessageGenerationResult] =
     useState<CommitMessageGenerationState>({ status: "idle" });
-  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [branchPullStatuses, setBranchPullStatuses] = useState<Record<string, PullStatus | null>>(
     {},
   );
@@ -219,7 +218,6 @@ export function ControllerView({
   );
   const [controllerActivityTone, setControllerActivityTone] =
     useState<ControllerActivityTone>("idle");
-  const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
   const lastHandledAssistantConflictOpenRequestIdRef = useRef(
     assistantConflictOpenRequest?.requestId ?? 0,
   );
@@ -401,10 +399,6 @@ export function ControllerView({
 
   const checkedOutBranchName = data.currentLocalBranch?.name ?? null;
 
-  const handleCloseCommandPalette = useCallback((): void => {
-    setCommandPaletteOpen(false);
-  }, []);
-
   const handleJumpToCommit = useCallback(
     async (sha: string): Promise<boolean> => {
       const normalizedSha = sha.trim();
@@ -468,6 +462,19 @@ export function ControllerView({
       reportError(error, "ブランチ名をコピーできませんでした。");
     }
   }, [checkedOutBranchName, onNotify, reportError]);
+
+  const copyInlineError = useCallback(async (): Promise<void> => {
+    if (!data.inlineError) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(formatUiErrorForClipboard(data.inlineError));
+      onNotify("エラー内容をコピーしました。");
+    } catch (error) {
+      reportError(error, "エラー内容をコピーできませんでした。");
+    }
+  }, [data.inlineError, onNotify, reportError]);
 
   const pushCurrentBranch = useCallback((): void => {
     if (!data.currentLocalBranch) {
@@ -847,31 +854,8 @@ export function ControllerView({
       return;
     }
 
-    setCommandPaletteOpen(false);
     setLayoutPickerOpen(false);
   }, [active]);
-
-  useEffect(() => {
-    if (!isCommandPaletteOpen) {
-      return;
-    }
-
-    setLayoutPickerOpen(false);
-  }, [isCommandPaletteOpen]);
-
-  useEffect(() => {
-    if (!active) {
-      lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
-      return;
-    }
-
-    if (commandPaletteOpenRequestId === lastHandledCommandPaletteOpenRequestIdRef.current) {
-      return;
-    }
-
-    lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
-    setCommandPaletteOpen(true);
-  }, [active, commandPaletteOpenRequestId]);
 
   useEffect(() => {
     if (!active || assistantRefreshRequestId === 0) {
@@ -920,27 +904,6 @@ export function ControllerView({
     openConflictViewer,
     reportConflictViewerError,
   ]);
-
-  useEffect(() => {
-    if (!active || typeof window === "undefined") {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || !isCommandPaletteShortcut(event)) {
-        return;
-      }
-
-      event.preventDefault();
-      setCommandPaletteOpen((current) => !current);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [active]);
 
   useEffect(() => {
     if (!isLayoutPickerOpen || typeof window === "undefined") {
@@ -1089,6 +1052,16 @@ export function ControllerView({
         : null,
     [data.activeCommit, data.commitDetail],
   );
+  const stashableWorkingTreeFileCount =
+    (data.workingStatus?.staged.length ?? 0) + (data.workingStatus?.unstaged.length ?? 0);
+  const hasConflictedFiles = (data.workingStatus?.conflicted.length ?? 0) > 0;
+  const stashAllDisabledReason = data.operationBusy
+    ? "Git 操作の完了を待ってから実行してください。"
+    : hasConflictedFiles
+      ? "競合中のファイルがあるため、全変更を stash できません。"
+      : stashableWorkingTreeFileCount > 0
+        ? null
+        : "staged / unstaged changes があるときだけ使えます。";
   const branchActionMergeDisabledReason =
     branchOps.branchAction?.step === "select-action" &&
     data.selfMutationBlockedReason &&
@@ -1127,6 +1100,7 @@ export function ControllerView({
       commits={data.commits}
       commitAuthorAvatars={data.commitAuthorAvatars}
       mode={data.commitGraphMode}
+      graphStyle={data.commitGraphStyle}
       activeCommitSha={data.activeCommit?.sha ?? null}
       highlightedCommitSha={highlightedCommitSha}
       checkedOutCommitSha={data.checkedOutCommitSha}
@@ -1186,6 +1160,12 @@ export function ControllerView({
     );
   };
 
+  const stashAllWorkingTreeChanges = (): void => {
+    void data.mutateWorkingState(async () => {
+      await api.stashAllChanges(repoPath);
+    });
+  };
+
   const commitActionDisabled =
     data.operationBusy ||
     (data.workingStatus?.staged.length ?? 0) === 0 ||
@@ -1206,80 +1186,54 @@ export function ControllerView({
       onCommitTitleChange={data.setCommitTitle}
       onCommitDescriptionChange={data.setCommitDescription}
       onStageFile={(file) => {
-        void data.mutateAndReload(
-          async () => {
-            await api.stageFile(repoPath, file);
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          await api.stageFile(repoPath, file);
+        });
       }}
       onUnstageFile={(file) => {
-        void data.mutateAndReload(
-          async () => {
-            await api.unstageFile(repoPath, file);
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          await api.unstageFile(repoPath, file);
+        });
       }}
       onStageFiles={(files) => {
-        void data.mutateAndReload(
-          async () => {
-            for (const file of files) {
-              await api.stageFile(repoPath, file);
-            }
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          for (const file of files) {
+            await api.stageFile(repoPath, file);
+          }
+        });
       }}
       onUnstageFiles={(files) => {
-        void data.mutateAndReload(
-          async () => {
-            for (const file of files) {
-              await api.unstageFile(repoPath, file);
-            }
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          for (const file of files) {
+            await api.unstageFile(repoPath, file);
+          }
+        });
       }}
       onStageAll={() => {
-        void data.mutateAndReload(
-          async () => {
-            const files = data.workingStatus?.unstaged.map((item) => item.file) ?? [];
-            for (const file of files) {
-              await api.stageFile(repoPath, file);
-            }
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          const files = data.workingStatus?.unstaged.map((item) => item.file) ?? [];
+          for (const file of files) {
+            await api.stageFile(repoPath, file);
+          }
+        });
       }}
       onUnstageAll={() => {
-        void data.mutateAndReload(
-          async () => {
-            const files = data.workingStatus?.staged.map((item) => item.file) ?? [];
-            for (const file of files) {
-              await api.unstageFile(repoPath, file);
-            }
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          const files = data.workingStatus?.staged.map((item) => item.file) ?? [];
+          for (const file of files) {
+            await api.unstageFile(repoPath, file);
+          }
+        });
       }}
       onStashFile={(file) => {
-        void data.mutateAndReload(
-          async () => {
-            await api.stashFile(repoPath, file);
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          await api.stashFile(repoPath, file);
+        });
       }}
       onStashFiles={(files) => {
-        void data.mutateAndReload(
-          async () => {
-            for (const file of files) {
-              await api.stashFile(repoPath, file);
-            }
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          await stashFilesAsSingleEntry(repoPath, files, api);
+        });
       }}
       onDiscardFileRequest={(item, source) => {
         const target = resolveWorkingTreeDiscardTarget(item, source);
@@ -1291,12 +1245,9 @@ export function ControllerView({
           return;
         }
 
-        void data.mutateAndReload(
-          async () => {
-            await api.discardFile(repoPath, target.file);
-          },
-          { reloadCommits: false },
-        );
+        void data.mutateWorkingState(async () => {
+          await api.discardFile(repoPath, target.file);
+        });
       }}
       onOpenWorkingTreeDiff={(file, area) => {
         void data.loadWorkingTreeDiffDetail(file, area);
@@ -1340,6 +1291,16 @@ export function ControllerView({
       hideFooterCommitAction
       headerAccessory={
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="button button-secondary inline-flex items-center gap-2"
+            disabled={Boolean(stashAllDisabledReason)}
+            title={stashAllDisabledReason ?? "staged / unstaged changes をまとめて stash します。"}
+            onClick={stashAllWorkingTreeChanges}
+          >
+            <Archive size={16} aria-hidden="true" />
+            <span>Stash</span>
+          </button>
           <button
             type="button"
             className="button button-secondary inline-flex items-center gap-2"
@@ -1418,12 +1379,14 @@ export function ControllerView({
         aria-haspopup="menu"
         aria-expanded={isLayoutPickerOpen}
       >
-        <span className="controller-layout-picker__label">Layout</span>
-        <span className="controller-layout-picker__summary">
-          {visiblePanelCount}/{DEFAULT_CONTROLLER_PANEL_ORDER.length}
-        </span>
-        <span className="controller-layout-picker__chevron" aria-hidden="true">
-          ▾
+        <PanelsTopLeft size={16} className="controller-layout-picker__icon" aria-hidden="true" />
+        <span className="controller-layout-picker__content">
+          <span className="controller-layout-picker__label app-toolbar-disclosure__label">
+            Layout
+          </span>
+          <span className="controller-layout-picker__summary">
+            {visiblePanelCount}/{DEFAULT_CONTROLLER_PANEL_ORDER.length}
+          </span>
         </span>
       </summary>
       <div className="controller-layout-picker__menu">
@@ -1464,23 +1427,13 @@ export function ControllerView({
       </div>
 
       {data.inlineError ? (
-        <section className="panel flex items-start justify-between gap-3 border border-red-500/25 bg-red-50/70 px-4 py-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 text-red-700" />
-            <div>
-              <div className="text-sm font-semibold text-red-800">{data.inlineError.title}</div>
-              <div className="text-xs text-red-700">{data.inlineError.detail}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="rounded-md p-1 text-red-700 transition hover:bg-red-100"
-            onClick={() => data.setInlineError(null)}
-            aria-label="close error"
-          >
-            <X size={14} />
-          </button>
-        </section>
+        <ControllerInlineErrorAlert
+          error={data.inlineError}
+          onCopy={() => {
+            void copyInlineError();
+          }}
+          onClose={() => data.setInlineError(null)}
+        />
       ) : null}
 
       {activeConflictSummary?.contextType === "mergeSession" && !data.showConflictViewer ? (
@@ -1671,10 +1624,12 @@ export function ControllerView({
         </div>
       ) : null}
 
-      <CommandPalette
-        open={isCommandPaletteOpen}
+      <ControllerCommandPaletteHost
+        active={active}
         commands={commandPaletteCommands}
-        onClose={handleCloseCommandPalette}
+        onBeforeOpen={() => {
+          setLayoutPickerOpen(false);
+        }}
         onExecuteCommand={handleExecuteCommandPaletteCommand}
       />
 

@@ -42,6 +42,21 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("get_branch_pull_requests", { repoPath });
     },
 
+    getControllerSnapshot(repoPath, options) {
+      const normalizedCompareRefs =
+        options?.compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ??
+        [];
+
+      return invokeCommand("get_controller_snapshot", {
+        repoPath,
+        refName: options?.ref?.trim() ? options.ref.trim() : null,
+        compareRefs: normalizedCompareRefs.length > 0 ? normalizedCompareRefs : null,
+        offset: options?.offset,
+        limit: options?.limit,
+        includeCommits: options?.includeCommits,
+      });
+    },
+
     getCommits(repoPath, ref, offset, limit = 50, compareRefs) {
       const normalizedCompareRefs =
         compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
@@ -134,6 +149,10 @@ export function createTauriBusinessTransport(): BusinessTransport {
 
     stashFile(repoPath, file) {
       return invokeCommand("stash_file", { repoPath, file });
+    },
+
+    stashAllChanges(repoPath) {
+      return invokeCommand("stash_all_changes", { repoPath });
     },
 
     appendFileToStash(repoPath, stashId, file) {

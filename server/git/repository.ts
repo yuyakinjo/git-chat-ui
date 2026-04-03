@@ -160,10 +160,11 @@ export async function getRepositoryGithubUrl(repoPath: string): Promise<string |
 export async function getRepositoryFingerprint(repoPath: string): Promise<string> {
   await ensureRepoPath(repoPath);
 
-  const [head, currentBranch, status] = await Promise.all([
+  const [head, currentBranch, status, stashList] = await Promise.all([
     runGit(["rev-parse", "HEAD"], repoPath),
     getCurrentBranch(repoPath),
-    runGit(["status", "--porcelain=v1"], repoPath),
+    runGit(["status", "--porcelain=v1", "-uall"], repoPath),
+    runGit(["stash", "list", "--format=%gd%x1f%H%x1f%gs"], repoPath),
   ]);
   const upstreamName =
     currentBranch && currentBranch !== "HEAD"
@@ -174,6 +175,8 @@ export async function getRepositoryFingerprint(repoPath: string): Promise<string
     : "";
 
   return createHash("sha1")
-    .update(`${head}\n${currentBranch}\n${upstreamName ?? ""}\n${upstreamHead}\n${status}`)
+    .update(
+      `${head}\n${currentBranch}\n${upstreamName ?? ""}\n${upstreamHead}\n${status}\n${stashList}`,
+    )
     .digest("hex");
 }

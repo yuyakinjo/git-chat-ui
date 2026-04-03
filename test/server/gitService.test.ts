@@ -22,6 +22,7 @@ import {
   getConflictSummary,
   getDiffSnippet,
   getPullStatus,
+  getRepositoryFingerprint,
   getStashDiffDetail,
   getStashDiffFileDetail,
   getStashes,
@@ -34,6 +35,8 @@ import {
   renameStash,
   resolveConflictVersion,
   resolveRepositories,
+  stashAllChanges,
+  stashFile,
 } from "../../server/gitService";
 import { spawn } from "node:child_process";
 import type { ConflictOperationResult } from "../../server/types";
@@ -911,6 +914,90 @@ describe("renameStash", () => {
   });
 });
 
+describe("stashFile", () => {
+  test("stashes an untracked file via the unstaged-file workflow", async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      await fs.writeFile(path.join(fixture.repoPath, "draft.txt"), "draft\n");
+
+      await stashFile(fixture.repoPath, "draft.txt");
+
+      await expect(getWorkingTreeStatus(fixture.repoPath)).resolves.toMatchObject({
+        unstaged: [],
+      });
+
+      const stashes = await getStashes(fixture.repoPath);
+      expect(stashes[0]?.files).toEqual(["draft.txt"]);
+
+      const detail = await getStashDiffDetail(fixture.repoPath, "stash@{0}");
+      expect(detail.files.map((file) => file.file)).toEqual(["draft.txt"]);
+
+      const fileDetail = await getStashDiffFileDetail(fixture.repoPath, "stash@{0}", "draft.txt");
+      expect(fileDetail.diff).toContain("new file mode");
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("stashAllChanges", () => {
+  test("stashes staged, unstaged, and untracked changes in one entry", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+
+    try {
+      await runGit(["add", "README.md"], fixture.repoPath);
+      await fs.writeFile(path.join(fixture.repoPath, "notes.txt"), "note base\n");
+      await runGit(["add", "notes.txt"], fixture.repoPath);
+      await runGit(["commit", "-m", "add notes"], fixture.repoPath);
+
+      await fs.writeFile(path.join(fixture.repoPath, "README.md"), "line 1\nline staged\nline 3\n");
+      await runGit(["add", "README.md"], fixture.repoPath);
+      await fs.writeFile(path.join(fixture.repoPath, "notes.txt"), "note updated\n");
+      await fs.writeFile(path.join(fixture.repoPath, "draft.txt"), "draft\n");
+
+      await stashAllChanges(fixture.repoPath);
+
+      await expect(getWorkingTreeStatus(fixture.repoPath)).resolves.toEqual({
+        conflicted: [],
+        staged: [],
+        unstaged: [],
+      });
+
+      const stashes = await getStashes(fixture.repoPath);
+      const topStashFiles = [...(stashes[0]?.files ?? [])].sort();
+      expect(stashes).toHaveLength(1);
+      expect(topStashFiles).toEqual(["README.md", "draft.txt", "notes.txt"]);
+
+      const detail = await getStashDiffDetail(fixture.repoPath, "stash@{0}");
+      expect(detail.files.map((file) => file.file).sort()).toEqual([
+        "README.md",
+        "draft.txt",
+        "notes.txt",
+      ]);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getRepositoryFingerprint", () => {
+  test("changes when the stash stack changes even if HEAD stays the same", async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      const before = await getRepositoryFingerprint(fixture.repoPath);
+
+      await renameStash(fixture.repoPath, "stash@{1}", "Renamed first stash");
+
+      const after = await getRepositoryFingerprint(fixture.repoPath);
+      expect(after).not.toBe(before);
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("appendFileToStash", () => {
   test("replaces the selected stash entry with a combined stash while preserving stack order", async () => {
     const fixture = await createStashFixture();
@@ -935,6 +1022,41 @@ describe("appendFileToStash", () => {
       expect(detail.diff).toContain("+appended line");
       expect(detail.diff).toContain("diff --git a/alpha.txt b/alpha.txt");
       expect(detail.diff).toContain("+alpha updated");
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("removes the appended file from the working tree so pop can restore the full stash", async () => {
+    const fixture = await createStashFixture();
+
+    try {
+      await fs.writeFile(path.join(fixture.repoPath, "README.md"), "root\nappended line\n");
+
+      await appendFileToStash(fixture.repoPath, "stash@{0}", "README.md");
+
+      await expect(getWorkingTreeStatus(fixture.repoPath)).resolves.toMatchObject({
+        staged: [],
+        unstaged: [],
+        conflicted: [],
+      });
+
+      await popStash(fixture.repoPath, "stash@{0}");
+
+      await expect(getWorkingTreeStatus(fixture.repoPath)).resolves.toMatchObject({
+        staged: [],
+        conflicted: [],
+        unstaged: expect.arrayContaining([
+          expect.objectContaining({ file: "README.md" }),
+          expect.objectContaining({ file: "beta.txt" }),
+        ]),
+      });
+      await expect(fs.readFile(path.join(fixture.repoPath, "README.md"), "utf8")).resolves.toBe(
+        "root\nappended line\n",
+      );
+      await expect(fs.readFile(path.join(fixture.repoPath, "beta.txt"), "utf8")).resolves.toBe(
+        "beta updated\n",
+      );
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }

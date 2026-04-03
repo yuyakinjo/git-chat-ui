@@ -1,5 +1,5 @@
 export type { AiProvider, OpenAiReasoningEffort } from "../shared/ai.js";
-export type { AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
+export type { AppConfig, CommitGraphMode, CommitGraphStyle, WindowState } from "../shared/config.js";
 export type {
   RepositoryAssistantAction,
   RepositoryAssistantActionExecutionResponse,
@@ -48,6 +48,11 @@ export interface CommitListItem {
   date: string;
   subject: string;
   decoration: string;
+}
+
+export interface CommitResponse {
+  commits: CommitListItem[];
+  hasMore: boolean;
 }
 
 export interface CommitAuthorAvatarResponse {
@@ -208,4 +213,19 @@ export interface StashEntry {
   relativeDate: string;
   message: string;
   files: string[];
+}
+
+export interface ControllerSnapshot {
+  fingerprint: string;
+  branches: {
+    current: string;
+    local: Branch[];
+    remote: Branch[];
+  };
+  logRef: string;
+  compareRefs: string[];
+  commits: CommitResponse | null;
+  workingTreeStatus: WorkingTreeStatus;
+  stashes: StashEntry[];
+  pullStatus: PullStatus;
 }

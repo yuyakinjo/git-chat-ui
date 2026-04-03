@@ -195,5 +195,26 @@ export async function discardFile(repoPath: string, file: string): Promise<void>
 
 export async function stashFile(repoPath: string, file: string): Promise<void> {
   await ensureRepoPath(repoPath);
-  await runGit(["stash", "push", "-m", `git-chat-ui: ${file}`, "--", file], repoPath);
+
+  const normalizedFile = file.trim();
+  if (!normalizedFile) {
+    throw new Error("file is required.");
+  }
+
+  const entry = await getWorkingTreeFileStatusEntry(repoPath, normalizedFile);
+  const args = ["stash", "push"];
+  if (entry?.x === "?" && entry.y === "?") {
+    args.push("--include-untracked");
+  }
+  args.push("-m", `git-chat-ui: ${normalizedFile}`, "--", normalizedFile);
+
+  await runGit(args, repoPath);
+}
+
+export async function stashAllChanges(repoPath: string): Promise<void> {
+  await ensureRepoPath(repoPath);
+  await runGit(
+    ["stash", "push", "--include-untracked", "-m", "git-chat-ui: Working tree"],
+    repoPath,
+  );
 }

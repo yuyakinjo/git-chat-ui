@@ -22,6 +22,14 @@ export function parseCommitGraphMode(value: unknown): AppConfig["commitGraphMode
   return null;
 }
 
+export function parseCommitGraphStyle(value: unknown): AppConfig["commitGraphStyle"] | null {
+  if (value === "standard" || value === "japaneseExpress") {
+    return value;
+  }
+
+  return null;
+}
+
 export function parseSelectedAiProvider(value: unknown): AppConfig["selectedAiProvider"] | null {
   if (value === "openAi" || value === "claudeCode") {
     return value;

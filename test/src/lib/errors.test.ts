@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { describeGitError } from "../../../src/lib/errors";
+import { describeGitError, formatUiErrorForClipboard } from "../../../src/lib/errors";
 
 describe("describeGitError", () => {
   test("maps invalid gh auth message", () => {
@@ -162,5 +162,36 @@ describe("describeGitError", () => {
 
     expect(parsed.title).toBe("Git 操作に失敗しました。");
     expect(parsed.detail).toContain("unexpected low level failure");
+  });
+});
+
+describe("formatUiErrorForClipboard", () => {
+  test("joins title and detail with a newline", () => {
+    expect(
+      formatUiErrorForClipboard({
+        title: "Git 操作に失敗しました。",
+        detail: "error: pathspec ': (prefix:0) AGENTS.md' did not match any file(s) known to git",
+      }),
+    ).toBe(
+      "Git 操作に失敗しました。\nerror: pathspec ': (prefix:0) AGENTS.md' did not match any file(s) known to git",
+    );
+  });
+
+  test("returns only the title when detail is empty", () => {
+    expect(
+      formatUiErrorForClipboard({
+        title: "Git 操作に失敗しました。",
+        detail: "   ",
+      }),
+    ).toBe("Git 操作に失敗しました。");
+  });
+
+  test("returns only the title when detail matches it", () => {
+    expect(
+      formatUiErrorForClipboard({
+        title: "Git 操作に失敗しました。",
+        detail: "Git 操作に失敗しました。",
+      }),
+    ).toBe("Git 操作に失敗しました。");
   });
 });

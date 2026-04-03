@@ -27,6 +27,7 @@ export type {
   AiGenerationConfig,
   AppConfig,
   CommitGraphMode,
+  CommitGraphStyle,
   WindowState,
 } from "../shared/config.js";
 
@@ -71,6 +72,17 @@ export interface CommitListItem {
 export interface CommitResponse {
   commits: CommitListItem[];
   hasMore: boolean;
+}
+
+export interface ControllerSnapshot {
+  fingerprint: string;
+  branches: BranchResponse;
+  logRef: string;
+  compareRefs: string[];
+  commits: CommitResponse | null;
+  workingTreeStatus: WorkingTreeStatus;
+  stashes: StashEntry[];
+  pullStatus: PullStatus;
 }
 
 export interface CommitAuthorAvatarResponse {

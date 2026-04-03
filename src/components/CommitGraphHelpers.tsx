@@ -2,7 +2,7 @@ import { Cloud, HardDrive, Tag, type LucideIcon } from "lucide-react";
 import type { CSSProperties, JSX } from "react";
 
 import type { LaneRow } from "../lib/commitGraphLayout";
-import type { CommitListItem } from "../types";
+import type { CommitGraphStyle, CommitListItem } from "../types";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -49,6 +49,57 @@ export const RIGHT_BRANCH_LANE_COLORS = [
   "#ff5a54",
 ];
 
+export interface CommitGraphStyleMetrics {
+  laneGap: number;
+  lanePadding: number;
+  minDetailedGraphWidth: number;
+  compactGraphWidth: number;
+  detailedLineWidth: number;
+  detailedLineOpacity: number;
+  compactLineWidth: number;
+  nodeSize: number;
+  avatarNodeSize: number;
+  nodeRingWidth: number;
+  wipNodeSize: number;
+  wipNodeRingRadius: number;
+  wipNodeStrokeWidth: number;
+  wipNodeLineClearance: number;
+}
+
+const STANDARD_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
+  laneGap: LANE_GAP,
+  lanePadding: LANE_PADDING,
+  minDetailedGraphWidth: 72,
+  compactGraphWidth: 22,
+  detailedLineWidth: 2.2,
+  detailedLineOpacity: 0.85,
+  compactLineWidth: 2,
+  nodeSize: 12,
+  avatarNodeSize: 24,
+  nodeRingWidth: 0,
+  wipNodeSize: WIP_NODE_SIZE,
+  wipNodeRingRadius: WIP_NODE_RING_RADIUS,
+  wipNodeStrokeWidth: 1.8,
+  wipNodeLineClearance: WIP_NODE_LINE_CLEARANCE,
+};
+
+const JAPANESE_EXPRESS_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
+  laneGap: 34,
+  lanePadding: 18,
+  minDetailedGraphWidth: 110,
+  compactGraphWidth: 30,
+  detailedLineWidth: 4.4,
+  detailedLineOpacity: 0.96,
+  compactLineWidth: 4,
+  nodeSize: 18,
+  avatarNodeSize: 28,
+  nodeRingWidth: 4,
+  wipNodeSize: 22,
+  wipNodeRingRadius: 8,
+  wipNodeStrokeWidth: 2.4,
+  wipNodeLineClearance: 10,
+};
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface CommitRefLabel {
@@ -79,8 +130,33 @@ function normalizeSha(sha: string | null | undefined): string {
   return sha?.trim() ?? "";
 }
 
-export function laneColor(index: number, defaultLaneIndex = 0): string {
-  const offset = index - defaultLaneIndex;
+export function resolveCommitGraphStyleMetrics(
+  style: CommitGraphStyle,
+): CommitGraphStyleMetrics {
+  return style === "japaneseExpress"
+    ? JAPANESE_EXPRESS_GRAPH_STYLE_METRICS
+    : STANDARD_GRAPH_STYLE_METRICS;
+}
+
+export function getLaneDisplayOffset(
+  laneIndex: number,
+  style: CommitGraphStyle = "standard",
+): number {
+  if (style !== "japaneseExpress" || laneIndex <= 0) {
+    return laneIndex;
+  }
+
+  const offset = Math.ceil(laneIndex / 2);
+  return laneIndex % 2 === 1 ? -offset : offset;
+}
+
+export function laneColor(
+  index: number,
+  defaultLaneIndex = 0,
+  style: CommitGraphStyle = "standard",
+): string {
+  const offset =
+    getLaneDisplayOffset(index, style) - getLaneDisplayOffset(defaultLaneIndex, style);
   if (offset === 0) {
     return DEFAULT_BRANCH_LANE_COLOR;
   }
@@ -147,8 +223,66 @@ export function buildDefaultBranchAnchorLaneIndices(
   return anchors;
 }
 
-export function laneX(index: number): number {
-  return LANE_PADDING + index * LANE_GAP;
+export function laneX(
+  index: number,
+  options?: {
+    style?: CommitGraphStyle;
+    minLaneDisplayOffset?: number;
+    laneGap?: number;
+    lanePadding?: number;
+  },
+): number {
+  const style = options?.style ?? "standard";
+  const laneGap = options?.laneGap ?? LANE_GAP;
+  const lanePadding = options?.lanePadding ?? LANE_PADDING;
+  const minLaneDisplayOffset = options?.minLaneDisplayOffset ?? 0;
+  return (
+    lanePadding + (getLaneDisplayOffset(index, style) - minLaneDisplayOffset) * laneGap
+  );
+}
+
+function roundSvgCoordinate(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return String(rounded);
+}
+
+export function buildPrimaryParentCurvePath(input: {
+  sourceLaneIndex: number;
+  targetLaneIndex: number;
+  targetY: number;
+  startY?: number;
+  resolveLaneX?: (laneIndex: number) => number;
+  targetJoinX?: number;
+  cornerRadius?: number;
+}): string {
+  const startY = input.startY ?? ROW_HEIGHT / 2;
+  const resolveX = input.resolveLaneX ?? ((laneIndex: number) => laneX(laneIndex));
+  const sourceX = resolveX(input.sourceLaneIndex);
+  const targetX = resolveX(input.targetLaneIndex);
+  const targetJoinX = input.targetJoinX ?? targetX;
+  if (sourceX === targetX) {
+    return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)}`;
+  }
+
+  const verticalDistance = Math.max(input.targetY - startY, 0);
+  const turnDirection = Math.sign(targetJoinX - sourceX) || Math.sign(targetX - sourceX) || 1;
+  const maxCornerRadius = Math.max(0, Math.min(verticalDistance - 2, Math.abs(targetJoinX - sourceX) - 2));
+  const cornerRadius = Math.min(input.cornerRadius ?? 4, maxCornerRadius);
+  const elbowY = input.targetY - cornerRadius;
+
+  if (elbowY <= startY) {
+    return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)}`;
+  }
+
+  if (cornerRadius < 0.5) {
+    return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)}`;
+  }
+
+  const turnEndX = sourceX + turnDirection * cornerRadius;
+
+  // Stop on the parent node edge instead of the parent lane center so the
+  // branch reads as growing from the commit node, not from the WIP line.
+  return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(elbowY)} Q ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)}, ${roundSvgCoordinate(turnEndX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)}`;
 }
 
 export function parseCommitRefLabels(decoration: string): CommitRefLabel[] {
@@ -251,6 +385,10 @@ function getRemoteRefShortName(labelName: string, remoteNames: Set<string>): str
   return null;
 }
 
+function isRemoteHeadAliasLabel(labelName: string, remoteNames: Set<string>): boolean {
+  return labelName.endsWith("/HEAD") && hasRemotePrefix(labelName, remoteNames);
+}
+
 export function resolveCommitRefScope(
   label: CommitRefLabel,
   context: CommitRefScopeContext | null,
@@ -314,6 +452,10 @@ export function buildCommitRefBadges(
     }
 
     const scope = scopes[index];
+    if (scope === "remote" && isRemoteHeadAliasLabel(label.name, remoteNames)) {
+      return [];
+    }
+
     if (scope === "tag") {
       return [
         {
@@ -396,23 +538,37 @@ export function refLabelIconClass(scope: CommitRefBadgeScope): string {
 export function WipNode({
   className = "",
   style,
+  size = WIP_NODE_SIZE,
+  ringRadius = WIP_NODE_RING_RADIUS,
+  strokeWidth = 1.8,
+  variant = "standard",
 }: {
   className?: string;
   style?: CSSProperties;
+  size?: number;
+  ringRadius?: number;
+  strokeWidth?: number;
+  variant?: CommitGraphStyle;
 }): JSX.Element {
+  const center = size / 2;
   return (
-    <span className={`wip-node ${className}`.trim()} style={style} aria-hidden="true">
+    <span
+      className={`wip-node ${variant === "japaneseExpress" ? "wip-node--japanese-express" : ""} ${className}`.trim()}
+      style={style}
+      aria-hidden="true"
+    >
       <svg
-        width={WIP_NODE_SIZE}
-        height={WIP_NODE_SIZE}
-        viewBox={`0 0 ${WIP_NODE_SIZE} ${WIP_NODE_SIZE}`}
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
         fill="none"
       >
         <circle
           className="wip-node-ring"
-          cx={WIP_NODE_CENTER}
-          cy={WIP_NODE_CENTER}
-          r={WIP_NODE_RING_RADIUS}
+          cx={center}
+          cy={center}
+          r={ringRadius}
+          strokeWidth={strokeWidth}
           strokeDasharray="2 3"
           strokeLinecap="round"
         />

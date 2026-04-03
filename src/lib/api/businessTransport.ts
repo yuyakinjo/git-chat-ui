@@ -9,6 +9,7 @@ import type {
   CommitDetail,
   CommitFileDiffDetail,
   CommitResponse,
+  ControllerSnapshot,
   ConflictFileDetail,
   ConflictOperationResult,
   ConflictResolutionSide,
@@ -46,6 +47,16 @@ export interface BusinessTransport {
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety>;
   getBranches(repoPath: string): Promise<BranchResponse>;
   getBranchPullRequests(repoPath: string): Promise<BranchPullRequestsResponse>;
+  getControllerSnapshot(
+    repoPath: string,
+    options?: {
+      ref?: string;
+      compareRefs?: string[];
+      offset?: number;
+      limit?: number;
+      includeCommits?: boolean;
+    },
+  ): Promise<ControllerSnapshot>;
   getCommits(
     repoPath: string,
     ref: string | undefined,
@@ -100,6 +111,7 @@ export interface BusinessTransport {
   unstageFile(repoPath: string, file: string): Promise<{ ok: boolean }>;
   discardFile(repoPath: string, file: string): Promise<{ ok: boolean }>;
   stashFile(repoPath: string, file: string): Promise<{ ok: boolean }>;
+  stashAllChanges(repoPath: string): Promise<{ ok: boolean }>;
   appendFileToStash(repoPath: string, stashId: string, file: string): Promise<{ ok: boolean }>;
   getStashes(repoPath: string): Promise<{ stashes: StashEntry[] }>;
   getStashDiffDetail(repoPath: string, stashId: string): Promise<StashDiffDetail>;

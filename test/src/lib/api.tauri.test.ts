@@ -41,6 +41,13 @@ describe("api in Tauri", () => {
 
     await api.health();
     await api.getBranchPullRequests("/tmp/repo");
+    await api.getControllerSnapshot("/tmp/repo", {
+      ref: "refs/heads/main",
+      compareRefs: ["refs/heads/feature/cache"],
+      offset: 10,
+      limit: 25,
+      includeCommits: false,
+    });
     await api.getRepositoryAssistantUserProfile("/tmp/repo");
     await api.getCommitAuthorAvatars("/tmp/repo", "refs/heads/main", ["abc1234"], true);
     await api.generateCommitMessage("/tmp/repo", ["src/App.tsx"], {
@@ -80,16 +87,24 @@ describe("api in Tauri", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, "get_branch_pull_requests", {
       repoPath: "/tmp/repo",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_repository_assistant_user_profile", {
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_controller_snapshot", {
+      repoPath: "/tmp/repo",
+      refName: "refs/heads/main",
+      compareRefs: ["refs/heads/feature/cache"],
+      offset: 10,
+      limit: 25,
+      includeCommits: false,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "get_repository_assistant_user_profile", {
       repoPath: "/tmp/repo",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(4, "get_commit_author_avatars", {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "get_commit_author_avatars", {
       repoPath: "/tmp/repo",
       refName: "refs/heads/main",
       shas: ["abc1234"],
       allowRemoteFetch: true,
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(5, "generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -100,7 +115,7 @@ describe("api in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(6, "chat_with_repository_assistant", {
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "chat_with_repository_assistant", {
       input: {
         repoPath: "/tmp/repo",
         messages: [
@@ -115,7 +130,7 @@ describe("api in Tauri", () => {
         reasoningEffort: "medium",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(7, "execute_repository_assistant_action", {
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "execute_repository_assistant_action", {
       input: {
         repoPath: "/tmp/repo",
         action: {
@@ -127,7 +142,7 @@ describe("api in Tauri", () => {
         allowSelfRepositoryCurrentTargetMerge: true,
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(8, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(9, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });
@@ -156,6 +171,7 @@ describe("api in Tauri", () => {
     await api.completeMergeSession("/tmp/repo", "session-1");
     await api.abortMergeSession("/tmp/repo", "session-1");
     await api.mergeBranches("/tmp/repo", "feature/conflict", "main");
+    await api.stashAllChanges("/tmp/repo");
     await api.deleteStash("/tmp/repo", "stash@{0}");
     await api.applyStash("/tmp/repo", "stash@{0}");
     await api.popStash("/tmp/repo", "stash@{0}");
@@ -188,15 +204,18 @@ describe("api in Tauri", () => {
       sourceBranch: "feature/conflict",
       targetBranch: "main",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(7, "delete_stash", {
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "stash_all_changes", {
+      repoPath: "/tmp/repo",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "delete_stash", {
       repoPath: "/tmp/repo",
       stashId: "stash@{0}",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(8, "apply_stash", {
+    expect(invokeMock).toHaveBeenNthCalledWith(9, "apply_stash", {
       repoPath: "/tmp/repo",
       stashId: "stash@{0}",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(9, "pop_stash", {
+    expect(invokeMock).toHaveBeenNthCalledWith(10, "pop_stash", {
       repoPath: "/tmp/repo",
       stashId: "stash@{0}",
     });

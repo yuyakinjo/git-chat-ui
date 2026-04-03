@@ -353,6 +353,74 @@ describe("api.getBranchPullRequests", () => {
   });
 });
 
+describe("api.getControllerSnapshot", () => {
+  test("loads controller snapshot data from the snapshot endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          fingerprint: "fingerprint-1",
+          branches: {
+            current: "main",
+            local: [],
+            remote: [],
+          },
+          logRef: "refs/heads/main",
+          compareRefs: ["refs/heads/feature/cache"],
+          commits: null,
+          workingTreeStatus: {
+            conflicted: [],
+            staged: [],
+            unstaged: [],
+          },
+          stashes: [],
+          pullStatus: {
+            branchName: "main",
+            upstreamName: "origin/main",
+            remoteName: "origin",
+            remoteBranchName: "main",
+            aheadCount: 0,
+            behindCount: 0,
+            canPull: false,
+            state: "upToDate",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(
+      api.getControllerSnapshot("/tmp/repo", {
+        ref: "refs/heads/main",
+        compareRefs: ["refs/heads/feature/cache"],
+        offset: 10,
+        limit: 25,
+        includeCommits: false,
+      }),
+    ).resolves.toMatchObject({
+      fingerprint: "fingerprint-1",
+      logRef: "refs/heads/main",
+      compareRefs: ["refs/heads/feature/cache"],
+      commits: null,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/controller/snapshot?repoPath=%2Ftmp%2Frepo&ref=refs%2Fheads%2Fmain&compareRef=refs%2Fheads%2Ffeature%2Fcache&offset=10&limit=25&includeCommits=false",
+    );
+    expect(requests[0]?.body).toBeNull();
+  });
+});
+
 describe("api.validateOpenAiToken", () => {
   test("posts the token to the OpenAI validation endpoint", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
@@ -427,6 +495,32 @@ describe("api.renameStash", () => {
       repoPath: "/tmp/repo",
       stashId: "stash@{1}",
       message: "Renamed first stash",
+    });
+  });
+});
+
+describe("api.stashAllChanges", () => {
+  test("posts the repo path to the stash-all endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.stashAllChanges("/tmp/repo");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/stashes/all");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
     });
   });
 });

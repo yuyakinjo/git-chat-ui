@@ -44,7 +44,9 @@ describe("ControllerView", () => {
     expect(html).toContain('data-controller-panel-drag-source-id="commitDetail"');
     expect(html).toContain("controller-panels-grid");
     expect(html).toContain('class="lucide lucide-cloud-upload"');
+    expect(html).toContain('class="lucide lucide-archive"');
     expect(html).toContain('class="lucide lucide-git-commit-horizontal"');
+    expect(html).toContain(">Stash</span>");
     expect(html).toContain(">Push</span>");
     expect(html).toContain(">Commit</span>");
     expect(html).not.toContain("git-operation-panel__commit-actions");
@@ -54,10 +56,15 @@ describe("ControllerView", () => {
     expect(html).not.toContain("右上の handle をドラッグしてパネル位置を入れ替えます。");
     expect(html).toContain("controller-activity-glow controller-activity-glow--idle");
     expect(html).toContain("controller-layout-picker__trigger");
+    expect(html).toContain('class="lucide lucide-panels-top-left controller-layout-picker__icon"');
+    expect(html).toContain(">Layout</span>");
     expect(html).toContain("controller-layout-picker__checkbox");
+    expect(html).not.toContain("controller-layout-picker__chevron");
     expect(html).toContain("Commit Graph");
     expect(html).toContain("Git Operations");
     expect(html).toContain("Commit Detail");
+    expect(html.indexOf(">Stash</span>")).toBeLessThan(html.indexOf(">Push</span>"));
+    expect(html.indexOf(">Push</span>")).toBeLessThan(html.indexOf(">Commit</span>"));
   });
 
   test("restores panel visibility from localStorage and keeps the layout picker available", () => {

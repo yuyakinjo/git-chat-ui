@@ -43,11 +43,6 @@ export function StashDeleteDialog({
           <div className="mb-4 flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="section-title">Delete Stash</div>
-              <div className="break-all text-base font-semibold text-ink">{stashId}</div>
-              <div className="mt-1 text-sm leading-6 text-ink-subtle">
-                選択した stash entry を stack から削除します。working tree や branch
-                は変更しません。
-              </div>
             </div>
 
             <button
@@ -68,20 +63,6 @@ export function StashDeleteDialog({
               <span>Target Stash</span>
             </div>
             <div className="mt-2 break-all text-base font-semibold text-ink">{title}</div>
-            {title !== stashId ? (
-              <div className="mt-1 text-xs leading-5 text-ink-subtle">{stashId}</div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-red-200/80 bg-red-50/85 p-4 text-sm text-red-900">
-            <div className="flex items-center gap-2 font-semibold">
-              <Trash2 size={15} />
-              <span>この操作は取り消せません</span>
-            </div>
-            <div className="mt-2 leading-6">
-              stash stack からこの entry を削除します。必要なら先に Apply / Pop や Rename
-              を行ってください。
-            </div>
           </div>
         </div>
 
@@ -94,7 +75,12 @@ export function StashDeleteDialog({
           >
             Cancel
           </button>
-          <button type="button" className="button button-danger" onClick={onDelete} disabled={busy}>
+          <button
+            type="button"
+            className="button button-danger inline-flex items-center gap-2"
+            onClick={onDelete}
+            disabled={busy}
+          >
             <Trash2 size={14} />
             {busy ? "Deleting..." : "Delete Stash"}
           </button>

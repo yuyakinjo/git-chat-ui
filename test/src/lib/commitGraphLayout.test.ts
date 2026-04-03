@@ -64,4 +64,37 @@ describe("buildLaneRows", () => {
     expect(layout.rows[1].primaryParentLaneIndex).toBeNull();
     expect(layout.rows[2].incomingLaneIndices).toEqual([0, 1]);
   });
+
+  test("tracks the parent row for a branch that splits from the reserved checked out lane", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "feature-tip", parentShas: ["feature-seed"] },
+        { sha: "feature-seed", parentShas: ["main-base"] },
+        { sha: "main-base", parentShas: [] },
+      ],
+      { reservedHeadSha: "main-base" },
+    );
+
+    expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 1, 0]);
+    expect(layout.rows[1].primaryParentLaneIndex).toBe(0);
+    expect(layout.rows[1].primaryParentRowIndex).toBe(2);
+  });
+
+  test("keeps later sibling branches on distinct lanes after earlier branches split back to main", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "branch-a-2", parentShas: ["branch-a-1"] },
+        { sha: "branch-a-1", parentShas: ["main-base"] },
+        { sha: "branch-b-2", parentShas: ["branch-b-1"] },
+        { sha: "branch-b-1", parentShas: ["main-base"] },
+        { sha: "main-base", parentShas: [] },
+      ],
+      { reservedHeadSha: "main-base" },
+    );
+
+    expect(layout.maxLanes).toBe(3);
+    expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 1, 2, 2, 0]);
+    expect(layout.rows[1].outgoingLaneIndices).toEqual([0]);
+    expect(layout.rows[3].outgoingLaneIndices).toEqual([0]);
+  });
 });
