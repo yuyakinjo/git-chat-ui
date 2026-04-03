@@ -623,6 +623,57 @@ describe("conflict details and resolution", () => {
     }
   });
 
+  test("stages the current working tree version for manual resolutions", async () => {
+    const fixture = await createConflictFixture();
+
+    try {
+      await stageConflictEntries(
+        fixture.repoPath,
+        "manual.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+          { stage: 3, content: "theirs\n" },
+        ],
+        "manual resolution\n",
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "manual.txt",
+        side: "merged",
+      });
+
+      expect(await fs.readFile(path.join(fixture.repoPath, "manual.txt"), "utf8")).toBe(
+        "manual resolution\n",
+      );
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+
+      await stageConflictEntries(
+        fixture.repoPath,
+        "removed.txt",
+        [
+          { stage: 1, content: "base\n" },
+          { stage: 2, content: "ours\n" },
+        ],
+        null,
+      );
+
+      await resolveConflictVersion({
+        repoPath: fixture.repoPath,
+        file: "removed.txt",
+        side: "merged",
+      });
+
+      await expect(
+        fs.readFile(path.join(fixture.repoPath, "removed.txt"), "utf8"),
+      ).rejects.toThrow();
+      await expect(getConflictSummary(fixture.repoPath)).resolves.toMatchObject({ files: [] });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   test("removes the file when the chosen side is a delete-side resolution", async () => {
     const fixture = await createConflictFixture();
 
@@ -685,7 +736,10 @@ describe("merge sessions", () => {
         files: [],
       });
 
-      await completeMergeSession(fixture.repoPath, sessionId!);
+      if (!sessionId) {
+        throw new Error("sessionId should be present");
+      }
+      await completeMergeSession(fixture.repoPath, sessionId);
 
       expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/conflict");
       expect(await runGit(["rev-parse", "main"], fixture.repoPath)).not.toBe(mainBefore);
@@ -707,7 +761,10 @@ describe("merge sessions", () => {
       expectConflictResult(result);
 
       const sessionId = result.conflict.sessionId;
-      await abortMergeSession(fixture.repoPath, sessionId!);
+      if (!sessionId) {
+        throw new Error("sessionId should be present");
+      }
+      await abortMergeSession(fixture.repoPath, sessionId);
 
       expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/conflict");
       expect(await runGit(["rev-parse", "main"], fixture.repoPath)).toBe(mainBefore);
@@ -744,6 +801,31 @@ describe("getPullStatus", () => {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }
   });
+
+  test("can inspect pull status for a non-current local branch", async () => {
+    const fixture = await createPullFixture();
+
+    try {
+      await runGit(["checkout", "-b", "feature/current"], fixture.repoPath);
+      await fs.writeFile(path.join(fixture.collaboratorPath, "README.md"), "root\nremote update\n");
+      await runGit(["commit", "-am", "remote update"], fixture.collaboratorPath);
+      await runGit(["push", "origin", "main"], fixture.collaboratorPath);
+      await runGit(["fetch", "origin"], fixture.repoPath);
+
+      await expect(getPullStatus(fixture.repoPath, "main")).resolves.toEqual({
+        branchName: "main",
+        upstreamName: "origin/main",
+        remoteName: "origin",
+        remoteBranchName: "main",
+        aheadCount: 0,
+        behindCount: 1,
+        canPull: true,
+        state: "behind",
+      });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("pullCurrentBranch", () => {
@@ -765,6 +847,33 @@ describe("pullCurrentBranch", () => {
         "remote update",
       );
       await expect(getPullStatus(fixture.repoPath)).resolves.toMatchObject({
+        behindCount: 0,
+        canPull: false,
+        state: "upToDate",
+      });
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fast-forwards a non-current local branch without changing the checked out branch", async () => {
+    const fixture = await createPullFixture();
+
+    try {
+      await runGit(["checkout", "-b", "feature/current"], fixture.repoPath);
+      await fs.writeFile(path.join(fixture.collaboratorPath, "README.md"), "root\nremote update\n");
+      await runGit(["commit", "-am", "remote update"], fixture.collaboratorPath);
+      await runGit(["push", "origin", "main"], fixture.collaboratorPath);
+
+      await pullCurrentBranch(fixture.repoPath, "main");
+
+      expect(await runGit(["branch", "--show-current"], fixture.repoPath)).toBe("feature/current");
+      expect(await runGit(["rev-parse", "refs/heads/main"], fixture.repoPath)).toBe(
+        await runGit(["rev-parse", "origin/main"], fixture.repoPath),
+      );
+      expect(await fs.readFile(path.join(fixture.repoPath, "README.md"), "utf8")).toBe("root\n");
+      expect(await runGit(["show", "main:README.md"], fixture.repoPath)).toContain("remote update");
+      await expect(getPullStatus(fixture.repoPath, "main")).resolves.toMatchObject({
         behindCount: 0,
         canPull: false,
         state: "upToDate",

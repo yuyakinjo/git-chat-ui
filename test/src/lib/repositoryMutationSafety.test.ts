@@ -4,6 +4,9 @@ import type { Branch, RepositoryMutationSafety } from "../../../src/types";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfConflictResolutionConfirmationMessage,
+  getSelfCurrentBranchMergeConfirmationMessage,
+  getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
   getSelfMutationBlockedReason,
 } from "../../../src/lib/repositoryMutationSafety";
@@ -51,6 +54,34 @@ describe("getSelfStashMutationBlockedReason", () => {
     expect(getSelfStashMutationBlockedReason("apply")).toContain("stash apply");
     expect(getSelfStashMutationBlockedReason("pop")).toContain("stash pop");
     expect(getSelfStashMutationBlockedReason("apply / pop")).toContain("stash apply / pop");
+  });
+});
+
+describe("getSelfPullConfirmationMessage", () => {
+  test("warns that self-repo pull may restart the dev app and asks for confirmation", () => {
+    const message = getSelfPullConfirmationMessage();
+
+    expect(message).toContain("pull");
+    expect(message).toContain("再起動");
+    expect(message).toContain("このまま pull しますか");
+  });
+});
+
+describe("self-repo assistant confirmation messages", () => {
+  test("describes current-branch merge risk without implying a push", () => {
+    const message = getSelfCurrentBranchMergeConfirmationMessage();
+
+    expect(message).toContain("merge");
+    expect(message).toContain("再起動");
+    expect(message).toContain("push は行いません");
+  });
+
+  test("describes local conflict resolution risk", () => {
+    const message = getSelfConflictResolutionConfirmationMessage();
+
+    expect(message).toContain("assistant");
+    expect(message).toContain("解消");
+    expect(message).toContain("再起動");
   });
 });
 

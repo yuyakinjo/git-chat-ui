@@ -1,6 +1,7 @@
 import {
   Archive,
   AlertTriangle,
+  ArrowDown,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -9,6 +10,8 @@ import {
   Folder,
   GitBranch,
   HardDrive,
+  PanelLeftClose,
+  PanelLeftOpen,
   PackageOpen,
   Plus,
   Trash2,
@@ -26,7 +29,8 @@ import { createPortal } from "react-dom";
 
 import { getBranchDeleteDisabledReason } from "../lib/branchDelete";
 import { canDropBranchOnBranch } from "../lib/branchDragDrop";
-import type { Branch, BranchPullRequest, BranchResponse, StashEntry } from "../types";
+import { getBranchPullDisabledReason, shouldShowBranchPullAction } from "../lib/pullCommand";
+import type { Branch, BranchPullRequest, BranchResponse, PullStatus, StashEntry } from "../types";
 
 import {
   buildTree,
@@ -43,10 +47,14 @@ import {
 interface BranchTreeProps {
   branches: BranchResponse | null;
   branchPullRequests: Record<string, BranchPullRequest>;
+  branchPullStatuses: Record<string, PullStatus | null>;
+  branchPullStatusLoading: Record<string, boolean>;
   stashes: StashEntry[];
+  collapsed: boolean;
   selectedBranchName: string | null;
   stashMutationBlockedReason: string | null;
   busy: boolean;
+  onToggleCollapsed: () => void;
   onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (branch: Branch) => void;
   onBranchDrop: (sourceBranch: Branch, targetBranch: Branch) => void;
@@ -58,6 +66,8 @@ interface BranchTreeProps {
   onOpenBranchPullRequest: (branch: Branch) => void;
   onRequestCreateBranch: (branch: Branch) => void;
   onRequestDeleteBranch: (branch: Branch) => void;
+  loadBranchPullStatus: (branch: Branch) => Promise<PullStatus | null>;
+  onRequestPullBranch: (branch: Branch) => void;
 }
 
 const SINGLE_CLICK_DELAY_MS = 400;
@@ -66,10 +76,14 @@ const DRAG_THRESHOLD_PX = 6;
 export function BranchTree({
   branches,
   branchPullRequests,
+  branchPullStatuses,
+  branchPullStatusLoading,
   stashes,
+  collapsed,
   selectedBranchName,
   stashMutationBlockedReason,
   busy,
+  onToggleCollapsed,
   onSelectBranch,
   onCheckoutBranch,
   onBranchDrop,
@@ -81,6 +95,8 @@ export function BranchTree({
   onOpenBranchPullRequest,
   onRequestCreateBranch,
   onRequestDeleteBranch,
+  loadBranchPullStatus,
+  onRequestPullBranch,
 }: BranchTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [isStashesExpanded, setIsStashesExpanded] = useState(true);
@@ -96,6 +112,8 @@ export function BranchTree({
         x: number;
         y: number;
         disabledReason: string | null;
+        pullStatus: PullStatus | null;
+        pullStatusLoading: boolean;
       }
     | {
         kind: "stash";
@@ -151,6 +169,20 @@ export function BranchTree({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!collapsed) {
+      return;
+    }
+
+    if (pendingClickRef.current) {
+      globalThis.clearTimeout(pendingClickRef.current.timeoutId);
+      pendingClickRef.current = null;
+    }
+
+    setContextMenu(null);
+    clearDragState();
+  }, [collapsed]);
 
   useEffect(() => {
     if (busy) {
@@ -402,6 +434,43 @@ export function BranchTree({
       x: position.x,
       y: position.y,
       disabledReason: getBranchDeleteDisabledReason(branch, selectedBranchName),
+      pullStatus: branch.type === "local" ? (branchPullStatuses[branch.name] ?? null) : null,
+      pullStatusLoading:
+        branch.type === "local"
+          ? (branchPullStatusLoading[branch.name] ??
+            !Object.prototype.hasOwnProperty.call(branchPullStatuses, branch.name))
+          : false,
+    });
+
+    if (branch.type !== "local") {
+      return;
+    }
+
+    const hasKnownPullStatus = Object.prototype.hasOwnProperty.call(
+      branchPullStatuses,
+      branch.name,
+    );
+    if (hasKnownPullStatus && !branchPullStatusLoading[branch.name]) {
+      return;
+    }
+
+    void loadBranchPullStatus(branch).then((pullStatus) => {
+      setContextMenu((current) => {
+        if (
+          !current ||
+          current.kind !== "branch" ||
+          current.branch.name !== branch.name ||
+          current.branch.type !== branch.type
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          pullStatus,
+          pullStatusLoading: false,
+        };
+      });
     });
   };
 
@@ -436,6 +505,11 @@ export function BranchTree({
   const handleCreateRequestFromTree = (branch: Branch): void => {
     setContextMenu(null);
     onRequestCreateBranch(branch);
+  };
+
+  const handlePullRequestFromTree = (branch: Branch): void => {
+    setContextMenu(null);
+    onRequestPullBranch(branch);
   };
 
   const handleRenameStashRequestFromTree = (stash: StashEntry): void => {
@@ -496,6 +570,13 @@ export function BranchTree({
         {leaves.map((leaf) => {
           const isCurrent = selectedBranchName === leaf.branch.name;
           const isLocalBranch = leaf.branch.type === "local";
+          const branchPullStatus = isLocalBranch
+            ? (branchPullStatuses[leaf.branch.name] ?? null)
+            : null;
+          const branchBehindCount =
+            branchPullStatus?.branchName === leaf.branch.name && branchPullStatus.state === "behind"
+              ? branchPullStatus.behindCount
+              : 0;
           const branchPullRequest = isLocalBranch
             ? (branchPullRequests[leaf.branch.name] ?? null)
             : null;
@@ -584,6 +665,27 @@ export function BranchTree({
 
               {!isDropTarget && branchPullRequestUrl ? (
                 <div className="branch-list-item__actions">
+                  {branchBehindCount > 0 ? (
+                    <button
+                      type="button"
+                      className="branch-list-item__pull-link"
+                      aria-label={`${leaf.branch.name} に upstream の ${branchBehindCount} commit を pull`}
+                      title={`${branchBehindCount} commit を pull`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRequestPullBranch(leaf.branch);
+                      }}
+                    >
+                      <span className="branch-list-item__pull-count">{branchBehindCount}</span>
+                      <ArrowDown size={13} />
+                    </button>
+                  ) : null}
                   {branchPullRequestHasConflicts ? (
                     <span
                       className="branch-list-item__pr-warning"
@@ -612,6 +714,28 @@ export function BranchTree({
                     <ExternalLink size={13} />
                   </button>
                 </div>
+              ) : !isDropTarget && branchBehindCount > 0 ? (
+                <div className="branch-list-item__actions">
+                  <button
+                    type="button"
+                    className="branch-list-item__pull-link"
+                    aria-label={`${leaf.branch.name} に upstream の ${branchBehindCount} commit を pull`}
+                    title={`${branchBehindCount} commit を pull`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRequestPullBranch(leaf.branch);
+                    }}
+                  >
+                    <span className="branch-list-item__pull-count">{branchBehindCount}</span>
+                    <ArrowDown size={13} />
+                  </button>
+                </div>
               ) : null}
             </div>
           );
@@ -626,6 +750,49 @@ export function BranchTree({
       : "別の local branch にドロップ"
     : null;
   const hasStashes = stashes.length > 0;
+  const collapsedSummaryItems = [
+    {
+      key: "local",
+      label: "Local branches",
+      count: branches?.local.length ?? 0,
+      Icon: HardDrive,
+      iconClassName: "branch-tree__summary-icon branch-tree__summary-icon--local",
+    },
+    {
+      key: "remote",
+      label: "Remote branches",
+      count: branches?.remote.length ?? 0,
+      Icon: Cloud,
+      iconClassName: "branch-tree__summary-icon branch-tree__summary-icon--remote",
+    },
+    ...(hasStashes
+      ? [
+          {
+            key: "stash",
+            label: "Stashes",
+            count: stashes.length,
+            Icon: Archive,
+            iconClassName: "branch-tree__summary-icon branch-tree__summary-icon--stash",
+          },
+        ]
+      : []),
+  ];
+  const branchContextMenuPullState =
+    contextMenu && contextMenu.kind === "branch"
+      ? {
+          showPullAction: shouldShowBranchPullAction(
+            contextMenu.branch,
+            contextMenu.pullStatus,
+            contextMenu.pullStatusLoading,
+          ),
+          pullDisabledReason: getBranchPullDisabledReason(
+            busy,
+            contextMenu.branch,
+            contextMenu.pullStatus,
+            contextMenu.pullStatusLoading,
+          ),
+        }
+      : null;
 
   const contextMenuPortal =
     contextMenu && typeof document !== "undefined"
@@ -644,6 +811,19 @@ export function BranchTree({
           >
             {contextMenu.kind === "branch" ? (
               <>
+                {branchContextMenuPullState?.showPullAction ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`branch-context-menu__item ${branchContextMenuPullState.pullDisabledReason ? "is-disabled" : ""}`}
+                    disabled={Boolean(branchContextMenuPullState.pullDisabledReason)}
+                    title={branchContextMenuPullState.pullDisabledReason ?? undefined}
+                    onClick={() => handlePullRequestFromTree(contextMenu.branch)}
+                  >
+                    <Download size={14} />
+                    <span>Pull</span>
+                  </button>
+                ) : null}
                 {contextMenu.branch.type === "local" ? (
                   <button
                     type="button"
@@ -719,75 +899,119 @@ export function BranchTree({
   return (
     <>
       <section
-        className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? "is-dragging" : ""}`}
+        className={`panel branch-tree relative flex min-h-0 flex-col p-3 ${draggedBranchName ? "is-dragging" : ""} ${collapsed ? "branch-tree--collapsed" : ""}`}
       >
-        <div className="px-2 pb-2">
-          <div className="section-title">Branch List</div>
-          {dragHint ? (
-            <div className={`branch-tree__hint ${draggedBranchName ? "is-active" : ""}`}>
-              {dragHint}
+        {collapsed ? (
+          <>
+            <button
+              type="button"
+              className="branch-tree__icon-button branch-tree__icon-button--collapsed"
+              aria-label="Expand branch list"
+              title="Expand branch list"
+              onClick={onToggleCollapsed}
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+
+            <div className="branch-tree__summary" role="list" aria-label="branch list summary">
+              {collapsedSummaryItems.map(({ key, label, count, Icon, iconClassName }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="branch-tree__summary-item"
+                  aria-label={`Expand branch list. ${label}: ${count}`}
+                  title={`${label}: ${count}`}
+                  onClick={onToggleCollapsed}
+                >
+                  <Icon size={16} className={iconClassName} aria-hidden="true" />
+                  <span className="branch-tree__summary-count">{count}</span>
+                </button>
+              ))}
             </div>
-          ) : null}
-        </div>
-        <div className="branch-tree__body">
-          <div className="branch-tree__branch-scroll">
-            <SectionTitle>Local</SectionTitle>
-            <div className="mt-1">{renderNode(localTree, "local", 0)}</div>
-
-            <SectionTitle>Remote</SectionTitle>
-            <div className="mt-1">{renderNode(remoteTree, "remote", 0)}</div>
-          </div>
-
-          {hasStashes ? (
-            <div className="branch-tree__stash-section border-t border-black/5 pt-3">
+          </>
+        ) : (
+          <>
+            <div className="branch-tree__header">
+              <div className="branch-tree__header-copy">
+                <div className="section-title">Branch List</div>
+                {dragHint ? (
+                  <div className={`branch-tree__hint ${draggedBranchName ? "is-active" : ""}`}>
+                    {dragHint}
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
-                className="branch-tree__expand-button"
-                aria-expanded={isStashesExpanded}
-                aria-controls="branch-tree-stashes"
-                onClick={() => setIsStashesExpanded((current) => !current)}
+                className="branch-tree__icon-button"
+                aria-label="Collapse branch list"
+                title="Collapse branch list"
+                onClick={onToggleCollapsed}
               >
-                <div className="branch-tree__expand-title">
-                  {isStashesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <Archive size={14} className="text-ink-subtle" />
-                  <span className="section-title">Stashes</span>
-                </div>
-                <span className="branch-tree__expand-count">{stashes.length}</span>
+                <PanelLeftClose size={16} />
               </button>
+            </div>
 
-              {isStashesExpanded ? (
-                <div
-                  id="branch-tree-stashes"
-                  className="branch-tree__stash-list"
-                  role="list"
-                  aria-label="stashes"
-                >
-                  {stashes.map((stash) => (
-                    <button
-                      key={stash.id}
-                      type="button"
-                      className="branch-tree__stash-item"
-                      title={`${getStashPrimaryLabel(stash)} • ${getStashMetaLabel(stash)}`}
-                      onClick={() => handleStashClick(stash)}
-                      onContextMenu={(event) => handleStashContextMenu(event, stash)}
-                      disabled={busy}
+            <div className="branch-tree__body">
+              <div className="branch-tree__branch-scroll">
+                <SectionTitle>Local</SectionTitle>
+                <div className="mt-1">{renderNode(localTree, "local", 0)}</div>
+
+                <SectionTitle>Remote</SectionTitle>
+                <div className="mt-1">{renderNode(remoteTree, "remote", 0)}</div>
+              </div>
+
+              {hasStashes ? (
+                <div className="branch-tree__stash-section border-t border-black/5 pt-3">
+                  <button
+                    type="button"
+                    className="branch-tree__expand-button"
+                    aria-expanded={isStashesExpanded}
+                    aria-controls="branch-tree-stashes"
+                    onClick={() => setIsStashesExpanded((current) => !current)}
+                  >
+                    <div className="branch-tree__expand-title">
+                      {isStashesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      <Archive size={14} className="text-ink-subtle" />
+                      <span className="section-title">Stashes</span>
+                    </div>
+                    <span className="branch-tree__expand-count">{stashes.length}</span>
+                  </button>
+
+                  {isStashesExpanded ? (
+                    <div
+                      id="branch-tree-stashes"
+                      className="branch-tree__stash-list"
+                      role="list"
+                      aria-label="stashes"
                     >
-                      <Archive size={13} className="shrink-0 text-ink-subtle" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-ink">
-                          {getStashPrimaryLabel(stash)}
-                        </div>
-                        <div className="branch-tree__stash-meta truncate">
-                          {getStashMetaLabel(stash)}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+                      {stashes.map((stash) => (
+                        <button
+                          key={stash.id}
+                          type="button"
+                          className="branch-tree__stash-item"
+                          title={`${getStashPrimaryLabel(stash)} • ${getStashMetaLabel(stash)}`}
+                          onClick={() => handleStashClick(stash)}
+                          onContextMenu={(event) => handleStashContextMenu(event, stash)}
+                          disabled={busy}
+                        >
+                          <Archive size={13} className="shrink-0 text-ink-subtle" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[13px] font-medium text-ink">
+                              {getStashPrimaryLabel(stash)}
+                            </div>
+                            <div className="branch-tree__stash-meta truncate">
+                              {getStashMetaLabel(stash)}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
-          ) : null}
-        </div>
+          </>
+        )}
 
         {draggedBranchName && dragPreviewPosition ? (
           <div

@@ -89,8 +89,11 @@ export async function getCommitDetail(repoPath: string, sha: string): Promise<Co
 
   const [fullSha, parents, author, email, date, body] = meta.split("\x1f");
 
-  const fileStatsOutput = await runGit(["show", "--pretty=format:", "--numstat", sha], repoPath);
-  const files = parseCommitFileStats(fileStatsOutput);
+  const [fileStatsOutput, fileStatusOutput] = await Promise.all([
+    runGit(["show", "--pretty=format:", "--numstat", sha], repoPath),
+    runGit(["show", "--pretty=format:", "--name-status", sha], repoPath),
+  ]);
+  const files = parseCommitFileStats(fileStatsOutput, fileStatusOutput);
 
   const diff = await runGit(["show", "--pretty=format:", sha], repoPath);
 

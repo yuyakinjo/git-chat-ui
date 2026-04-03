@@ -26,6 +26,10 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("get_repository_github_url", { repoPath });
     },
 
+    getRepositoryAssistantUserProfile(repoPath) {
+      return invokeCommand("get_repository_assistant_user_profile", { repoPath });
+    },
+
     getRepositoryMutationSafety(repoPath) {
       return invokeCommand("get_repository_mutation_safety", { repoPath });
     },
@@ -172,12 +176,18 @@ export function createTauriBusinessTransport(): BusinessTransport {
       return invokeCommand("merge_branches", { repoPath, sourceBranch, targetBranch });
     },
 
-    getPullStatus(repoPath) {
-      return invokeCommand("get_pull_status", { repoPath });
+    getPullStatus(repoPath, branchName) {
+      return invokeCommand("get_pull_status", {
+        repoPath,
+        branchName: branchName?.trim() ? branchName.trim() : null,
+      });
     },
 
-    pull(repoPath) {
-      return invokeCommand("pull_current_branch", { repoPath });
+    pull(repoPath, branchName) {
+      return invokeCommand("pull_current_branch", {
+        repoPath,
+        branchName: branchName?.trim() ? branchName.trim() : null,
+      });
     },
 
     createBranch(repoPath, baseBranch, newBranch) {
@@ -239,6 +249,26 @@ export function createTauriBusinessTransport(): BusinessTransport {
           repoPath,
           changedFiles,
           ...input,
+        },
+      });
+    },
+
+    chatWithRepositoryAssistant(repoPath, messages, settings) {
+      return invokeCommand("chat_with_repository_assistant", {
+        input: {
+          repoPath,
+          messages,
+          ...settings,
+        },
+      });
+    },
+
+    executeRepositoryAssistantAction(repoPath, action, options) {
+      return invokeCommand("execute_repository_assistant_action", {
+        input: {
+          repoPath,
+          action,
+          ...options,
         },
       });
     },

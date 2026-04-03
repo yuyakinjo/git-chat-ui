@@ -22,6 +22,7 @@ fn main() {
             backend::get_repositories,
             backend::mark_recent_repository,
             backend::get_repository_github_url,
+            backend::get_repository_assistant_user_profile,
             backend::get_branch_pull_requests,
             backend::get_repository_mutation_safety,
             backend::get_branches,
@@ -66,7 +67,9 @@ fn main() {
             backend::validate_open_ai_token,
             backend::get_open_ai_models,
             backend::validate_claude_code_token,
-            backend::generate_title
+            backend::generate_title,
+            backend::chat_with_repository_assistant,
+            backend::execute_repository_assistant_action
         ])
         .run(tauri::generate_context!())
         .expect("failed to run app");

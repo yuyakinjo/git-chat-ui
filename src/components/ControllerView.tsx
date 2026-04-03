@@ -1,11 +1,14 @@
 import {
   AlertTriangle,
+  Cog,
   Copy,
   Download,
   ExternalLink,
   GitCommitHorizontal,
   GripVertical,
+  Moon,
   Plus,
+  Sun,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -22,22 +25,22 @@ import {
 import { flushSync } from "react-dom";
 
 import { api } from "../lib/api";
-import type { AppThemeId } from "../lib/appTheme";
+import { getAppThemeMode, type AppThemeId } from "../lib/appTheme";
+import { buildAppCommandPaletteActionSpecs } from "../lib/appCommandPalette";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { isCommandPaletteShortcut } from "../lib/commandPalette";
 import { describeGitError, type UiError } from "../lib/errors";
+import { shortSha } from "../lib/format";
+import { getPullCommandDisabledReason } from "../lib/pullCommand";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
 import {
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
 } from "../lib/repositoryMutationSafety";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
-import {
-  resolveCollapsedControllerPanelsGridClassName,
-  shouldRenderGitOperationsPanel,
-} from "../lib/controllerPanelLayout";
 import {
   getWorkingTreeDiscardConfirmMessage,
   resolveWorkingTreeDiscardTarget,
@@ -60,16 +63,28 @@ import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
 import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
 import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
-import type { AppConfig, Branch, Repository } from "../types";
+import type { AppConfig, Branch, ConflictSummary, PullStatus, Repository } from "../types";
+
+interface AssistantConflictOpenRequest {
+  requestId: number;
+  summary: ConflictSummary;
+  file: string | null;
+  sessionId: string | null;
+}
 
 interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
   appThemeId?: AppThemeId | null;
+  onOpenConfig?: () => void;
+  onSelectTheme?: (themeId: AppThemeId) => void;
   onNotify: (message: string) => void;
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
   active?: boolean;
   repositoryGithubUrl?: string | null;
+  commandPaletteOpenRequestId?: number;
+  assistantRefreshRequestId?: number;
+  assistantConflictOpenRequest?: AssistantConflictOpenRequest | null;
 }
 
 type CommitMessageGenerationState =
@@ -77,16 +92,33 @@ type CommitMessageGenerationState =
   | { status: "success"; title: string; description: string }
   | { status: "error"; error: UiError };
 
-const GIT_OPERATION_PANEL_HIDE_DURATION_MS = 320;
+const BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX = "git-chat-ui.branch-tree-collapsed";
+
+function getBranchTreeCollapsedStorageKey(repoPath: string): string {
+  return `${BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX}:${repoPath}`;
+}
+
+function readInitialBranchTreeCollapsed(repoPath: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem(getBranchTreeCollapsedStorageKey(repoPath)) === "1";
+}
 
 export function ControllerView({
   repository,
   appConfig,
   appThemeId = null,
+  onOpenConfig,
+  onSelectTheme,
   onNotify,
   onCurrentBranchChange,
   active = false,
   repositoryGithubUrl = null,
+  commandPaletteOpenRequestId = 0,
+  assistantRefreshRequestId = 0,
+  assistantConflictOpenRequest = null,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -95,13 +127,26 @@ export function ControllerView({
   const [commitMessageAnimationPending, setCommitMessageAnimationPending] = useState(false);
   const [pendingCommitMessageGenerationResult, setPendingCommitMessageGenerationResult] =
     useState<CommitMessageGenerationState>({ status: "idle" });
-  const [gitOperationsPanelVisibility, setGitOperationsPanelVisibility] = useState<
-    "visible" | "hiding" | "hidden"
-  >("visible");
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const gitOperationsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [branchPullStatuses, setBranchPullStatuses] = useState<Record<string, PullStatus | null>>(
+    {},
+  );
+  const [branchPullStatusLoading, setBranchPullStatusLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [isBranchTreeCollapsed, setBranchTreeCollapsed] = useState<boolean>(() =>
+    readInitialBranchTreeCollapsed(repoPath),
+  );
+  const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
+  const lastHandledAssistantConflictOpenRequestIdRef = useRef(
+    assistantConflictOpenRequest?.requestId ?? 0,
+  );
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
+  const refreshAll = data.refreshAll;
+  const loadWorkingState = data.loadWorkingState;
+  const openConflictViewer = data.openConflictViewer;
+  const reportConflictViewerError = data.reportError;
   const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
     useActionState(
       async (
@@ -179,6 +224,57 @@ export function ControllerView({
     setCommandPaletteOpen(false);
   }, []);
 
+  const handleJumpToCommit = useCallback(
+    async (sha: string): Promise<boolean> => {
+      const normalizedSha = sha.trim();
+      if (!normalizedSha) {
+        onNotify("SHA を入力してください。");
+        return false;
+      }
+
+      try {
+        const detail = await api.getCommitDetail(repoPath, normalizedSha);
+        const resolvedSha = detail.sha.trim();
+        if (!resolvedSha) {
+          onNotify("SHA を解決できませんでした。");
+          return false;
+        }
+
+        setSelectedBranchForHover(null);
+        setPendingScrollCommitSha(resolvedSha);
+        data.setIsWipSelected(false);
+        data.setShowBranchDiff(false);
+        data.setFocusedCommitDiffFile(null);
+
+        const result = await data.loadCommits({
+          append: false,
+          offset: 0,
+          ref: data.activeLogRef,
+          compareRefs: data.activeCompareRefs,
+          focusCommitSha: resolvedSha,
+        });
+
+        if (result.status === "focus-miss") {
+          setPendingScrollCommitSha((current) => (current === resolvedSha ? null : current));
+          onNotify("この SHA は現在の commit graph に見つかりませんでした。");
+          return false;
+        }
+
+        if (result.status === "error") {
+          setPendingScrollCommitSha((current) => (current === resolvedSha ? null : current));
+          return false;
+        }
+
+        onNotify(`${shortSha(resolvedSha)} に移動しました。`);
+        return true;
+      } catch (error) {
+        data.reportError(error, "SHA の解決に失敗しました。");
+        return false;
+      }
+    },
+    [data, onNotify, repoPath],
+  );
+
   const copyCurrentBranchName = useCallback(async (): Promise<void> => {
     if (!checkedOutBranchName) {
       return;
@@ -211,26 +307,129 @@ export function ControllerView({
     );
   }, [data, repoPath]);
 
+  const pullBranch = useCallback(
+    (branch: Branch): void => {
+      if (branch.type !== "local") {
+        return;
+      }
+
+      const isCurrentBranch = data.currentLocalBranch?.name === branch.name;
+
+      if (
+        isCurrentBranch &&
+        data.selfMutationBlockedReason &&
+        typeof window !== "undefined" &&
+        !window.confirm(getSelfPullConfirmationMessage())
+      ) {
+        return;
+      }
+
+      data.setOperationBusy(true);
+      void (async () => {
+        try {
+          await api.pull(repoPath, branch.name);
+          data.setInlineError(null);
+          await data.refreshAll();
+          onNotify(
+            isCurrentBranch
+              ? "upstream の変更を取り込みました。"
+              : `${branch.name} に upstream の変更を取り込みました。`,
+          );
+        } catch (error) {
+          reportError(error, "pull に失敗しました。");
+        } finally {
+          data.setOperationBusy(false);
+        }
+      })();
+    },
+    [data, onNotify, repoPath, reportError],
+  );
+
   const pullCurrentBranch = useCallback((): void => {
     if (!data.currentLocalBranch) {
       return;
     }
 
-    if (data.reportBlockedMutation("開発中のアプリ自身の repo は pull できません")) {
+    pullBranch(data.currentLocalBranch);
+  }, [data.currentLocalBranch, pullBranch]);
+
+  const loadBranchPullStatus = useCallback(
+    async (branch: Branch): Promise<PullStatus | null> => {
+      if (branch.type !== "local") {
+        return null;
+      }
+
+      if (data.pullStatus?.branchName === branch.name) {
+        return data.pullStatus;
+      }
+
+      try {
+        return await api.getPullStatus(repoPath, branch.name);
+      } catch (error) {
+        reportError(error, "pull 状態の取得に失敗しました。");
+        return null;
+      }
+    },
+    [data.pullStatus, repoPath, reportError],
+  );
+
+  useEffect(() => {
+    const localBranches = data.branches?.local ?? [];
+    if (localBranches.length === 0) {
+      setBranchPullStatuses({});
+      setBranchPullStatusLoading({});
       return;
     }
 
-    void data.mutateAndReload(
-      async () => {
-        await api.pull(repoPath);
-      },
-      {
-        onSuccess: () => {
-          onNotify("upstream の変更を取り込みました。");
-        },
-      },
+    let isMounted = true;
+    const currentPullStatus = data.pullStatus;
+    const branchNames = new Set(localBranches.map((branch) => branch.name));
+
+    setBranchPullStatuses((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([branchName]) => branchNames.has(branchName)),
+      );
+
+      if (currentPullStatus?.branchName) {
+        next[currentPullStatus.branchName] = currentPullStatus;
+      }
+
+      return next;
+    });
+
+    setBranchPullStatusLoading(
+      Object.fromEntries(
+        localBranches.map((branch) => [branch.name, currentPullStatus?.branchName !== branch.name]),
+      ),
     );
-  }, [data, onNotify, repoPath]);
+
+    void Promise.all(
+      localBranches.map(async (branch) => {
+        if (currentPullStatus?.branchName === branch.name) {
+          return [branch.name, currentPullStatus] as const;
+        }
+
+        try {
+          return [branch.name, await api.getPullStatus(repoPath, branch.name)] as const;
+        } catch {
+          return [branch.name, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setBranchPullStatuses(Object.fromEntries(entries));
+      setBranchPullStatusLoading(
+        Object.fromEntries(entries.map(([branchName]) => [branchName, false])),
+      );
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [data.branches, data.pullStatus, repoPath]);
 
   const openRepositoryGithubPage = useCallback(async (): Promise<void> => {
     if (!repositoryGithubUrl) {
@@ -252,6 +451,38 @@ export function ControllerView({
 
     branchOps.handleRequestCreateBranch(data.currentLocalBranch);
   }, [branchOps, data.currentLocalBranch]);
+
+  const appCommandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () =>
+      buildAppCommandPaletteActionSpecs(appThemeId).map((command) => {
+        if (command.action === "openConfig") {
+          return {
+            id: command.id,
+            title: command.title,
+            description: command.description,
+            keywords: command.keywords,
+            disabledReason: command.disabledReason,
+            icon: Cog,
+            onSelect: () => {
+              onOpenConfig?.();
+            },
+          };
+        }
+
+        return {
+          id: command.id,
+          title: command.title,
+          description: command.description,
+          keywords: command.keywords,
+          disabledReason: command.disabledReason,
+          icon: getAppThemeMode(command.themeId) === "light" ? Sun : Moon,
+          onSelect: () => {
+            onSelectTheme?.(command.themeId);
+          },
+        };
+      }),
+    [appThemeId, onOpenConfig, onSelectTheme],
+  );
 
   const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
     () => [
@@ -300,10 +531,11 @@ export function ControllerView({
           : "Pull upstream changes into the current local branch.",
         keywords: ["pull", "fetch", "branch", "remote", "現在", "ブランチ", "プル"],
         icon: Download,
-        disabledReason: data.operationBusy
-          ? "Git 操作の完了を待ってから実行してください。"
-          : (data.selfMutationBlockedReason ??
-            (data.currentLocalBranch ? null : "local branch を checkout 中のときだけ使えます。")),
+        disabledReason: getPullCommandDisabledReason(
+          data.operationBusy,
+          data.currentLocalBranch,
+          data.pullStatus,
+        ),
         onSelect: pullCurrentBranch,
       },
       {
@@ -330,13 +562,15 @@ export function ControllerView({
         disabledReason: repositoryGithubUrl ? null : "GitHub remote を解決できたときだけ使えます。",
         onSelect: openRepositoryGithubPage,
       },
+      ...appCommandPaletteCommands,
     ],
     [
+      appCommandPaletteCommands,
       checkedOutBranchName,
       copyCurrentBranchName,
       data.currentLocalBranch,
       data.operationBusy,
-      data.selfMutationBlockedReason,
+      data.pullStatus,
       openCreateBranchDialog,
       openRepositoryGithubPage,
       pullCurrentBranch,
@@ -353,12 +587,89 @@ export function ControllerView({
   }, [generatingCommitMessage]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        getBranchTreeCollapsedStorageKey(repoPath),
+        isBranchTreeCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory state.
+    }
+  }, [isBranchTreeCollapsed, repoPath]);
+
+  useEffect(() => {
     if (active) {
       return;
     }
 
     setCommandPaletteOpen(false);
   }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
+      return;
+    }
+
+    if (commandPaletteOpenRequestId === lastHandledCommandPaletteOpenRequestIdRef.current) {
+      return;
+    }
+
+    lastHandledCommandPaletteOpenRequestIdRef.current = commandPaletteOpenRequestId;
+    setCommandPaletteOpen(true);
+  }, [active, commandPaletteOpenRequestId]);
+
+  useEffect(() => {
+    if (!active || assistantRefreshRequestId === 0) {
+      return;
+    }
+
+    void refreshAll();
+  }, [active, assistantRefreshRequestId, refreshAll]);
+
+  useEffect(() => {
+    if (!active) {
+      lastHandledAssistantConflictOpenRequestIdRef.current =
+        assistantConflictOpenRequest?.requestId ?? 0;
+      return;
+    }
+
+    if (!assistantConflictOpenRequest) {
+      return;
+    }
+
+    if (
+      assistantConflictOpenRequest.requestId ===
+      lastHandledAssistantConflictOpenRequestIdRef.current
+    ) {
+      return;
+    }
+
+    lastHandledAssistantConflictOpenRequestIdRef.current = assistantConflictOpenRequest.requestId;
+
+    void (async () => {
+      try {
+        await loadWorkingState();
+        await openConflictViewer({
+          summary: assistantConflictOpenRequest.summary,
+          file: assistantConflictOpenRequest.file,
+          sessionId: assistantConflictOpenRequest.sessionId,
+        });
+      } catch (error) {
+        reportConflictViewerError(error, "conflict viewer の起動に失敗しました。");
+      }
+    })();
+  }, [
+    active,
+    assistantConflictOpenRequest,
+    loadWorkingState,
+    openConflictViewer,
+    reportConflictViewerError,
+  ]);
 
   useEffect(() => {
     if (!active || typeof window === "undefined") {
@@ -574,6 +885,7 @@ export function ControllerView({
         });
       }}
       onNotify={onNotify}
+      onJumpToCommit={handleJumpToCommit}
       branchContext={data.branches}
     />
   );
@@ -597,40 +909,6 @@ export function ControllerView({
     data.operationBusy ||
     (data.workingStatus?.staged.length ?? 0) === 0 ||
     !data.commitTitle.trim();
-  const shouldShowGitOperations = shouldRenderGitOperationsPanel(data.workingStatus);
-
-  useEffect(() => {
-    if (gitOperationsHideTimeoutRef.current !== null) {
-      clearTimeout(gitOperationsHideTimeoutRef.current);
-      gitOperationsHideTimeoutRef.current = null;
-    }
-
-    if (shouldShowGitOperations) {
-      setGitOperationsPanelVisibility("visible");
-      return;
-    }
-
-    setGitOperationsPanelVisibility((current) => (current === "hidden" ? current : "hiding"));
-    gitOperationsHideTimeoutRef.current = setTimeout(() => {
-      gitOperationsHideTimeoutRef.current = null;
-      setGitOperationsPanelVisibility("hidden");
-    }, GIT_OPERATION_PANEL_HIDE_DURATION_MS);
-
-    return () => {
-      if (gitOperationsHideTimeoutRef.current !== null) {
-        clearTimeout(gitOperationsHideTimeoutRef.current);
-        gitOperationsHideTimeoutRef.current = null;
-      }
-    };
-  }, [shouldShowGitOperations]);
-
-  useEffect(() => {
-    return () => {
-      if (gitOperationsHideTimeoutRef.current !== null) {
-        clearTimeout(gitOperationsHideTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const gitOperationPanel = (
     <GitOperationPanel
@@ -662,6 +940,26 @@ export function ControllerView({
           { reloadCommits: false },
         );
       }}
+      onStageFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.stageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false },
+        );
+      }}
+      onUnstageFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.unstageFile(repoPath, file);
+            }
+          },
+          { reloadCommits: false },
+        );
+      }}
       onStageAll={() => {
         void data.mutateAndReload(
           async () => {
@@ -688,6 +986,16 @@ export function ControllerView({
         void data.mutateAndReload(
           async () => {
             await api.stashFile(repoPath, file);
+          },
+          { reloadCommits: false },
+        );
+      }}
+      onStashFiles={(files) => {
+        void data.mutateAndReload(
+          async () => {
+            for (const file of files) {
+              await api.stashFile(repoPath, file);
+            }
           },
           { reloadCommits: false },
         );
@@ -804,19 +1112,6 @@ export function ControllerView({
     gitOperations: gitOperationPanel,
     commitDetail: commitDetailPanel,
   };
-  const renderGitOperationsSlot = gitOperationsPanelVisibility !== "hidden";
-  const visiblePanelOrder = renderGitOperationsSlot
-    ? panelOrder
-    : panelOrder.filter((panelId) => panelId !== "gitOperations");
-  const controllerPanelsGridClassName = [
-    "controller-panels-grid",
-    !renderGitOperationsSlot ? "controller-panels-grid--without-git-operations" : null,
-    !renderGitOperationsSlot
-      ? resolveCollapsedControllerPanelsGridClassName(visiblePanelOrder)
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   // --- Render ---
 
@@ -897,14 +1192,22 @@ export function ControllerView({
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
+      <div
+        className={`controller-view__layout grid min-h-0 flex-1 grid-cols-[minmax(236px,280px)_minmax(0,1fr)] gap-3 max-[1320px]:grid-cols-[minmax(220px,248px)_minmax(0,1fr)] max-[1100px]:grid-cols-1 ${
+          isBranchTreeCollapsed ? "controller-view__layout--branch-tree-collapsed" : ""
+        }`}
+      >
         <BranchTree
           branches={data.branches}
           branchPullRequests={data.branchPullRequests}
+          branchPullStatuses={branchPullStatuses}
+          branchPullStatusLoading={branchPullStatusLoading}
           stashes={data.stashes}
+          collapsed={isBranchTreeCollapsed}
           selectedBranchName={data.branches?.current ?? null}
           stashMutationBlockedReason={stashMutationBlockedReason}
           busy={data.operationBusy}
+          onToggleCollapsed={() => setBranchTreeCollapsed((current) => !current)}
           onSelectBranch={branchOps.handleSelectBranch}
           onCheckoutBranch={(branch) => {
             void branchOps.handleCheckoutBranch(branch);
@@ -928,10 +1231,12 @@ export function ControllerView({
           }}
           onRequestCreateBranch={branchOps.handleRequestCreateBranch}
           onRequestDeleteBranch={branchOps.handleRequestDeleteBranch}
+          loadBranchPullStatus={loadBranchPullStatus}
+          onRequestPullBranch={pullBranch}
         />
 
-        <div className={controllerPanelsGridClassName}>
-          {visiblePanelOrder.map((panelId) => {
+        <div className="controller-panels-grid">
+          {panelOrder.map((panelId) => {
             const isDragActive = draggedPanelId !== null;
             const isDropTarget = dropTargetPanelId === panelId;
             const isDragSource = draggedPanelId === panelId;
@@ -948,11 +1253,14 @@ export function ControllerView({
                 key={panelId}
                 data-controller-panel-drop-id={panelId}
                 data-controller-panel-drag-source-id={panelId}
-                className={`controller-panel-slot min-h-0 ${
-                  panelId === "gitOperations" && gitOperationsPanelVisibility === "hiding"
-                    ? "controller-panel-slot--hiding"
-                    : ""
-                } ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isDragSource ? "is-drag-source" : ""}`}
+                className={[
+                  "controller-panel-slot min-h-0",
+                  isDropCandidate ? "is-drop-candidate" : null,
+                  isDropTarget ? "is-drop-target" : null,
+                  isDragSource ? "is-drag-source" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
               >
                 <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>

@@ -1,5 +1,22 @@
-export type { AiProvider } from "../shared/ai.js";
+export type { AiProvider, OpenAiReasoningEffort } from "../shared/ai.js";
 export type { AppConfig, CommitGraphMode, WindowState } from "../shared/config.js";
+export type {
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionResponse,
+  RepositoryAssistantActionId,
+  RepositoryAssistantActionProposal,
+  RepositoryAssistantActionResult,
+  RepositoryAssistantActionResultStatus,
+  RepositoryAssistantActionRisk,
+  RepositoryAssistantActionSpec,
+  RepositoryAssistantActionStatus,
+  RepositoryAssistantMessage,
+  RepositoryAssistantMessageRole,
+  RepositoryAssistantPolicies,
+  RepositoryAssistantPolicy,
+  RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
+} from "../shared/repositoryAssistant.js";
 
 export interface Repository {
   name: string;
@@ -37,6 +54,20 @@ export interface CommitAuthorAvatarResponse {
   avatars: Record<string, string>;
 }
 
+export interface RepositoryAssistantUserProfile {
+  login: string | null;
+  avatarUrl: string | null;
+}
+
+export type DiffFileKind = "modified" | "added" | "deleted" | "renamed" | "changed";
+
+export interface DiffFileStat {
+  file: string;
+  additions: number;
+  deletions: number;
+  kind?: DiffFileKind;
+}
+
 export interface CommitDetail {
   sha: string;
   parentShas: string[];
@@ -44,11 +75,7 @@ export interface CommitDetail {
   email: string;
   date: string;
   body: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
 }
 
@@ -63,11 +90,7 @@ export interface BranchDiffDetail {
   baseRef: string;
   targetRef: string;
   mergeBaseSha: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }
@@ -109,7 +132,7 @@ export interface PullStatus {
 
 export type ConflictContextType = "repository" | "mergeSession";
 export type ConflictOperation = "merge" | "pull" | "stashApply" | "stashPop" | "unknown";
-export type ConflictResolutionSide = "ours" | "theirs";
+export type ConflictResolutionSide = "merged" | "ours" | "theirs";
 
 export interface WorkingFile {
   file: string;
@@ -161,22 +184,14 @@ export type WorkingTreeDiffArea = "staged" | "unstaged";
 export interface WorkingTreeDiffDetail {
   file: string;
   area: WorkingTreeDiffArea;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }
 
 export interface StashDiffDetail {
   stashId: string;
-  files: Array<{
-    file: string;
-    additions: number;
-    deletions: number;
-  }>;
+  files: DiffFileStat[];
   diff: string;
   isDiffTruncated: boolean;
 }

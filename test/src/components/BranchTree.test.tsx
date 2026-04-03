@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { BranchResponse, StashEntry } from "../../../src/types";
+import type { BranchResponse, PullStatus, StashEntry } from "../../../src/types";
 
 import { BranchTree } from "../../../src/components/BranchTree";
 
@@ -54,16 +54,31 @@ const stashes: StashEntry[] = [
   },
 ];
 
+const behindPullStatus: PullStatus = {
+  branchName: "main",
+  upstreamName: "origin/main",
+  remoteName: "origin",
+  remoteBranchName: "main",
+  aheadCount: 0,
+  behindCount: 1,
+  canPull: true,
+  state: "behind",
+};
+
 describe("BranchTree", () => {
   test("hides the stash footer entirely when there are no stashes", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
         branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
         stashes={[]}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -75,6 +90,8 @@ describe("BranchTree", () => {
         onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
       />,
     );
 
@@ -86,15 +103,19 @@ describe("BranchTree", () => {
     expect(html).not.toContain("No stashes");
   });
 
-  test("renders stashes in a dedicated footer below the branch scroll area", () => {
+  test("renders a collapsed summary rail with local, remote, and stash counts", () => {
     const html = renderToStaticMarkup(
       <BranchTree
         branches={branches}
         branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -106,6 +127,46 @@ describe("BranchTree", () => {
         onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("branch-tree--collapsed");
+    expect(html).toContain('title="Local branches: 1"');
+    expect(html).toContain('title="Remote branches: 1"');
+    expect(html).toContain('title="Stashes: 2"');
+    expect(html).toContain("branch-tree__summary-item");
+    expect(html).not.toContain("branch-tree__branch-scroll");
+    expect(html).not.toContain("branch-tree__stash-section");
+  });
+
+  test("renders stashes in a dedicated footer below the branch scroll area", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branches}
+        branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
+        stashes={stashes}
+        collapsed={false}
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onToggleCollapsed={() => {}}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
       />,
     );
 
@@ -134,10 +195,14 @@ describe("BranchTree", () => {
       <BranchTree
         branches={branchesWithVisibleRemoteLeaf}
         branchPullRequests={{}}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -149,6 +214,8 @@ describe("BranchTree", () => {
         onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
       />,
     );
 
@@ -169,10 +236,14 @@ describe("BranchTree", () => {
             hasConflicts: true,
           },
         }}
+        branchPullStatuses={{}}
+        branchPullStatusLoading={{}}
         stashes={stashes}
+        collapsed={false}
         selectedBranchName="main"
         stashMutationBlockedReason={null}
         busy={false}
+        onToggleCollapsed={() => {}}
         onSelectBranch={() => {}}
         onCheckoutBranch={() => {}}
         onBranchDrop={() => {}}
@@ -184,6 +255,8 @@ describe("BranchTree", () => {
         onOpenBranchPullRequest={() => {}}
         onRequestCreateBranch={() => {}}
         onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => null}
+        onRequestPullBranch={() => {}}
       />,
     );
 
@@ -194,5 +267,40 @@ describe("BranchTree", () => {
     expect(html).toContain('aria-label="main の Pull Request を開く"');
     expect(html).toContain('title="https://github.com/example/repo/pull/42"');
     expect(html).not.toContain('aria-label="origin の Pull Request を開く"');
+  });
+
+  test("renders an inline pull action when a local branch is behind upstream", () => {
+    const html = renderToStaticMarkup(
+      <BranchTree
+        branches={branches}
+        branchPullRequests={{}}
+        branchPullStatuses={{ main: behindPullStatus }}
+        branchPullStatusLoading={{ main: false }}
+        stashes={[]}
+        collapsed={false}
+        selectedBranchName="main"
+        stashMutationBlockedReason={null}
+        busy={false}
+        onToggleCollapsed={() => {}}
+        onSelectBranch={() => {}}
+        onCheckoutBranch={() => {}}
+        onBranchDrop={() => {}}
+        onOpenStashDiff={() => {}}
+        onRequestRenameStash={() => {}}
+        onRequestDeleteStash={() => {}}
+        onRequestApplyStash={() => {}}
+        onRequestPopStash={() => {}}
+        onOpenBranchPullRequest={() => {}}
+        onRequestCreateBranch={() => {}}
+        onRequestDeleteBranch={() => {}}
+        loadBranchPullStatus={async () => behindPullStatus}
+        onRequestPullBranch={() => {}}
+      />,
+    );
+
+    expect(html).toContain("branch-list-item__pull-link");
+    expect(html).toContain("branch-list-item__pull-count");
+    expect(html).toContain('aria-label="main に upstream の 1 commit を pull"');
+    expect(html).toContain(">1</span>");
   });
 });

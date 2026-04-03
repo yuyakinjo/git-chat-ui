@@ -18,6 +18,13 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
+  RepositoryAssistantActionExecutionResponse,
+  RepositoryAssistantMessage,
+  RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
+  RepositoryAssistantUserProfile,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -35,6 +42,7 @@ export interface BusinessTransport {
   resolveRepositories(repoPaths: string[]): Promise<{ repositories: Repository[] }>;
   markRecentRepository(repoPath: string): Promise<{ ok: boolean }>;
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }>;
+  getRepositoryAssistantUserProfile(repoPath: string): Promise<RepositoryAssistantUserProfile>;
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety>;
   getBranches(repoPath: string): Promise<BranchResponse>;
   getBranchPullRequests(repoPath: string): Promise<BranchPullRequestsResponse>;
@@ -110,8 +118,8 @@ export interface BusinessTransport {
     sourceBranch: string,
     targetBranch: string,
   ): Promise<ConflictOperationResult>;
-  getPullStatus(repoPath: string): Promise<PullStatus>;
-  pull(repoPath: string): Promise<{ ok: boolean }>;
+  getPullStatus(repoPath: string, branchName?: string): Promise<PullStatus>;
+  pull(repoPath: string, branchName?: string): Promise<{ ok: boolean }>;
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }>;
   deleteBranch(
     repoPath: string,
@@ -143,4 +151,14 @@ export interface BusinessTransport {
     changedFiles: string[],
     input?: Partial<AiGenerationConfig>,
   ): Promise<GeneratedCommitMessage>;
+  chatWithRepositoryAssistant(
+    repoPath: string,
+    messages: RepositoryAssistantMessage[],
+    settings: RepositoryAssistantSettings,
+  ): Promise<RepositoryAssistantResponse>;
+  executeRepositoryAssistantAction(
+    repoPath: string,
+    action: RepositoryAssistantAction,
+    options?: RepositoryAssistantActionExecutionOptions,
+  ): Promise<RepositoryAssistantActionExecutionResponse>;
 }

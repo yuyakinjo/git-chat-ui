@@ -37,8 +37,16 @@ import type {
 } from "../types";
 import type { UiError } from "../lib/errors";
 
-export type { UseControllerDataParams, UseControllerDataResult } from "./useControllerDataTypes";
-import type { UseControllerDataParams, UseControllerDataResult } from "./useControllerDataTypes";
+export type {
+  LoadCommitsResult,
+  UseControllerDataParams,
+  UseControllerDataResult,
+} from "./useControllerDataTypes";
+import type {
+  LoadCommitsResult,
+  UseControllerDataParams,
+  UseControllerDataResult,
+} from "./useControllerDataTypes";
 
 function readInitialCommitMessageDraft(repoPath: string): {
   title: string;
@@ -593,7 +601,7 @@ export function useControllerData({
       ref: string;
       compareRefs?: string[];
       focusCommitSha?: string;
-    }): Promise<void> => {
+    }): Promise<LoadCommitsResult> => {
       if (options.append) {
         setLoadingMoreCommits(true);
       } else {
@@ -619,13 +627,19 @@ export function useControllerData({
           while (
             !nextCommits.some((commit) => commit.sha === focusCommitSha) &&
             nextHasMore &&
-            pageGuard < 6
+            pageGuard < 30
           ) {
             const more = await fetchPage(options.offset + nextCommits.length);
             nextCommits = nextCommits.concat(more.commits);
             nextHasMore = more.hasMore;
             pageGuard += 1;
           }
+        }
+
+        const focusCommitFound =
+          focusCommitSha.length === 0 || nextCommits.some((commit) => commit.sha === focusCommitSha);
+        if (!options.append && focusCommitSha && !focusCommitFound) {
+          return { status: "focus-miss" };
         }
 
         setCommits((current) => (options.append ? [...current, ...nextCommits] : nextCommits));
@@ -652,8 +666,11 @@ export function useControllerData({
           setActiveCommit(nextActiveCommit);
           await loadCommitDetail(nextActiveCommit.sha);
         }
+
+        return { status: "updated" };
       } catch (error) {
         reportError(error, "コミット一覧の取得に失敗しました。");
+        return { status: "error" };
       } finally {
         setLoadingCommits(false);
         setLoadingMoreCommits(false);

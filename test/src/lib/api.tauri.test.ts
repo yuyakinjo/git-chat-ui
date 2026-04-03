@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const originalWindow = globalThis.window;
+const repositoryAssistantSettings = {
+  openAiModel: "gpt-4.1-mini",
+  reasoningEffort: "medium" as const,
+};
 
 afterEach(() => {
   mock.restore();
@@ -37,6 +41,7 @@ describe("api in Tauri", () => {
 
     await api.health();
     await api.getBranchPullRequests("/tmp/repo");
+    await api.getRepositoryAssistantUserProfile("/tmp/repo");
     await api.getCommitAuthorAvatars("/tmp/repo", "refs/heads/main", ["abc1234"], true);
     await api.generateCommitMessage("/tmp/repo", ["src/App.tsx"], {
       openAiToken: "",
@@ -45,19 +50,46 @@ describe("api in Tauri", () => {
       selectedAiProvider: "claudeCode",
       commitTitlePrompt: "Write a short Japanese commit message.",
     });
+    await api.chatWithRepositoryAssistant(
+      "/tmp/repo",
+      [
+        {
+          id: "user-1",
+          role: "user",
+          content: "How should I resolve this branch state?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      repositoryAssistantSettings,
+    );
+    await api.executeRepositoryAssistantAction(
+      "/tmp/repo",
+      {
+        id: "git.checkout_ref",
+        args: {
+          ref: "feature/login",
+        },
+      },
+      {
+        allowSelfRepositoryCurrentTargetMerge: true,
+      },
+    );
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "get_branch_pull_requests", {
       repoPath: "/tmp/repo",
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_commit_author_avatars", {
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "get_repository_assistant_user_profile", {
+      repoPath: "/tmp/repo",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "get_commit_author_avatars", {
       repoPath: "/tmp/repo",
       refName: "refs/heads/main",
       shas: ["abc1234"],
       allowRemoteFetch: true,
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(4, "generate_title", {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "generate_title", {
       input: {
         repoPath: "/tmp/repo",
         changedFiles: ["src/App.tsx"],
@@ -68,7 +100,34 @@ describe("api in Tauri", () => {
         commitTitlePrompt: "Write a short Japanese commit message.",
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(5, "discard_file", {
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "chat_with_repository_assistant", {
+      input: {
+        repoPath: "/tmp/repo",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: "How should I resolve this branch state?",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        openAiModel: "gpt-4.1-mini",
+        reasoningEffort: "medium",
+      },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "execute_repository_assistant_action", {
+      input: {
+        repoPath: "/tmp/repo",
+        action: {
+          id: "git.checkout_ref",
+          args: {
+            ref: "feature/login",
+          },
+        },
+        allowSelfRepositoryCurrentTargetMerge: true,
+      },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "discard_file", {
       repoPath: "/tmp/repo",
       file: "src/App.tsx",
     });

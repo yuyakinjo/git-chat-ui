@@ -1,6 +1,6 @@
-export type DiffCellKind = "context" | "add" | "delete";
-export type ParsedDiffRowKind = "context" | "change" | "add" | "delete";
-export type ParsedDiffFileKind = "modified" | "added" | "deleted" | "renamed";
+type DiffCellKind = "context" | "add" | "delete";
+type ParsedDiffRowKind = "context" | "change" | "add" | "delete";
+type ParsedDiffFileKind = "modified" | "added" | "deleted" | "renamed";
 
 export interface ParsedDiffCell {
   kind: DiffCellKind;
@@ -14,7 +14,7 @@ export interface ParsedDiffRow {
   right: ParsedDiffCell | null;
 }
 
-export interface ParsedDiffHunk {
+interface ParsedDiffHunk {
   header: string;
   oldStart: number;
   newStart: number;
@@ -30,6 +30,30 @@ export interface ParsedDiffFile {
   previousPath: string | null;
   meta: string[];
   hunks: ParsedDiffHunk[];
+}
+
+export function matchesParsedDiffFilePath(
+  file: Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath">,
+  targetPath: string | null | undefined,
+): boolean {
+  if (!targetPath) {
+    return false;
+  }
+
+  return (
+    file.displayPath === targetPath || file.newPath === targetPath || file.oldPath === targetPath
+  );
+}
+
+export function hasInlineDiffForPath(
+  files: Array<Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath" | "hunks">>,
+  targetPath: string | null | undefined,
+): boolean {
+  if (!targetPath) {
+    return false;
+  }
+
+  return files.some((file) => matchesParsedDiffFilePath(file, targetPath) && file.hunks.length > 0);
 }
 
 interface WorkingHunk {

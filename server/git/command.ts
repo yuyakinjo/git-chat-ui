@@ -15,6 +15,8 @@ export const SKIP_DIRS = new Set([
   "node_modules",
 ]);
 
+export type DiffFileKind = "modified" | "added" | "deleted" | "renamed" | "changed";
+
 export function statusCodeLabel(code: string): string {
   switch (code) {
     case "M":
@@ -74,10 +76,44 @@ export function statusLabel(x: string, y: string): string {
   }
 }
 
+function diffStatusKind(code: string): DiffFileKind {
+  switch (code) {
+    case "A":
+      return "added";
+    case "D":
+      return "deleted";
+    case "M":
+      return "modified";
+    case "R":
+      return "renamed";
+    default:
+      return "changed";
+  }
+}
+
+function parseDiffFileKinds(output: string): Array<{ file: string; kind: DiffFileKind }> {
+  return output
+    .split("\n")
+    .filter((line) => line.trim())
+    .flatMap((line) => {
+      const [statusRaw, ...paths] = line.split("\t");
+      const statusCode = statusRaw?.trim().charAt(0) ?? "";
+      const file =
+        statusCode === "R" || statusCode === "C" ? (paths.at(-1) ?? "") : (paths[0] ?? "");
+
+      if (!file) {
+        return [];
+      }
+
+      return [{ file, kind: diffStatusKind(statusCode) }];
+    });
+}
+
 export function parseCommitFileStats(
   output: string,
-): Array<{ file: string; additions: number; deletions: number }> {
-  return output
+  statusOutput = "",
+): Array<{ file: string; additions: number; deletions: number; kind: DiffFileKind }> {
+  const stats = output
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => {
@@ -90,11 +126,34 @@ export function parseCommitFileStats(
       };
     })
     .filter((entry) => Boolean(entry.file));
+
+  const statuses = parseDiffFileKinds(statusOutput);
+  if (statuses.length === 0) {
+    return stats.map((entry) => ({
+      ...entry,
+      kind: "changed",
+    }));
+  }
+
+  if (statuses.length === stats.length) {
+    return stats.map((entry, index) => ({
+      file: statuses[index]?.file || entry.file,
+      additions: entry.additions,
+      deletions: entry.deletions,
+      kind: statuses[index]?.kind ?? "changed",
+    }));
+  }
+
+  const kindByFile = new Map(statuses.map((entry) => [entry.file, entry.kind]));
+  return stats.map((entry) => ({
+    ...entry,
+    kind: kindByFile.get(entry.file) ?? "changed",
+  }));
 }
 
 export function workingTreeDiffArgs(
   area: import("../types.js").WorkingTreeDiffArea,
-  subcommand: "--numstat" | "",
+  subcommand: "--numstat" | "--name-status" | "",
 ): string[] {
   if (area === "staged") {
     return subcommand ? ["diff", "--cached", subcommand] : ["diff", "--cached"];

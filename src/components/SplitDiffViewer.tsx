@@ -1,6 +1,7 @@
 import {
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,6 +10,7 @@ import {
 } from "react";
 
 import {
+  matchesParsedDiffFilePath,
   parseUnifiedDiff,
   type ParsedDiffCell,
   type ParsedDiffFile,
@@ -35,6 +37,7 @@ interface SplitDiffFileStat {
   file: string;
   additions: number;
   deletions: number;
+  kind?: SplitDiffFileKind;
 }
 
 interface SplitDiffViewerProps {
@@ -50,7 +53,7 @@ interface SplitDiffViewerProps {
   activeFileLoading?: boolean;
   activeFileError?: string | null;
   activeFileLoadingMessage?: string;
-  onActiveFileChange?: (filePath: string | null, hasInlineDiff: boolean) => void;
+  onActiveFileChange?: (filePath: string | null) => void;
 }
 
 type DiffDisplayMode = "split" | "after-only";
@@ -68,19 +71,6 @@ const fileKindLabel: Record<SplitDiffFileKind, string> = {
   renamed: "Renamed",
   changed: "Changed",
 };
-
-function matchesFilePath(
-  file: Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath">,
-  targetPath: string | null | undefined,
-): boolean {
-  if (!targetPath) {
-    return false;
-  }
-
-  return (
-    file.displayPath === targetPath || file.newPath === targetPath || file.oldPath === targetPath
-  );
-}
 
 function matchesFileQuery(
   file: Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath" | "previousPath">,
@@ -104,10 +94,11 @@ function summarizeFile(
   file: ParsedDiffFile,
   stats: SplitDiffFileStat[] | undefined,
 ): SplitDiffDisplayFile {
-  const matched = stats?.find((item) => matchesFilePath(file, item.file));
+  const matched = stats?.find((item) => matchesParsedDiffFilePath(file, item.file));
   if (matched) {
     return {
       ...file,
+      kind: matched.kind ?? file.kind,
       additions: matched.additions,
       deletions: matched.deletions,
     };
@@ -138,7 +129,7 @@ function summarizeFile(
 function createStatOnlyFile(stat: SplitDiffFileStat): SplitDiffDisplayFile {
   return {
     key: stat.file,
-    kind: "changed",
+    kind: stat.kind ?? "changed",
     oldPath: stat.file,
     newPath: stat.file,
     displayPath: stat.file,
@@ -161,7 +152,9 @@ function buildDisplayFiles(
 
   const unmatchedParsedFiles = [...summarizedParsed];
   const orderedFiles = stats.map((stat) => {
-    const matchedIndex = unmatchedParsedFiles.findIndex((file) => matchesFilePath(file, stat.file));
+    const matchedIndex = unmatchedParsedFiles.findIndex((file) =>
+      matchesParsedDiffFilePath(file, stat.file),
+    );
     if (matchedIndex === -1) {
       return createStatOnlyFile(stat);
     }
@@ -177,6 +170,7 @@ const FONT_STYLE_ITALIC = 1;
 const FONT_STYLE_BOLD = 2;
 const FONT_STYLE_UNDERLINE = 4;
 const FONT_STYLE_STRIKETHROUGH = 8;
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function buildTokenStyle(token: DiffSyntaxDisplayToken): CSSProperties | undefined {
   const textDecorations: string[] = [];
@@ -467,7 +461,9 @@ export function SplitDiffViewer({
         return null;
       }
 
-      const preferredFile = visibleFiles.find((file) => matchesFilePath(file, preferredFilePath));
+      const preferredFile = visibleFiles.find((file) =>
+        matchesParsedDiffFilePath(file, preferredFilePath),
+      );
       if (preferredFile) {
         return preferredFile.key;
       }
@@ -481,7 +477,7 @@ export function SplitDiffViewer({
   }, [preferredFilePath, visibleFiles]);
 
   const preferredFile =
-    visibleFiles.find((file) => matchesFilePath(file, preferredFilePath)) ?? null;
+    visibleFiles.find((file) => matchesParsedDiffFilePath(file, preferredFilePath)) ?? null;
   const activeFile =
     visibleFiles.find((file) => file.key === activeFileKey) ??
     preferredFile ??
@@ -496,12 +492,12 @@ export function SplitDiffViewer({
     scrollFileTabIntoView(activeFileTabRef.current);
   }, [activeFile, showFileList, visibleFiles]);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!onActiveFileChange) {
       return;
     }
 
-    onActiveFileChange(activeFile?.displayPath ?? null, Boolean(activeFile?.hunks.length));
+    onActiveFileChange(activeFile?.displayPath ?? null);
   }, [activeFile, onActiveFileChange]);
 
   const activeFileLanguage = resolveDiffSyntaxLanguage(

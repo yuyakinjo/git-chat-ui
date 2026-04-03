@@ -33,6 +33,19 @@ describe("globals.css", () => {
     expect(tabbarSection).toContain("padding: 10px 12px 0;");
   });
 
+  test("app shell defines toolbar buttons and a right-side assistant layout", () => {
+    const tabbarSection = getSection(".app-tabbar {", ".panel {");
+
+    expect(tabbarSection).toContain(".app-toolbar-button {");
+    expect(tabbarSection).toContain(".app-toolbar-button__shortcut {");
+    expect(tabbarSection).toContain(".app-content-shell {");
+    expect(tabbarSection).toContain(".app-content-shell.is-assistant-open {");
+    expect(tabbarSection).toContain("grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);");
+    expect(globalsCss).toContain("@media (max-width: 1100px) {");
+    expect(globalsCss).toContain(".app-content-shell.is-assistant-open {");
+    expect(globalsCss).toContain("grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);");
+  });
+
   test("app tabbar uses a segmented repository selector instead of browser-style tabs", () => {
     const tabbarSection = getSection(".app-tabbar {", ".panel {");
 
@@ -52,6 +65,10 @@ describe("globals.css", () => {
     expect(tabbarSection).toContain(".app-tab-toggle__text {");
     expect(tabbarSection).toContain(".app-tab__close {");
     expect(tabbarSection).toContain("margin-right: 6px;");
+    expect(tabbarSection).toContain(".app-tab__branch-viewport {");
+    expect(tabbarSection).toContain(".app-tab__branch-track {");
+    expect(tabbarSection).toContain(".app-tab__branch.is-overflowing .app-tab__branch-track {");
+    expect(tabbarSection).toContain("@keyframes app-tab-branch-marquee {");
     expect(tabbarSection).not.toContain("border-bottom:");
     expect(tabbarSection).not.toContain(".app-tabbar__actions::before {");
     expect(tabbarSection).not.toContain("0 0 0 1px rgb(var(--theme-border-rgb) / 0.18)");
@@ -65,57 +82,17 @@ describe("globals.css", () => {
       ".controller-panel-slot {",
     );
 
-    expect(controllerPanelSection).toContain("transition: grid-template-rows 320ms ease;");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.3fr) minmax(320px, 1.15fr) minmax(170px, 0.72fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      ".controller-panels-grid--without-git-operations-graph-detail {",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(0, 1.3fr) minmax(260px, 1.87fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      ".controller-panels-grid--without-git-operations-detail-graph {",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(260px, 1.87fr) minmax(0, 1.3fr);",
     );
     expect(controllerPanelSection).toContain("@media (max-width: 1320px) {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.08fr) minmax(340px, 1.18fr) minmax(150px, 0.56fr);",
     );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(0, 1.08fr) minmax(280px, 1.74fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(280px, 1.74fr) minmax(0, 1.08fr);",
-    );
     expect(controllerPanelSection).toContain("@media (max-width: 1100px) {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(280px, 1.08fr) minmax(320px, 1.1fr) minmax(170px, 0.62fr);",
     );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(240px, 1.08fr) minmax(320px, 1.72fr);",
-    );
-    expect(controllerPanelSection).toContain(
-      "grid-template-rows: minmax(320px, 1.72fr) minmax(240px, 1.08fr);",
-    );
-  });
-
-  test("controller panel slots fade git operations out before the grid collapses", () => {
-    const controllerPanelSection = getSection(
-      ".controller-panels-grid {",
-      ".controller-panel-drop-split {",
-    );
-
-    expect(controllerPanelSection).toContain(".controller-panel-slot--hiding {");
-    expect(controllerPanelSection).toContain("pointer-events: none;");
-    expect(controllerPanelSection).toContain(".controller-panel-slot--hiding .panel {");
-    expect(controllerPanelSection).toContain("opacity: 0;");
-    expect(controllerPanelSection).toContain("transform: translateY(-10px) scale(0.985);");
-    expect(controllerPanelSection).toContain("filter: saturate(0.86);");
-    expect(controllerPanelSection).toContain("transition-duration: 320ms;");
   });
 
   test("git operation panel uses a stacked staged/stash column and expands commit in wider layouts", () => {
@@ -198,6 +175,50 @@ describe("globals.css", () => {
     expect(commandPaletteSection).not.toContain(".command-palette__footer {");
   });
 
+  test("repository assistant styles separate thread, messages, and composer", () => {
+    const assistantSection = getSection(".repository-assistant {", ".button {");
+
+    expect(assistantSection).toContain(".repository-assistant__thread {");
+    expect(assistantSection).toContain(".repository-assistant__message {");
+    expect(assistantSection).toContain(".repository-assistant__message--assistant {");
+    expect(assistantSection).toContain(".repository-assistant__message-author {");
+    expect(assistantSection).toContain(".repository-assistant__avatar {");
+    expect(assistantSection).toContain(".repository-assistant__composer {");
+    expect(assistantSection).toContain(".repository-assistant__composer-settings {");
+    expect(assistantSection).toContain(".repository-assistant__action-card {");
+    expect(assistantSection).toContain(".repository-assistant__setting .config-view__combobox-menu {");
+    expect(assistantSection).toContain("bottom: calc(100% + 6px);");
+    expect(assistantSection).toContain(".repository-assistant__textarea {");
+    expect(assistantSection).toContain(".repository-assistant__message-body pre {");
+    expect(assistantSection).toContain(".repository-assistant__message-body code {");
+    expect(assistantSection).toContain(".repository-assistant__message-body a {");
+    expect(globalsCss).toContain(".repository-assistant__policy-dialog {");
+    expect(globalsCss).toContain("@keyframes repository-assistant-spin {");
+  });
+
+  test("commit detail split layout only uses wide two-column tracks", () => {
+    const commitDetailSection = getSection(".commit-detail-panel__content {", ".list-item {");
+
+    expect(commitDetailSection).toContain(".commit-detail-panel__summary {");
+    expect(commitDetailSection).toContain("flex: 0 0 auto;");
+    expect(commitDetailSection).toContain(".commit-detail-panel__content--split {");
+    expect(commitDetailSection).toContain("align-items: stretch;");
+    expect(commitDetailSection).toContain(
+      "grid-template-columns: minmax(280px, 0.78fr) minmax(340px, 1.22fr);",
+    );
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__summary {",
+    );
+    expect(commitDetailSection).toContain("align-self: stretch;");
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__summary .commit-detail-panel__card {",
+    );
+    expect(commitDetailSection).toContain("flex: 1 1 auto;");
+    expect(commitDetailSection).toContain(
+      ".commit-detail-panel__content--split .commit-detail-panel__files {",
+    );
+  });
+
   test("branch rows expose dedicated local and remote icon styles with dark-mode overrides", () => {
     const branchBadgeSection = getSection(".branch-list-item__content {", ".branch-tree__hint {");
 
@@ -206,6 +227,8 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain(".branch-list-item__actions {");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-link {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pull-link {");
+    expect(branchBadgeSection).toContain(".branch-list-item__pull-count {");
     expect(branchBadgeSection).toContain("width: 24px;");
     expect(branchBadgeSection).toContain("height: 24px;");
     expect(branchBadgeSection).toContain(".branch-list-item__pr-link.is-warning {");
@@ -216,6 +239,7 @@ describe("globals.css", () => {
     expect(branchBadgeSection).toContain("rgb(15 118 110 / 0.96)");
     expect(branchBadgeSection).toContain(".branch-list-item__header {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__icon {");
+    expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pull-link {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-link {");
     expect(branchBadgeSection).toContain(".list-item.active .branch-list-item__pr-warning {");
     expect(branchBadgeSection).toContain(
@@ -271,6 +295,7 @@ describe("globals.css", () => {
     expect(inputSection).toContain(".config-view__combobox-input {");
     expect(inputSection).toContain(".config-view__combobox-toggle {");
     expect(inputSection).toContain(".config-view__combobox-menu {");
+    expect(inputSection).toContain("top: calc(100% + 6px);");
     expect(inputSection).toContain("backdrop-filter: blur(18px) saturate(170%);");
     expect(inputSection).toContain(".config-view__combobox-option.is-selected {");
     expect(inputSection).toContain(".config-view__combobox-empty {");

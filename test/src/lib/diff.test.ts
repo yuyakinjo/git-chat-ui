@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseUnifiedDiff } from "../../../src/lib/diff";
+import { hasInlineDiffForPath, parseUnifiedDiff } from "../../../src/lib/diff";
 
 describe("parseUnifiedDiff", () => {
   test("pairs delete and add lines into split rows", () => {
@@ -126,5 +126,20 @@ index 3333333..4444444 100644
     expect(aggregateFiles[1]?.key).toBe("src/second.ts");
     expect(focusedFiles[0]?.displayPath).toBe("src/second.ts");
     expect(focusedFiles[0]?.key).toBe("src/second.ts");
+  });
+
+  test("reports whether the selected file already has inline diff content", () => {
+    const files = parseUnifiedDiff(`diff --git a/src/visible.ts b/src/visible.ts
+index 1111111..2222222 100644
+--- a/src/visible.ts
++++ b/src/visible.ts
+@@ -1 +1 @@
+-old
++new
+`);
+
+    expect(hasInlineDiffForPath(files, "src/visible.ts")).toBe(true);
+    expect(hasInlineDiffForPath(files, "src/missing.ts")).toBe(false);
+    expect(hasInlineDiffForPath(files, null)).toBe(false);
   });
 });

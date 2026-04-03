@@ -19,6 +19,13 @@ import type {
   PullStatus,
   PullRequestPreparation,
   PullRequestResponse,
+  RepositoryAssistantUserProfile,
+  RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
+  RepositoryAssistantActionExecutionResponse,
+  RepositoryAssistantMessage,
+  RepositoryAssistantResponse,
+  RepositoryAssistantSettings,
   Repository,
   RepositoryMutationSafety,
   StashDiffDetail,
@@ -63,6 +70,10 @@ export const api = {
 
   getRepositoryGithubUrl(repoPath: string): Promise<{ url: string | null }> {
     return getBusinessTransport().getRepositoryGithubUrl(repoPath);
+  },
+
+  getRepositoryAssistantUserProfile(repoPath: string): Promise<RepositoryAssistantUserProfile> {
+    return getBusinessTransport().getRepositoryAssistantUserProfile(repoPath);
   },
 
   getRepositoryMutationSafety(repoPath: string): Promise<RepositoryMutationSafety> {
@@ -238,12 +249,12 @@ export const api = {
     return getBusinessTransport().mergeBranches(repoPath, sourceBranch, targetBranch);
   },
 
-  getPullStatus(repoPath: string): Promise<PullStatus> {
-    return getBusinessTransport().getPullStatus(repoPath);
+  getPullStatus(repoPath: string, branchName?: string): Promise<PullStatus> {
+    return getBusinessTransport().getPullStatus(repoPath, branchName);
   },
 
-  pull(repoPath: string): Promise<{ ok: boolean }> {
-    return getBusinessTransport().pull(repoPath);
+  pull(repoPath: string, branchName?: string): Promise<{ ok: boolean }> {
+    return getBusinessTransport().pull(repoPath, branchName);
   },
 
   createBranch(repoPath: string, baseBranch: string, newBranch: string): Promise<{ ok: boolean }> {
@@ -319,5 +330,21 @@ export const api = {
     input?: Partial<AiGenerationConfig>,
   ): Promise<GeneratedCommitMessage> {
     return getBusinessTransport().generateCommitMessage(repoPath, changedFiles, input);
+  },
+
+  chatWithRepositoryAssistant(
+    repoPath: string,
+    messages: RepositoryAssistantMessage[],
+    settings: RepositoryAssistantSettings,
+  ): Promise<RepositoryAssistantResponse> {
+    return getBusinessTransport().chatWithRepositoryAssistant(repoPath, messages, settings);
+  },
+
+  executeRepositoryAssistantAction(
+    repoPath: string,
+    action: RepositoryAssistantAction,
+    options?: RepositoryAssistantActionExecutionOptions,
+  ): Promise<RepositoryAssistantActionExecutionResponse> {
+    return getBusinessTransport().executeRepositoryAssistantAction(repoPath, action, options);
   },
 };

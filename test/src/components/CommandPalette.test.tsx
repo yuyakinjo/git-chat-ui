@@ -39,6 +39,7 @@ describe("CommandPalette", () => {
     expect(html).toContain("Open GitHub Page");
     expect(html).not.toContain("Cmd/Ctrl + P");
     expect(html).not.toContain("Arrow keys to move, Enter to run, Esc to close");
-    expect(html).toContain("Unavailable");
+    expect(html).not.toContain("Unavailable");
+    expect(html).not.toContain("Enter");
   });
 });

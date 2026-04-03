@@ -51,6 +51,11 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/repositories/github-url?${params.toString()}`);
     },
 
+    getRepositoryAssistantUserProfile(repoPath) {
+      const params = new URLSearchParams({ repoPath });
+      return request(baseUrl, `/ai/user-profile?${params.toString()}`);
+    },
+
     getRepositoryMutationSafety(repoPath) {
       const params = new URLSearchParams({ repoPath });
       return request(baseUrl, `/repositories/mutation-safety?${params.toString()}`);
@@ -264,15 +269,21 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       });
     },
 
-    getPullStatus(repoPath) {
+    getPullStatus(repoPath, branchName) {
       const params = new URLSearchParams({ repoPath });
+      if (branchName?.trim()) {
+        params.set("branchName", branchName.trim());
+      }
       return request(baseUrl, `/pull/status?${params.toString()}`);
     },
 
-    pull(repoPath) {
+    pull(repoPath, branchName) {
       return request(baseUrl, "/pull", {
         method: "POST",
-        body: JSON.stringify({ repoPath }),
+        body: JSON.stringify({
+          repoPath,
+          branchName: branchName?.trim() ? branchName.trim() : undefined,
+        }),
       });
     },
 
@@ -362,6 +373,28 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
           repoPath,
           changedFiles,
           ...input,
+        }),
+      });
+    },
+
+    chatWithRepositoryAssistant(repoPath, messages, settings) {
+      return request(baseUrl, "/ai/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          repoPath,
+          messages,
+          ...settings,
+        }),
+      });
+    },
+
+    executeRepositoryAssistantAction(repoPath, action, options) {
+      return request(baseUrl, "/ai/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          repoPath,
+          action,
+          ...options,
         }),
       });
     },

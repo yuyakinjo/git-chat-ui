@@ -3,6 +3,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { api } from "../../../src/lib/api";
 
 const originalFetch = globalThis.fetch;
+const repositoryAssistantSettings = {
+  openAiModel: "gpt-4.1-mini",
+  reasoningEffort: "medium" as const,
+};
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -42,6 +46,210 @@ describe("api.generateCommitMessage", () => {
       claudeCodeToken: "cc-live-token",
       selectedAiProvider: "claudeCode",
       commitTitlePrompt: "Write a short Japanese commit message.",
+    });
+  });
+});
+
+describe("api.chatWithRepositoryAssistant", () => {
+  test("posts repository chat messages to the AI chat endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Start by checking the conflicted files.",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+          proposedActions: [],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.chatWithRepositoryAssistant(
+      "/tmp/repo",
+      [
+        {
+          id: "user-1",
+          role: "user",
+          content: "What should I do next?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      repositoryAssistantSettings,
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/ai/chat");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "What should I do next?",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ],
+      openAiModel: "gpt-4.1-mini",
+      reasoningEffort: "medium",
+    });
+  });
+});
+
+describe("api.getRepositoryAssistantUserProfile", () => {
+  test("loads the repository assistant user profile from the AI user-profile endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          login: "octocat",
+          avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(api.getRepositoryAssistantUserProfile("/tmp/repo")).resolves.toEqual({
+      login: "octocat",
+      avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/ai/user-profile?repoPath=%2Ftmp%2Frepo",
+    );
+    expect(requests[0]?.body).toBeNull();
+  });
+});
+
+describe("api.executeRepositoryAssistantAction", () => {
+  test("posts typed assistant actions to the AI execute endpoint", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          result: {
+            action: {
+              id: "git.checkout_ref",
+              args: {
+                ref: "feature/login",
+              },
+            },
+            status: "succeeded",
+            message: "Checked out feature/login.",
+            createdAt: "2026-04-03T00:03:00.000Z",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.executeRepositoryAssistantAction("/tmp/repo", {
+      id: "git.checkout_ref",
+      args: {
+        ref: "feature/login",
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/ai/execute");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      action: {
+        id: "git.checkout_ref",
+        args: {
+          ref: "feature/login",
+        },
+      },
+    });
+  });
+
+  test("includes assistant execution options when provided", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          result: {
+            action: {
+              id: "git.merge_branches",
+              args: {
+                sourceBranch: "main",
+                targetBranch: "feature/login",
+              },
+            },
+            status: "failed",
+            message:
+              "Merge from main into feature/login started. Conflicts require manual resolution (1 file).",
+            createdAt: "2026-04-03T00:03:00.000Z",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.executeRepositoryAssistantAction(
+      "/tmp/repo",
+      {
+        id: "git.merge_branches",
+        args: {
+          sourceBranch: "main",
+          targetBranch: "feature/login",
+        },
+      },
+      {
+        allowSelfRepositoryCurrentTargetMerge: true,
+      },
+    );
+
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      action: {
+        id: "git.merge_branches",
+        args: {
+          sourceBranch: "main",
+          targetBranch: "feature/login",
+        },
+      },
+      allowSelfRepositoryCurrentTargetMerge: true,
     });
   });
 });
@@ -373,6 +581,41 @@ describe("api.getPullStatus", () => {
     expect(requests[0]?.url).toBe("http://localhost:4141/api/pull/status?repoPath=%2Ftmp%2Frepo");
     expect(requests[0]?.body).toBeNull();
   });
+
+  test("passes branchName when requesting pull status for a specific local branch", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          branchName: "main",
+          upstreamName: "origin/main",
+          remoteName: "origin",
+          remoteBranchName: "main",
+          aheadCount: 0,
+          behindCount: 1,
+          canPull: true,
+          state: "behind",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.getPullStatus("/tmp/repo", "main");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      "http://localhost:4141/api/pull/status?repoPath=%2Ftmp%2Frepo&branchName=main",
+    );
+  });
 });
 
 describe("api.pull", () => {
@@ -396,6 +639,31 @@ describe("api.pull", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("http://localhost:4141/api/pull");
     expect(requests[0]?.body).toEqual({ repoPath: "/tmp/repo" });
+  });
+
+  test("posts branchName when pulling a specific local branch", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await api.pull("/tmp/repo", "main");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://localhost:4141/api/pull");
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      branchName: "main",
+    });
   });
 });
 

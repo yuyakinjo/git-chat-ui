@@ -1,6 +1,6 @@
 import { animate, stagger } from "animejs";
 import { Check } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { useContainerWidth } from "../hooks/useContainerWidth";
 import { copyTextToClipboard } from "../lib/clipboard";
@@ -13,7 +13,6 @@ import {
   buildCommitRefBadges,
   buildDefaultBranchAnchorLaneIndices,
   clampColumnWidth,
-  DEFAULT_BRANCH_LANE_COLOR,
   LANE_GAP,
   LANE_PADDING,
   laneColor,
@@ -55,6 +54,7 @@ interface CommitGraphProps {
   onCheckoutBranchRef: (refName: string) => void;
   onLoadMore: () => void;
   onNotify: (message: string) => void;
+  onJumpToCommit?: ((sha: string) => Promise<boolean>) | null;
   headerAccessory?: JSX.Element | null;
   branchContext?: BranchResponse | null;
 }
@@ -81,6 +81,7 @@ export function CommitGraph({
   onCheckoutBranchRef,
   onLoadMore,
   onNotify,
+  onJumpToCommit = null,
   headerAccessory,
   branchContext = null,
 }: CommitGraphProps): JSX.Element {
@@ -88,6 +89,8 @@ export function CommitGraph({
   const COMMIT_AVATAR_NODE_SIZE = 24;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
+  const shaJumpContainerRef = useRef<HTMLDivElement | null>(null);
+  const shaJumpInputRef = useRef<HTMLInputElement | null>(null);
   const containerWidth = useContainerWidth(rootRef);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -101,6 +104,9 @@ export function CommitGraph({
 
     return clampColumnWidth(persisted);
   });
+  const [isShaJumpOpen, setIsShaJumpOpen] = useState(false);
+  const [shaJumpValue, setShaJumpValue] = useState("");
+  const [shaJumpPending, setShaJumpPending] = useState(false);
 
   const visibleCommits = useMemo(() => commits, [commits]);
   const laneLayout = useMemo(() => buildLaneRows(commits), [commits]);
@@ -234,6 +240,36 @@ export function CommitGraph({
   }, [visibleCommits.length]);
 
   useEffect(() => {
+    if (!isShaJumpOpen) {
+      return;
+    }
+
+    shaJumpInputRef.current?.focus();
+    shaJumpInputRef.current?.select();
+  }, [isShaJumpOpen]);
+
+  useEffect(() => {
+    if (!isShaJumpOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const container = shaJumpContainerRef.current;
+      if (!container || container.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsShaJumpOpen(false);
+      setShaJumpValue("");
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [isShaJumpOpen]);
+
+  useEffect(() => {
     if (!scrollToCommitSha || !rootRef.current) {
       return;
     }
@@ -255,6 +291,7 @@ export function CommitGraph({
   const isDetailedMode = mode === "detailed";
   const hasWipRow =
     (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
+  const normalizedCheckedOutCommitSha = checkedOutCommitSha?.trim() ?? "";
   const graphColumnWidth = isDetailedMode
     ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
     : 22;
@@ -266,11 +303,40 @@ export function CommitGraph({
   const isCompactLayout = columnLayout.isCompact;
   const displayedRefsColumnWidth = columnLayout.displayedRefsColumnWidth;
   const gridTemplateColumns = columnLayout.templateColumns;
+  const wipLineTopEnd = ROW_HEIGHT / 2 - WIP_NODE_LINE_CLEARANCE;
   const wipLineBottomStart = ROW_HEIGHT / 2 + WIP_NODE_LINE_CLEARANCE;
+  const wipAnchor = useMemo(() => {
+    if (!hasWipRow) {
+      return {
+        incomingLaneIndices: [] as number[],
+        rowIndex: 0,
+        laneIndex: 0,
+      };
+    }
+
+    const checkedOutRowIndex = normalizedCheckedOutCommitSha
+      ? visibleCommits.findIndex((commit) => commit.sha.trim() === normalizedCheckedOutCommitSha)
+      : -1;
+    const rowIndex = checkedOutRowIndex >= 0 ? checkedOutRowIndex : 0;
+
+    return {
+      incomingLaneIndices: laneLayout.rows[rowIndex]?.incomingLaneIndices ?? [],
+      rowIndex,
+      laneIndex: laneLayout.rows[rowIndex]?.laneIndex ?? 0,
+    };
+  }, [hasWipRow, laneLayout.rows, normalizedCheckedOutCommitSha, visibleCommits]);
   const resolveLaneStroke = useCallback(
     (rowIndex: number, laneIndex: number) =>
       laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0),
     [defaultBranchAnchorLaneIndices],
+  );
+  const resolveLaneStrokeWidth = useCallback(
+    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) => 2.2,
+    [],
+  );
+  const resolveLaneOpacity = useCallback(
+    (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) => 0.85,
+    [],
   );
   const handleCopySha = useCallback(
     (sha: string) => {
@@ -283,6 +349,189 @@ export function CommitGraph({
         });
     },
     [onNotify],
+  );
+  const handleToggleShaJump = useCallback((): void => {
+    if (!onJumpToCommit || shaJumpPending) {
+      return;
+    }
+
+    const nextIsOpen = !isShaJumpOpen;
+    setIsShaJumpOpen(nextIsOpen);
+    if (!nextIsOpen) {
+      setShaJumpValue("");
+    }
+  }, [isShaJumpOpen, onJumpToCommit, shaJumpPending]);
+  const handleSubmitShaJump = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+      event.preventDefault();
+
+      if (!onJumpToCommit || shaJumpPending) {
+        return;
+      }
+
+      const normalizedSha = shaJumpValue.trim();
+      if (!normalizedSha) {
+        onNotify("SHA を入力してください。");
+        shaJumpInputRef.current?.focus();
+        return;
+      }
+
+      setShaJumpPending(true);
+      try {
+        const didJump = await onJumpToCommit(normalizedSha);
+        if (didJump) {
+          setShaJumpValue("");
+          setIsShaJumpOpen(false);
+          return;
+        }
+
+        shaJumpInputRef.current?.focus();
+        shaJumpInputRef.current?.select();
+      } finally {
+        setShaJumpPending(false);
+      }
+    },
+    [onJumpToCommit, onNotify, shaJumpPending, shaJumpValue],
+  );
+  const renderWipRow = useCallback(
+    (): JSX.Element => {
+      const passthroughLaneIndices = wipAnchor.incomingLaneIndices.filter(
+        (laneIndex) => laneIndex !== wipAnchor.laneIndex,
+      );
+      const anchorLaneHasIncoming = wipAnchor.incomingLaneIndices.includes(wipAnchor.laneIndex);
+      const anchorLaneStrokeWidth = resolveLaneStrokeWidth(
+        wipAnchor.rowIndex,
+        wipAnchor.laneIndex,
+        wipAnchor.laneIndex,
+      );
+      const anchorLaneOpacity = resolveLaneOpacity(
+        wipAnchor.rowIndex,
+        wipAnchor.laneIndex,
+        wipAnchor.laneIndex,
+      );
+
+      return (
+        <div
+          className="wip-row commit-row"
+          style={{ gridTemplateColumns }}
+          onClick={onSelectWip}
+          title="未コミットの変更があります"
+        >
+          {isDetailedMode ? (
+            <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+              <svg
+                className="absolute left-0"
+                width={graphColumnWidth}
+                height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+                style={{ top: `${-LINE_OVERDRAW}px` }}
+                viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+                fill="none"
+              >
+                {passthroughLaneIndices.map((laneIndex) => {
+                  const strokeWidth = resolveLaneStrokeWidth(wipAnchor.rowIndex, laneIndex, null);
+                  return (
+                    <line
+                      className="wip-row__lane-line wip-row__lane-line--passthrough"
+                      key={`wip-passthrough-${laneIndex}`}
+                      x1={laneX(laneIndex)}
+                      y1={-LINE_OVERDRAW}
+                      x2={laneX(laneIndex)}
+                      y2={ROW_HEIGHT + LINE_OVERDRAW}
+                      stroke={resolveLaneStroke(wipAnchor.rowIndex, laneIndex)}
+                      strokeWidth={strokeWidth}
+                      opacity={resolveLaneOpacity(wipAnchor.rowIndex, laneIndex, null)}
+                      strokeLinecap="round"
+                    />
+                  );
+                })}
+                {anchorLaneHasIncoming ? (
+                  <line
+                    className="wip-row__lane-line wip-row__lane-line--connector-top"
+                    x1={laneX(wipAnchor.laneIndex)}
+                    y1={-LINE_OVERDRAW}
+                    x2={laneX(wipAnchor.laneIndex)}
+                    y2={wipLineTopEnd}
+                    stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
+                    strokeWidth={anchorLaneStrokeWidth}
+                    opacity={anchorLaneOpacity}
+                    strokeLinecap="round"
+                  />
+                ) : null}
+                <line
+                  className="wip-row__lane-line wip-row__lane-line--connector"
+                  x1={laneX(wipAnchor.laneIndex)}
+                  y1={wipLineBottomStart}
+                  x2={laneX(wipAnchor.laneIndex)}
+                  y2={ROW_HEIGHT + LINE_OVERDRAW}
+                  stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
+                  strokeWidth={anchorLaneStrokeWidth}
+                  opacity={anchorLaneOpacity}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <WipNode
+                className="absolute block"
+                style={{
+                  left: `${laneX(wipAnchor.laneIndex) - WIP_NODE_CENTER}px`,
+                  top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
+                }}
+              />
+            </div>
+          ) : (
+            <div className="relative flex h-8 items-center justify-center">
+              <div
+                className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
+                style={{
+                  top: `${wipLineBottomStart}px`,
+                  height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
+                }}
+              />
+              <WipNode />
+            </div>
+          )}
+          <div className="overflow-hidden whitespace-nowrap text-xs">
+            <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
+              WIP
+            </span>
+          </div>
+          {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
+          <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
+            <span>{"// WIP"}</span>
+            <span className="wip-row__meta truncate text-xs font-normal">
+              {[
+                wipStagedCount > 0 ? `${wipStagedCount} staged` : null,
+                wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : null,
+                wipConflictedCount > 0 ? `${wipConflictedCount} conflicted` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
+          <div className="wip-row__meta truncate text-xs">—</div>
+          {!isCompactLayout ? (
+            <div className="wip-row__meta commit-id-column truncate text-xs">—</div>
+          ) : null}
+        </div>
+      );
+    },
+    [
+      graphColumnWidth,
+      gridTemplateColumns,
+      isCompactLayout,
+      isDetailedMode,
+      onSelectWip,
+      resolveLaneOpacity,
+      resolveLaneStroke,
+      resolveLaneStrokeWidth,
+      wipAnchor.incomingLaneIndices,
+      wipAnchor.laneIndex,
+      wipAnchor.rowIndex,
+      wipConflictedCount,
+      wipLineBottomStart,
+      wipLineTopEnd,
+      wipStagedCount,
+      wipUnstagedCount,
+    ],
   );
 
   return (
@@ -331,86 +580,74 @@ export function CommitGraph({
           {!isCompactLayout ? <span>Date</span> : null}
           <span>Message</span>
           <span>Author</span>
-          {!isCompactLayout ? <span className="commit-id-column">SHA</span> : null}
+          {!isCompactLayout ? (
+            <div className="commit-id-column relative" ref={shaJumpContainerRef}>
+              {onJumpToCommit ? (
+                <>
+                  <button
+                    type="button"
+                    className="commit-graph__sha-jump-trigger inline-flex items-center rounded-full border border-transparent px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:border-black/8 hover:bg-black/5 hover:text-ink focus-visible:border-black/10 focus-visible:outline-none"
+                    onClick={handleToggleShaJump}
+                    aria-expanded={isShaJumpOpen}
+                    aria-haspopup="dialog"
+                    title="SHA を入力して commit に移動"
+                  >
+                    SHA
+                  </button>
+                  {isShaJumpOpen ? (
+                    <form
+                      className="commit-graph__sha-jump-popover absolute right-0 top-full z-20 mt-2 flex w-[240px] items-center gap-2 rounded-2xl border border-black/6 bg-white/96 p-2 shadow-lg backdrop-blur-md"
+                      onSubmit={(event) => {
+                        void handleSubmitShaJump(event);
+                      }}
+                    >
+                      <input
+                        ref={shaJumpInputRef}
+                        type="text"
+                        className="input commit-graph__sha-jump-input h-9 min-w-0 flex-1 px-3 py-2 text-xs"
+                        value={shaJumpValue}
+                        onChange={(event) => {
+                          setShaJumpValue(event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape" || shaJumpPending) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          setIsShaJumpOpen(false);
+                          setShaJumpValue("");
+                        }}
+                        placeholder="git sha"
+                        aria-label="Jump to commit SHA"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        disabled={shaJumpPending}
+                      />
+                      <button
+                        type="submit"
+                        className="commit-graph__sha-jump-submit inline-flex h-9 shrink-0 items-center rounded-xl border border-black/8 px-3 text-[11px] font-semibold text-ink transition hover:border-black/12 hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={shaJumpPending}
+                      >
+                        {shaJumpPending ? "移動中" : "移動"}
+                      </button>
+                    </form>
+                  ) : null}
+                </>
+              ) : (
+                <span>SHA</span>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {loading ? (
           <div className="p-4 text-sm text-ink-subtle">コミットを読み込み中...</div>
         ) : null}
 
-        {hasWipRow ? (
-          <div
-            className="wip-row commit-row"
-            style={{ gridTemplateColumns }}
-            onClick={onSelectWip}
-            title="未コミットの変更があります"
-          >
-            {isDetailedMode ? (
-              <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
-                <svg
-                  className="absolute left-0"
-                  width={graphColumnWidth}
-                  height={ROW_HEIGHT + LINE_OVERDRAW * 2}
-                  style={{ top: `${-LINE_OVERDRAW}px` }}
-                  viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
-                  fill="none"
-                >
-                  <line
-                    className="wip-row__lane-line wip-row__lane-line--connector"
-                    x1={laneX(0)}
-                    y1={wipLineBottomStart}
-                    x2={laneX(0)}
-                    y2={ROW_HEIGHT + LINE_OVERDRAW}
-                    stroke={resolveLaneStroke(0, 0) || DEFAULT_BRANCH_LANE_COLOR}
-                    strokeWidth={2.2}
-                    opacity={0.85}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <WipNode
-                  className="absolute block"
-                  style={{
-                    left: `${laneX(0) - WIP_NODE_CENTER}px`,
-                    top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="relative flex h-8 items-center justify-center">
-                <div
-                  className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
-                  style={{
-                    top: `${wipLineBottomStart}px`,
-                    height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
-                  }}
-                />
-                <WipNode />
-              </div>
-            )}
-            <div className="overflow-hidden whitespace-nowrap text-xs">
-              <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
-                WIP
-              </span>
-            </div>
-            {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
-            <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
-              <span>{"// WIP"}</span>
-              <span className="wip-row__meta truncate text-xs font-normal">
-                {[
-                  wipStagedCount > 0 ? `${wipStagedCount} staged` : null,
-                  wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : null,
-                  wipConflictedCount > 0 ? `${wipConflictedCount} conflicted` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </div>
-            <div className="wip-row__meta truncate text-xs">—</div>
-            {!isCompactLayout ? (
-              <div className="wip-row__meta commit-id-column truncate text-xs">—</div>
-            ) : null}
-          </div>
-        ) : null}
+        {hasWipRow && visibleCommits.length === 0 ? renderWipRow() : null}
 
         {visibleCommits.map((commit, index) => {
           const isHighlighted = highlightedCommitSha === commit.sha;
@@ -429,228 +666,241 @@ export function CommitGraph({
           const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
 
           return (
-            <div
-              key={commit.sha}
-              className={`commit-row ${isActive || isHighlighted ? "active" : ""}`}
-              style={{ gridTemplateColumns }}
-              data-animate="commit-enter"
-              data-commit-sha={commit.sha}
-              onClick={() => onSelectCommit(commit)}
-              onDoubleClick={() => {
-                if (!busy) {
-                  onCheckoutCommit(commit);
-                }
-              }}
-            >
-              {isDetailedMode ? (
-                <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
-                  <svg
-                    className="absolute left-0"
-                    width={graphColumnWidth}
-                    height={ROW_HEIGHT + LINE_OVERDRAW * 2}
-                    style={{ top: `${-LINE_OVERDRAW}px` }}
-                    viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
-                    fill="none"
-                  >
-                    {row.activeLaneIndices.map((laneIndex) => {
-                      const isCommitLane = laneIndex === row.laneIndex;
-                      const strokeWidth = isCommitLane ? 2.2 : 1.5;
-                      const hasIncoming =
-                        (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                        (hasWipRow && index === 0 && laneIndex === 0);
-                      const hasOutgoingRaw = row.outgoingLaneIndices.includes(laneIndex);
-                      const hasOutgoing =
-                        hasOutgoingRaw && !(index === visibleCommits.length - 1 && !hasMore);
+            <Fragment key={commit.sha}>
+              {hasWipRow && visibleCommits.length > 0 && index === wipAnchor.rowIndex
+                ? renderWipRow()
+                : null}
+              <div
+                className={`commit-row ${isActive || isHighlighted ? "active" : ""}`}
+                style={{ gridTemplateColumns }}
+                data-animate="commit-enter"
+                data-commit-sha={commit.sha}
+                onClick={() => onSelectCommit(commit)}
+                onDoubleClick={() => {
+                  if (!busy) {
+                    onCheckoutCommit(commit);
+                  }
+                }}
+              >
+                {isDetailedMode ? (
+                  <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+                    <svg
+                      className="absolute left-0"
+                      width={graphColumnWidth}
+                      height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+                      style={{ top: `${-LINE_OVERDRAW}px` }}
+                      viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+                      fill="none"
+                    >
+                      {row.activeLaneIndices.map((laneIndex) => {
+                        const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
+                        const hasIncoming =
+                          (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
+                          (hasWipRow &&
+                            index === wipAnchor.rowIndex &&
+                            laneIndex === wipAnchor.laneIndex);
+                        const hasOutgoingRaw = row.outgoingLaneIndices.includes(laneIndex);
+                        const hasOutgoing =
+                          hasOutgoingRaw && !(index === visibleCommits.length - 1 && !hasMore);
 
-                      if (!hasIncoming && !hasOutgoing) {
-                        return null;
-                      }
+                        if (!hasIncoming && !hasOutgoing) {
+                          return null;
+                        }
 
-                      const y1 = hasIncoming ? -LINE_OVERDRAW : ROW_HEIGHT / 2 + strokeWidth / 2;
-                      const y2 = hasOutgoing
-                        ? ROW_HEIGHT + LINE_OVERDRAW
-                        : ROW_HEIGHT / 2 - strokeWidth / 2;
+                        const y1 = hasIncoming ? -LINE_OVERDRAW : ROW_HEIGHT / 2 + strokeWidth / 2;
+                        const y2 = hasOutgoing
+                          ? ROW_HEIGHT + LINE_OVERDRAW
+                          : ROW_HEIGHT / 2 - strokeWidth / 2;
 
-                      return (
-                        <line
-                          className="commit-graph__lane-line"
-                          key={`${commit.sha}-${laneIndex}`}
-                          x1={laneX(laneIndex)}
-                          y1={y1}
-                          x2={laneX(laneIndex)}
-                          y2={y2}
-                          stroke={resolveLaneStroke(index, laneIndex)}
-                          strokeWidth={strokeWidth}
-                          opacity={isCommitLane ? 0.85 : 0.48}
-                          strokeLinecap="round"
-                        />
-                      );
-                    })}
+                        return (
+                          <line
+                            className="commit-graph__lane-line"
+                            key={`${commit.sha}-${laneIndex}`}
+                            x1={laneX(laneIndex)}
+                            y1={y1}
+                            x2={laneX(laneIndex)}
+                            y2={y2}
+                            stroke={resolveLaneStroke(index, laneIndex)}
+                            strokeWidth={strokeWidth}
+                            opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
+                            strokeLinecap="round"
+                          />
+                        );
+                      })}
 
-                    {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
-                      const sourceX = laneX(row.laneIndex);
-                      const targetX = laneX(targetLaneIndex);
-                      const midY = ROW_HEIGHT / 2;
+                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
+                        const sourceX = laneX(row.laneIndex);
+                        const targetX = laneX(targetLaneIndex);
+                        const midY = ROW_HEIGHT / 2;
                       return (
                         <path
                           key={`${commit.sha}-merge-${targetLaneIndex}`}
                           d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
                           stroke={resolveLaneStroke(index, targetLaneIndex)}
-                          strokeWidth={1.5}
-                          opacity={0.75}
+                          strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
+                          opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
                         />
                       );
                     })}
 
-                    {row.primaryParentLaneIndex !== null &&
-                    row.primaryParentLaneIndex !== row.laneIndex ? (
+                      {row.primaryParentLaneIndex !== null &&
+                      row.primaryParentLaneIndex !== row.laneIndex ? (
                       <path
                         d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
                         stroke={resolveLaneStroke(index, row.primaryParentLaneIndex)}
-                        strokeWidth={1.6}
-                        opacity={0.78}
+                        strokeWidth={resolveLaneStrokeWidth(
+                          index,
+                          row.primaryParentLaneIndex,
+                          row.primaryParentLaneIndex,
+                        )}
+                        opacity={resolveLaneOpacity(
+                          index,
+                          row.primaryParentLaneIndex,
+                          row.primaryParentLaneIndex,
+                        )}
                       />
                     ) : null}
-                  </svg>
+                    </svg>
 
-                  <span
-                    className={`absolute block commit-node ${avatarSrc ? "commit-node--avatar" : "border border-white/90 shadow-sm"} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                    style={{
-                      left: `${laneX(row.laneIndex) - nodeSize / 2}px`,
-                      top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
-                      background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
-                    }}
-                  >
-                    {avatarSrc ? (
-                      <img
-                        src={avatarSrc}
-                        alt=""
-                        aria-hidden="true"
-                        className="commit-node__avatar"
-                        draggable={false}
-                      />
-                    ) : null}
-                  </span>
-                </div>
-              ) : (
-                <div className="relative flex h-8 items-center justify-center">
-                  <div
-                    className="absolute w-[2px] bg-accent/20"
-                    style={{
-                      top: `${-LINE_OVERDRAW}px`,
-                      height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`,
-                    }}
-                  />
-                  <span
-                    className={`commit-node ${avatarSrc ? "commit-node--avatar" : ""} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
-                    style={{
-                      background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
-                    }}
-                  >
-                    {avatarSrc ? (
-                      <img
-                        src={avatarSrc}
-                        alt=""
-                        aria-hidden="true"
-                        className="commit-node__avatar"
-                        draggable={false}
-                      />
-                    ) : null}
-                  </span>
-                </div>
-              )}
-
-              <div className="overflow-hidden whitespace-nowrap text-xs text-ink-soft">
-                {commitRefBadges.length > 0 ? (
-                  <div className="flex items-center gap-1 overflow-hidden">
-                    {commitRefBadges.map((badge) => {
-                      const isCheckedOutRefBadge = badge.type === "head";
-                      const badgeScopeIcons = (
-                        <span className="commit-graph__ref-badge-icons" aria-hidden="true">
-                          {badge.scopes.map((scope) => {
-                            const RefBadgeIcon = refLabelIcon(scope);
-                            return (
-                              <RefBadgeIcon
-                                key={`${badge.name}-${scope}`}
-                                size={REF_BADGE_ICON_SIZE}
-                                className={refLabelIconClass(scope)}
-                              />
-                            );
-                          })}
-                        </span>
-                      );
-
-                      return (
-                        <span
-                          key={`${commit.sha}-${badge.type}-${badge.name}`}
-                          className={`commit-graph__ref-badge inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
-                            badge.type,
-                          )} ${badge.type === "tag" ? "" : "cursor-pointer"}`}
-                          style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
-                          title={badge.title}
-                          onDoubleClick={(event) => {
-                            if (busy || badge.type === "tag") {
-                              return;
-                            }
-
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onCheckoutBranchRef(badge.name);
-                          }}
-                        >
-                          {isCheckedOutRefBadge ? (
-                            <Check
-                              size={REF_BADGE_DONE_ICON_SIZE}
-                              className="commit-graph__ref-badge-done"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            badgeScopeIcons
-                          )}
-                          <span className="commit-graph__ref-badge-label truncate">
-                            {badge.name}
-                          </span>
-                          {isCheckedOutRefBadge ? badgeScopeIcons : null}
-                        </span>
-                      );
-                    })}
+                    <span
+                      className={`absolute block commit-node ${avatarSrc ? "commit-node--avatar" : "border border-white/90 shadow-sm"} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
+                      style={{
+                        left: `${laneX(row.laneIndex) - nodeSize / 2}px`,
+                        top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
+                        background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
+                      }}
+                    >
+                      {avatarSrc ? (
+                        <img
+                          src={avatarSrc}
+                          alt=""
+                          aria-hidden="true"
+                          className="commit-node__avatar"
+                          draggable={false}
+                        />
+                      ) : null}
+                    </span>
                   </div>
                 ) : (
-                  <span className="text-ink-subtle">-</span>
+                  <div className="relative flex h-8 items-center justify-center">
+                    <div
+                      className="absolute w-[2px] bg-accent/20"
+                      style={{
+                        top: `${-LINE_OVERDRAW}px`,
+                        height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`,
+                      }}
+                    />
+                    <span
+                      className={`commit-node ${avatarSrc ? "commit-node--avatar" : ""} ${isCheckedOutCommit ? "commit-node-head-glow" : ""}`}
+                      style={{
+                        background: avatarSrc ? undefined : resolveLaneStroke(index, row.laneIndex),
+                      }}
+                    >
+                      {avatarSrc ? (
+                        <img
+                          src={avatarSrc}
+                          alt=""
+                          aria-hidden="true"
+                          className="commit-node__avatar"
+                          draggable={false}
+                        />
+                      ) : null}
+                    </span>
+                  </div>
                 )}
-              </div>
 
-              {!isCompactLayout ? (
-                <div className="truncate text-xs text-ink-soft">
-                  {formatRelativeDate(commit.date)}
+                <div className="overflow-hidden whitespace-nowrap text-xs text-ink-soft">
+                  {commitRefBadges.length > 0 ? (
+                    <div className="flex items-center gap-1 overflow-hidden">
+                      {commitRefBadges.map((badge) => {
+                        const isCheckedOutRefBadge = badge.type === "head";
+                        const badgeScopeIcons = (
+                          <span className="commit-graph__ref-badge-icons" aria-hidden="true">
+                            {badge.scopes.map((scope) => {
+                              const RefBadgeIcon = refLabelIcon(scope);
+                              return (
+                                <RefBadgeIcon
+                                  key={`${badge.name}-${scope}`}
+                                  size={REF_BADGE_ICON_SIZE}
+                                  className={refLabelIconClass(scope)}
+                                />
+                              );
+                            })}
+                          </span>
+                        );
+
+                        return (
+                          <span
+                            key={`${commit.sha}-${badge.type}-${badge.name}`}
+                            className={`commit-graph__ref-badge inline-flex min-w-0 shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold leading-4 ${refLabelClass(
+                              badge.type,
+                            )} ${badge.type === "tag" ? "" : "cursor-pointer"}`}
+                            style={{ maxWidth: `${Math.max(90, displayedRefsColumnWidth - 16)}px` }}
+                            title={badge.title}
+                            onDoubleClick={(event) => {
+                              if (busy || badge.type === "tag") {
+                                return;
+                              }
+
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onCheckoutBranchRef(badge.name);
+                            }}
+                          >
+                            {isCheckedOutRefBadge ? (
+                              <Check
+                                size={REF_BADGE_DONE_ICON_SIZE}
+                                className="commit-graph__ref-badge-done"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              badgeScopeIcons
+                            )}
+                            <span className="commit-graph__ref-badge-label truncate">
+                              {badge.name}
+                            </span>
+                            {isCheckedOutRefBadge ? badgeScopeIcons : null}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-ink-subtle">-</span>
+                  )}
                 </div>
-              ) : null}
-              <div className="commit-graph__cell--primary truncate text-sm text-ink">
-                {commit.subject}
+
+                {!isCompactLayout ? (
+                  <div className="truncate text-xs text-ink-soft">
+                    {formatRelativeDate(commit.date)}
+                  </div>
+                ) : null}
+                <div className="commit-graph__cell--primary truncate text-sm text-ink">
+                  {commit.subject}
+                </div>
+                <div className="truncate text-xs text-ink-soft">{commit.author}</div>
+                {!isCompactLayout ? (
+                  <div className="commit-id-column truncate text-xs text-ink-subtle">
+                    <button
+                      type="button"
+                      className="inline-flex max-w-full cursor-pointer items-center truncate rounded-sm border border-transparent px-1 py-px text-left transition hover:text-ink focus-visible:border-black/10 focus-visible:outline-none"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleCopySha(commit.sha);
+                      }}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      title={`${commit.sha} をコピー`}
+                      aria-label={`${commit.sha} をクリップボードにコピー`}
+                    >
+                      <span className="truncate">{shortSha(commit.sha)}</span>
+                    </button>
+                  </div>
+                ) : null}
               </div>
-              <div className="truncate text-xs text-ink-soft">{commit.author}</div>
-              {!isCompactLayout ? (
-                <div className="commit-id-column truncate text-xs text-ink-subtle">
-                  <button
-                    type="button"
-                    className="inline-flex max-w-full cursor-pointer items-center truncate rounded-sm border border-transparent px-1 py-px text-left transition hover:text-ink focus-visible:border-black/10 focus-visible:outline-none"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleCopySha(commit.sha);
-                    }}
-                    onDoubleClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    title={`${commit.sha} をコピー`}
-                    aria-label={`${commit.sha} をクリップボードにコピー`}
-                  >
-                    <span className="truncate">{shortSha(commit.sha)}</span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            </Fragment>
           );
         })}
 

@@ -61,4 +61,57 @@ describe("createConfigRouter", () => {
     expect(readConfig).toHaveBeenCalledTimes(1);
     expect(listOpenAiModels).toHaveBeenCalledWith("sk-config-token");
   });
+
+  test("persists repository assistant settings separately from the commit model", async () => {
+    let persisted = {
+      ...DEFAULT_APP_CONFIG,
+      openAiModel: "gpt-4.1-mini",
+      repositoryAssistantOpenAiModel: "gpt-4.1-mini",
+      repositoryAssistantReasoningEffort: "default" as const,
+    };
+    const readConfig = mock(async () => persisted);
+    const writeConfig = mock(async (nextConfig) => {
+      persisted = nextConfig;
+    });
+
+    await expect(
+      invokeJsonRoute(
+        createConfigRouter({
+          aiService: {
+            validateOpenAiToken: mock(async () => true),
+            validateClaudeCodeToken: mock(async () => false),
+            listOpenAiModels: mock(async () => []),
+          },
+          readConfig,
+          writeConfig,
+        }),
+        "put",
+        "/api/config",
+        {
+          body: {
+            repositoryAssistantOpenAiModel: "gpt-5.4",
+            repositoryAssistantReasoningEffort: "high",
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        config: {
+          ...DEFAULT_APP_CONFIG,
+          openAiModel: "gpt-4.1-mini",
+          repositoryAssistantOpenAiModel: "gpt-5.4",
+          repositoryAssistantReasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(writeConfig).toHaveBeenCalledWith({
+      ...DEFAULT_APP_CONFIG,
+      openAiModel: "gpt-4.1-mini",
+      repositoryAssistantOpenAiModel: "gpt-5.4",
+      repositoryAssistantReasoningEffort: "high",
+    });
+  });
 });

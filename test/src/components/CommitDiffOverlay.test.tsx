@@ -53,4 +53,29 @@ describe("CommitDiffOverlay", () => {
     expect(html).not.toContain("diff-workbench__sidebar");
     expect(html).not.toContain("Changed Files");
   });
+
+  test("shows a loading state immediately when the focused file is outside the aggregate diff payload", () => {
+    const html = renderToStaticMarkup(
+      <CommitDiffOverlay
+        repoPath="/tmp/example"
+        detail={{
+          ...detail,
+          files: [
+            {
+              file: "src/focused.ts",
+              additions: 5,
+              deletions: 1,
+            },
+            ...detail.files,
+          ],
+        }}
+        filePath="src/focused.ts"
+        onClose={() => {}}
+        onNotify={() => {}}
+      />,
+    );
+
+    expect(html).toContain("差分を読み込み中...");
+    expect(html).not.toContain("Text diff unavailable for this file.");
+  });
 });

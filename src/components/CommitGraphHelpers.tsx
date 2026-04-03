@@ -6,7 +6,7 @@ import type { CommitListItem } from "../types";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-export const LANE_GAP = 18;
+export const LANE_GAP = 27;
 export const LANE_PADDING = 10;
 export const ROW_HEIGHT = 32;
 export const LINE_OVERDRAW = 1;

@@ -32,8 +32,12 @@ const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 const NO_STAGED_CHANGES_ERROR: &str =
     "No staged changes are available for commit message generation.";
 const NO_AI_PROVIDER_ERROR: &str = "No AI provider is configured for commit message generation.";
+const REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR: &str =
+    "AI sidebar requires an OpenAI token in Config.";
 const COMMIT_AVATAR_HISTORY_LIMIT: usize = 100;
 const COMMIT_AVATAR_SIZE: usize = 72;
+const MAX_REPOSITORY_ASSISTANT_MESSAGES: usize = 12;
+const MAX_REPOSITORY_ASSISTANT_LIST_ITEMS: usize = 8;
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
     "You are a Git assistant. Write a Git commit message from the provided staged changes.\n",
     "Requirements:\n",
@@ -55,6 +59,162 @@ static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 static NEXT_MERGE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 static MERGE_SESSIONS: LazyLock<Mutex<HashMap<String, MergeSession>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Copy)]
+struct RepositoryAssistantActionSpec {
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    group: &'static str,
+    risk: &'static str,
+    mutates_working_tree: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RepositoryAssistantSafetyOverrides {
+    allow_self_repository_current_target_merge: bool,
+    allow_self_repository_conflict_resolution: bool,
+}
+
+const REPOSITORY_ASSISTANT_ACTION_SPECS: &[RepositoryAssistantActionSpec] = &[
+    RepositoryAssistantActionSpec {
+        id: "git.stage_file",
+        label: "Stage File",
+        description: "Run Git Chat UI's stage-file operation for one file.",
+        group: "git",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.unstage_file",
+        label: "Unstage File",
+        description: "Run Git Chat UI's unstage-file operation for one file.",
+        group: "git",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.stash_file",
+        label: "Stash File",
+        description: "Stash one file with the existing stash-file operation.",
+        group: "git",
+        risk: "medium",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.checkout_ref",
+        label: "Checkout Ref",
+        description: "Checkout a branch or commit ref.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.create_branch",
+        label: "Create Branch",
+        description: "Create and checkout a new branch from a base branch.",
+        group: "git",
+        risk: "medium",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.merge_branches",
+        label: "Merge Branches",
+        description: "Merge a source branch into a target branch.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.pull_current_branch",
+        label: "Pull Branch",
+        description: "Pull upstream changes into the current or specified branch.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.commit",
+        label: "Commit",
+        description: "Create a commit from staged changes.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.push",
+        label: "Push",
+        description: "Push the current branch to its remote.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.resolve_conflict_side",
+        label: "Resolve Conflict",
+        description: "Resolve one conflicted file by choosing merged, ours, or theirs.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.complete_merge_session",
+        label: "Complete Merge Session",
+        description: "Finish an existing merge session after all conflicts are resolved.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.abort_merge_session",
+        label: "Abort Merge Session",
+        description: "Abort an in-progress merge session.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.apply_stash",
+        label: "Apply Stash",
+        description: "Apply a stash entry without dropping it.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "git.pop_stash",
+        label: "Pop Stash",
+        description: "Apply and drop a stash entry.",
+        group: "git",
+        risk: "high",
+        mutates_working_tree: true,
+    },
+    RepositoryAssistantActionSpec {
+        id: "gh.pr.prepare",
+        label: "Prepare Pull Request",
+        description: "Check whether the source branch needs to be pushed before PR creation.",
+        group: "githubPr",
+        risk: "low",
+        mutates_working_tree: false,
+    },
+    RepositoryAssistantActionSpec {
+        id: "gh.pr.create",
+        label: "Create Pull Request",
+        description: "Create a GitHub pull request, optionally pushing the source branch first.",
+        group: "githubPr",
+        risk: "high",
+        mutates_working_tree: false,
+    },
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantPolicy {
+    #[serde(default)]
+    pub allowed_action_ids: Vec<String>,
+}
+
+pub type RepositoryAssistantPolicies = HashMap<String, RepositoryAssistantPolicy>;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -82,6 +242,39 @@ impl Default for AiProvider {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiReasoningEffort {
+    Default,
+    #[serde(rename = "none")]
+    NoneValue,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+}
+
+impl Default for OpenAiReasoningEffort {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl OpenAiReasoningEffort {
+    fn as_api_value(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::NoneValue => Some("none"),
+            Self::Minimal => Some("minimal"),
+            Self::Low => Some("low"),
+            Self::Medium => Some("medium"),
+            Self::High => Some("high"),
+            Self::Xhigh => Some("xhigh"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentRepository {
@@ -94,11 +287,14 @@ pub struct RecentRepository {
 pub struct AppConfig {
     pub open_ai_token: String,
     pub open_ai_model: String,
+    pub repository_assistant_open_ai_model: String,
+    pub repository_assistant_reasoning_effort: OpenAiReasoningEffort,
     pub claude_code_token: String,
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
     pub commit_graph_mode: CommitGraphMode,
     pub repository_scan_depth: usize,
+    pub repository_assistant_policies: RepositoryAssistantPolicies,
     pub recently_used: Vec<RecentRepository>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_state: Option<WindowState>,
@@ -119,11 +315,14 @@ impl Default for AppConfig {
         Self {
             open_ai_token: String::new(),
             open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
+            repository_assistant_open_ai_model: DEFAULT_OPENAI_MODEL.to_string(),
+            repository_assistant_reasoning_effort: OpenAiReasoningEffort::Default,
             claude_code_token: String::new(),
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_mode: CommitGraphMode::Detailed,
             repository_scan_depth: 4,
+            repository_assistant_policies: HashMap::new(),
             recently_used: Vec::new(),
             window_state: None,
         }
@@ -246,11 +445,22 @@ struct GithubCommitAvatarGraphQlUser {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommitFileKind {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Changed,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitFileStat {
     pub file: String,
     pub additions: i64,
     pub deletions: i64,
+    pub kind: CommitFileKind,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -325,6 +535,7 @@ pub enum ConflictOperation {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ConflictResolutionSide {
+    Merged,
     Ours,
     Theirs,
 }
@@ -460,6 +671,13 @@ pub struct RepositoryGithubUrlResponse {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantUserProfileResponse {
+    pub login: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchPullRequest {
@@ -515,6 +733,32 @@ pub struct PullStatusResponse {
     pub state: String,
 }
 
+fn detached_pull_status_response() -> PullStatusResponse {
+    PullStatusResponse {
+        branch_name: None,
+        upstream_name: None,
+        remote_name: None,
+        remote_branch_name: None,
+        ahead_count: 0,
+        behind_count: 0,
+        can_pull: false,
+        state: "detached".to_string(),
+    }
+}
+
+fn no_upstream_pull_status_response(branch_name: String) -> PullStatusResponse {
+    PullStatusResponse {
+        branch_name: Some(branch_name),
+        upstream_name: None,
+        remote_name: None,
+        remote_branch_name: None,
+        ahead_count: 0,
+        behind_count: 0,
+        can_pull: false,
+        state: "noUpstream".to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveConfigResponse {
@@ -538,6 +782,9 @@ pub struct OpenAiModelsResponse {
 pub struct SaveConfigInput {
     pub open_ai_token: Option<String>,
     pub open_ai_model: Option<String>,
+    pub repository_assistant_open_ai_model: Option<String>,
+    pub repository_assistant_reasoning_effort: Option<OpenAiReasoningEffort>,
+    pub repository_assistant_policies: Option<Value>,
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
@@ -555,6 +802,98 @@ pub struct GenerateTitleInput {
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RepositoryAssistantMessageRole {
+    User,
+    Assistant,
+}
+
+impl RepositoryAssistantMessageRole {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantMessage {
+    pub id: String,
+    pub role: RepositoryAssistantMessageRole,
+    pub content: String,
+    pub created_at: String,
+}
+
+fn default_repository_assistant_action_args() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantAction {
+    pub id: String,
+    #[serde(default = "default_repository_assistant_action_args")]
+    pub args: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionResult {
+    pub action: RepositoryAssistantAction,
+    pub status: String,
+    pub message: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionProposal {
+    pub id: String,
+    pub action: RepositoryAssistantAction,
+    pub reason: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<RepositoryAssistantActionResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWithRepositoryAssistantInput {
+    pub repo_path: String,
+    pub messages: Vec<RepositoryAssistantMessage>,
+    pub open_ai_model: Option<String>,
+    pub reasoning_effort: Option<OpenAiReasoningEffort>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantResponse {
+    pub message: RepositoryAssistantMessage,
+    pub proposed_actions: Vec<RepositoryAssistantActionProposal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAssistantActionExecutionResponse {
+    pub result: RepositoryAssistantActionResult,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteRepositoryAssistantActionInput {
+    pub repo_path: String,
+    pub action: RepositoryAssistantAction,
+    #[serde(default)]
+    pub allow_self_repository_current_target_merge: bool,
+    #[serde(default)]
+    pub allow_self_repository_conflict_resolution: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -974,6 +1313,120 @@ fn normalize_open_ai_model(value: Option<&Value>) -> String {
     }
 }
 
+fn normalize_repository_assistant_open_ai_model(
+    value: Option<&Value>,
+    fallback_open_ai_model: &str,
+) -> String {
+    let fallback = resolve_open_ai_model(fallback_open_ai_model);
+    let normalized = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    if normalized.is_empty() {
+        fallback
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn normalize_open_ai_reasoning_effort_value(value: Option<&Value>) -> OpenAiReasoningEffort {
+    value
+        .cloned()
+        .and_then(|candidate| serde_json::from_value::<OpenAiReasoningEffort>(candidate).ok())
+        .unwrap_or_default()
+}
+
+fn is_repository_assistant_action_id(value: &str) -> bool {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .any(|spec| spec.id == value)
+}
+
+fn repository_assistant_action_sort_key(action_id: &str) -> usize {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .position(|spec| spec.id == action_id)
+        .unwrap_or(REPOSITORY_ASSISTANT_ACTION_SPECS.len())
+}
+
+fn normalize_repository_assistant_allowed_action_ids(value: Option<&Value>) -> Vec<String> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    let mut seen = HashSet::new();
+    let mut normalized = items
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty() && is_repository_assistant_action_id(candidate))
+        .filter_map(|candidate| {
+            let owned = candidate.to_string();
+            if seen.insert(owned.clone()) {
+                Some(owned)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    normalized.sort_by_key(|action_id| repository_assistant_action_sort_key(action_id));
+    normalized
+}
+
+fn normalize_repository_assistant_policies_value(
+    value: Option<&Value>,
+) -> RepositoryAssistantPolicies {
+    let Some(Value::Object(map)) = value else {
+        return HashMap::new();
+    };
+
+    map.iter()
+        .filter_map(|(repo_path, policy_value)| {
+            let trimmed_repo_path = repo_path.trim();
+            if trimmed_repo_path.is_empty() {
+                return None;
+            }
+
+            let allowed_action_ids = match policy_value {
+                Value::Object(policy_map) => normalize_repository_assistant_allowed_action_ids(
+                    policy_map.get("allowedActionIds"),
+                ),
+                _ => Vec::new(),
+            };
+
+            Some((
+                trimmed_repo_path.to_string(),
+                RepositoryAssistantPolicy { allowed_action_ids },
+            ))
+        })
+        .collect()
+}
+
+fn normalize_repository_assistant_policies(
+    policies: &RepositoryAssistantPolicies,
+) -> RepositoryAssistantPolicies {
+    let value = serde_json::to_value(policies).unwrap_or(Value::Null);
+    normalize_repository_assistant_policies_value(Some(&value))
+}
+
+fn is_repository_assistant_action_allowed(
+    policies: &RepositoryAssistantPolicies,
+    repo_path: &str,
+    action_id: &str,
+) -> bool {
+    policies
+        .get(repo_path)
+        .map(|policy| {
+            policy
+                .allowed_action_ids
+                .iter()
+                .any(|candidate| candidate == action_id)
+        })
+        .unwrap_or(false)
+}
+
 fn normalize_recently_used(value: Option<&Value>) -> Vec<RecentRepository> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -1041,6 +1494,14 @@ fn normalize_config_value(value: Value) -> AppConfig {
         .unwrap_or_default()
         .to_string();
     let open_ai_model = normalize_open_ai_model(value.get("openAiModel"));
+    let repository_assistant_open_ai_model = normalize_repository_assistant_open_ai_model(
+        value.get("repositoryAssistantOpenAiModel"),
+        &open_ai_model,
+    );
+    let repository_assistant_reasoning_effort =
+        normalize_open_ai_reasoning_effort_value(value.get("repositoryAssistantReasoningEffort"));
+    let repository_assistant_policies =
+        normalize_repository_assistant_policies_value(value.get("repositoryAssistantPolicies"));
 
     let claude_code_token = value
         .get("claudeCodeToken")
@@ -1079,11 +1540,14 @@ fn normalize_config_value(value: Value) -> AppConfig {
     AppConfig {
         open_ai_token,
         open_ai_model,
+        repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort,
         claude_code_token,
         selected_ai_provider,
         commit_title_prompt,
         commit_graph_mode,
         repository_scan_depth,
+        repository_assistant_policies,
         recently_used,
         window_state,
     }
@@ -1121,14 +1585,27 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
             .map_err(|error| format!("Failed to create config dir: {error}"))?;
     }
 
+    let open_ai_model = normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone())));
+    let repository_assistant_open_ai_model = normalize_repository_assistant_open_ai_model(
+        Some(&Value::String(
+            config.repository_assistant_open_ai_model.clone(),
+        )),
+        &open_ai_model,
+    );
+
     let normalized = AppConfig {
         open_ai_token: config.open_ai_token.clone(),
-        open_ai_model: normalize_open_ai_model(Some(&Value::String(config.open_ai_model.clone()))),
+        open_ai_model,
+        repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort: config.repository_assistant_reasoning_effort,
         claude_code_token: config.claude_code_token.clone(),
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_mode: config.commit_graph_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
+        repository_assistant_policies: normalize_repository_assistant_policies(
+            &config.repository_assistant_policies,
+        ),
         recently_used: config.recently_used.clone(),
         window_state: config.window_state.clone(),
     };
@@ -2202,6 +2679,26 @@ fn get_branch_upstream(repo_path: &str, branch_name: &str) -> Option<String> {
     .filter(|value| !value.trim().is_empty())
 }
 
+fn resolve_pull_status_branch_name(
+    repo_path: &str,
+    branch_name: Option<&str>,
+) -> Result<Option<String>, String> {
+    if let Some(branch_name) = branch_name {
+        let normalized = branch_name.trim();
+        if !normalized.is_empty() {
+            ensure_local_branch(repo_path, normalized)?;
+            return Ok(Some(normalized.to_string()));
+        }
+    }
+
+    let current_branch = get_current_branch(repo_path)?;
+    if current_branch.trim().is_empty() || current_branch == "HEAD" {
+        return Ok(None);
+    }
+
+    Ok(Some(current_branch))
+}
+
 fn parse_commit_count(value: &str) -> usize {
     value.trim().parse::<usize>().unwrap_or(0)
 }
@@ -2220,6 +2717,153 @@ fn resolve_pull_status_state(ahead_count: usize, behind_count: usize) -> &'stati
     }
 
     "upToDate"
+}
+
+fn get_pull_status_for_branch(
+    repo_path: &str,
+    branch_name: Option<&str>,
+) -> Result<PullStatusResponse, String> {
+    ensure_repo_path(repo_path)?;
+
+    let Some(resolved_branch_name) = resolve_pull_status_branch_name(repo_path, branch_name)?
+    else {
+        return Ok(detached_pull_status_response());
+    };
+
+    let Some(upstream_name) = get_branch_upstream(repo_path, &resolved_branch_name) else {
+        return Ok(no_upstream_pull_status_response(resolved_branch_name));
+    };
+
+    let ahead_count = parse_commit_count(&run_git(
+        &[
+            "rev-list",
+            "--count",
+            &format!("{upstream_name}..{resolved_branch_name}"),
+        ],
+        repo_path,
+    )?);
+    let behind_count = parse_commit_count(&run_git(
+        &[
+            "rev-list",
+            "--count",
+            &format!("{resolved_branch_name}..{upstream_name}"),
+        ],
+        repo_path,
+    )?);
+    let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
+    let (remote_name, remote_branch_name) = parse_remote_branch_name(&upstream_name)
+        .map(|(remote_name, remote_branch_name)| (Some(remote_name), Some(remote_branch_name)))
+        .unwrap_or((None, None));
+
+    Ok(PullStatusResponse {
+        branch_name: Some(resolved_branch_name),
+        upstream_name: Some(upstream_name),
+        remote_name,
+        remote_branch_name,
+        ahead_count,
+        behind_count,
+        can_pull: state == "behind",
+        state,
+    })
+}
+
+fn fast_forward_branch_to_upstream(
+    repo_path: &str,
+    branch_name: &str,
+    upstream_name: &str,
+) -> Result<(), String> {
+    let branch_head = run_git(
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch_name}"),
+        ],
+        repo_path,
+    )?;
+    let upstream_head = run_git(&["rev-parse", "--verify", upstream_name], repo_path)?;
+
+    if branch_head == upstream_head {
+        return Ok(());
+    }
+
+    if run_git(
+        &["merge-base", "--is-ancestor", &branch_head, &upstream_head],
+        repo_path,
+    )
+    .is_err()
+    {
+        return Err(format!(
+            "Not possible to fast-forward, aborting. Local branch '{branch_name}' and upstream '{upstream_name}' have diverged."
+        ));
+    }
+
+    let args = vec![
+        "update-ref".to_string(),
+        "-m".to_string(),
+        format!("pull branch {branch_name} from {upstream_name}"),
+        format!("refs/heads/{branch_name}"),
+        upstream_head,
+        branch_head,
+    ];
+    run_git_owned(&args, repo_path).map(|_| ())
+}
+
+fn pull_branch(repo_path: &str, branch_name: Option<&str>) -> Result<(), String> {
+    ensure_repo_path(repo_path)?;
+
+    let normalized_branch_name = branch_name.map(str::trim).filter(|value| !value.is_empty());
+    let current_branch_name = get_current_branch(repo_path)?;
+    let target_branch_name = normalized_branch_name.unwrap_or(current_branch_name.as_str());
+
+    if target_branch_name.trim().is_empty() || target_branch_name == "HEAD" {
+        return Err("Cannot pull while HEAD is detached.".to_string());
+    }
+
+    ensure_local_branch(repo_path, target_branch_name)?;
+
+    let Some(upstream) = get_branch_upstream(repo_path, target_branch_name) else {
+        return Err(format!(
+            "Current branch '{target_branch_name}' has no upstream branch."
+        ));
+    };
+
+    if current_branch_name == target_branch_name {
+        let args = vec!["pull".to_string(), "--ff-only".to_string()];
+        run_git_owned_with_env(
+            &args,
+            repo_path,
+            &[("GIT_TERMINAL_PROMPT", "0".to_string())],
+        )?;
+        return Ok(());
+    }
+
+    if let Ok((remote_name, remote_branch_name)) = parse_remote_branch_name(&upstream) {
+        let args = vec!["fetch".to_string(), remote_name, remote_branch_name];
+        run_git_owned_with_env(
+            &args,
+            repo_path,
+            &[("GIT_TERMINAL_PROMPT", "0".to_string())],
+        )?;
+    }
+
+    let refreshed_status = get_pull_status_for_branch(repo_path, Some(target_branch_name))?;
+    let Some(refreshed_upstream) = refreshed_status.upstream_name else {
+        return Err(format!(
+            "Current branch '{target_branch_name}' has no upstream branch."
+        ));
+    };
+
+    if refreshed_status.state == "diverged" {
+        return Err(format!(
+            "Not possible to fast-forward, aborting. Local branch '{target_branch_name}' and upstream '{refreshed_upstream}' have diverged."
+        ));
+    }
+
+    if refreshed_status.state != "behind" {
+        return Ok(());
+    }
+
+    fast_forward_branch_to_upstream(repo_path, target_branch_name, &refreshed_upstream)
 }
 
 fn sync_upstream_tracking_ref_to_branch_head(
@@ -2397,6 +3041,38 @@ fn get_open_pull_requests(repo_path: &str) -> Result<HashMap<String, BranchPullR
     Ok(pull_requests)
 }
 
+fn parse_github_viewer_response(raw: &str) -> RepositoryAssistantUserProfileResponse {
+    let parsed = serde_json::from_str::<Value>(raw).unwrap_or(Value::Null);
+    let login = parsed
+        .get("login")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let avatar_url = parsed
+        .get("avatar_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    RepositoryAssistantUserProfileResponse { login, avatar_url }
+}
+
+fn get_repository_assistant_user_profile_for_repo(
+    repo_path: &str,
+) -> Result<RepositoryAssistantUserProfileResponse, String> {
+    ensure_repo_path(repo_path)?;
+
+    match run_gh(&["api", "user", "--cache", "1h"], repo_path) {
+        Ok(output) => Ok(parse_github_viewer_response(&output)),
+        Err(_) => Ok(RepositoryAssistantUserProfileResponse {
+            login: None,
+            avatar_url: None,
+        }),
+    }
+}
+
 fn extract_url_from_text(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|token| token.starts_with("https://") || token.starts_with("http://"))
@@ -2440,6 +3116,40 @@ fn status_label(x: char, y: char) -> String {
     }
 }
 
+fn diff_status_kind(code: char) -> CommitFileKind {
+    match code {
+        'A' => CommitFileKind::Added,
+        'D' => CommitFileKind::Deleted,
+        'M' => CommitFileKind::Modified,
+        'R' => CommitFileKind::Renamed,
+        _ => CommitFileKind::Changed,
+    }
+}
+
+fn parse_diff_file_kinds(output: &str) -> Vec<(String, CommitFileKind)> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let status_raw = parts.next()?.trim();
+            let status_code = status_raw.chars().next()?;
+            let paths: Vec<&str> = parts.collect();
+            let file = match status_code {
+                'R' | 'C' => paths.last().copied().unwrap_or(""),
+                _ => paths.first().copied().unwrap_or(""),
+            }
+            .trim();
+
+            if file.is_empty() {
+                return None;
+            }
+
+            Some((file.to_string(), diff_status_kind(status_code)))
+        })
+        .collect()
+}
+
 fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
     match raw_path.split_once(" -> ") {
         Some((left, right)) => (Some(left.to_string()), right.to_string()),
@@ -2447,8 +3157,8 @@ fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
     }
 }
 
-fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
-    output
+fn parse_commit_file_stats(output: &str, status_output: Option<&str>) -> Vec<CommitFileStat> {
+    let stats: Vec<CommitFileStat> = output
         .lines()
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| {
@@ -2464,7 +3174,49 @@ fn parse_commit_file_stats(output: &str) -> Vec<CommitFileStat> {
                 file: parts[2].to_string(),
                 additions,
                 deletions,
+                kind: CommitFileKind::Changed,
             })
+        })
+        .collect();
+
+    let statuses = status_output.map(parse_diff_file_kinds).unwrap_or_default();
+    if statuses.is_empty() {
+        return stats;
+    }
+
+    if statuses.len() == stats.len() {
+        return stats
+            .into_iter()
+            .enumerate()
+            .map(|(index, stat)| {
+                let (status_file, kind) = statuses
+                    .get(index)
+                    .cloned()
+                    .unwrap_or((stat.file.clone(), CommitFileKind::Changed));
+
+                CommitFileStat {
+                    file: if status_file.trim().is_empty() {
+                        stat.file
+                    } else {
+                        status_file
+                    },
+                    additions: stat.additions,
+                    deletions: stat.deletions,
+                    kind,
+                }
+            })
+            .collect();
+    }
+
+    let kind_by_file: HashMap<String, CommitFileKind> = statuses.into_iter().collect();
+    stats
+        .into_iter()
+        .map(|stat| CommitFileStat {
+            kind: kind_by_file
+                .get(&stat.file)
+                .cloned()
+                .unwrap_or(CommitFileKind::Changed),
+            ..stat
         })
         .collect()
 }
@@ -2615,6 +3367,7 @@ fn build_untracked_file_diff_snapshot(
                 file: file.to_string(),
                 additions: 0,
                 deletions: 0,
+                kind: CommitFileKind::Added,
             },
             [
                 format!("diff --git a/{file} b/{file}"),
@@ -2635,6 +3388,7 @@ fn build_untracked_file_diff_snapshot(
             file: file.to_string(),
             additions: lines.len() as i64,
             deletions: 0,
+            kind: CommitFileKind::Added,
         },
         build_untracked_text_diff(file, &content, mode),
     ))
@@ -3126,6 +3880,30 @@ fn resolve_open_ai_model(model: &str) -> String {
     }
 }
 
+fn is_open_ai_reasoning_model(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized.starts_with("gpt-5")
+        || normalized.starts_with("o1")
+        || normalized.starts_with("o3")
+        || normalized.starts_with("o4")
+}
+
+fn supports_non_reasoning_parameters_for_reasoning_model(model: &str) -> bool {
+    model.trim().to_ascii_lowercase().starts_with("gpt-5.1")
+}
+
+fn should_include_open_ai_temperature(
+    model: &str,
+    reasoning_effort: OpenAiReasoningEffort,
+) -> bool {
+    if !is_open_ai_reasoning_model(model) {
+        return true;
+    }
+
+    matches!(reasoning_effort, OpenAiReasoningEffort::NoneValue)
+        && supports_non_reasoning_parameters_for_reasoning_model(model)
+}
+
 fn sort_open_ai_model_ids(model_ids: Vec<String>) -> Vec<String> {
     let mut deduped = Vec::<String>::new();
 
@@ -3400,6 +4178,955 @@ fn generate_with_claude(
     }
 }
 
+fn current_timestamp_millis() -> String {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis().to_string(),
+        Err(_) => "0".to_string(),
+    }
+}
+
+fn create_repository_assistant_message_id() -> String {
+    format!(
+        "assistant-{}-{}",
+        std::process::id(),
+        current_timestamp_millis()
+    )
+}
+
+fn format_repository_assistant_working_files(items: &[WorkingFile], empty_label: &str) -> String {
+    if items.is_empty() {
+        return empty_label.to_string();
+    }
+
+    let visible_items = items
+        .iter()
+        .take(MAX_REPOSITORY_ASSISTANT_LIST_ITEMS)
+        .map(|item| format!("{} ({})", item.file, item.status_label))
+        .collect::<Vec<_>>();
+    let remainder = items.len().saturating_sub(visible_items.len());
+
+    if remainder > 0 {
+        format!("{}, +{} more", visible_items.join(", "), remainder)
+    } else {
+        visible_items.join(", ")
+    }
+}
+
+fn format_repository_assistant_branch_names(branches: &[Branch], empty_label: &str) -> String {
+    if branches.is_empty() {
+        return empty_label.to_string();
+    }
+
+    let visible_items = branches
+        .iter()
+        .take(MAX_REPOSITORY_ASSISTANT_LIST_ITEMS)
+        .map(|branch| branch.name.clone())
+        .collect::<Vec<_>>();
+    let remainder = branches.len().saturating_sub(visible_items.len());
+
+    if remainder > 0 {
+        format!("{}, +{} more", visible_items.join(", "), remainder)
+    } else {
+        visible_items.join(", ")
+    }
+}
+
+fn format_repository_assistant_commits(commits: &[CommitListItem]) -> String {
+    if commits.is_empty() {
+        return "No recent commits were loaded.".to_string();
+    }
+
+    commits
+        .iter()
+        .take(6)
+        .map(|commit| {
+            let short_sha: String = commit.sha.chars().take(7).collect();
+            format!("- {} {} ({})", short_sha, commit.subject, commit.author)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn build_repository_assistant_context(repo_path: &str) -> Result<String, String> {
+    let branches = get_branches(repo_path.to_string())?;
+    let working_tree_status = get_working_tree_status(repo_path.to_string())?;
+    let pull_status = get_pull_status(repo_path.to_string(), None).ok();
+    let recent_commits = get_commits(repo_path.to_string(), None, None, 0, 6)?;
+    let conflict_summary = get_conflict_summary(repo_path.to_string(), None).ok();
+
+    let pull_line = match pull_status {
+        Some(status) => match status.branch_name.as_deref() {
+            Some(branch_name) => format!(
+                "{} is {}{} (ahead {}, behind {}).",
+                branch_name,
+                status.state,
+                status
+                    .upstream_name
+                    .as_deref()
+                    .map(|upstream| format!(" against {}", upstream))
+                    .unwrap_or_default(),
+                status.ahead_count,
+                status.behind_count
+            ),
+            None => "Pull status is unavailable or detached.".to_string(),
+        },
+        None => "Pull status is unavailable or detached.".to_string(),
+    };
+
+    let conflict_line = match conflict_summary {
+        Some(summary) if !summary.files.is_empty() => format!(
+            "{} conflicted files during {}{}: {}",
+            summary.files.len(),
+            match summary.operation {
+                ConflictOperation::Merge => "merge",
+                ConflictOperation::Pull => "pull",
+                ConflictOperation::StashApply => "stashApply",
+                ConflictOperation::StashPop => "stashPop",
+                ConflictOperation::Unknown => "unknown",
+            },
+            match (&summary.source_branch, &summary.target_branch) {
+                (Some(source), Some(target)) => format!(" ({} -> {})", source, target),
+                _ => String::new(),
+            },
+            format_repository_assistant_working_files(&summary.files, "none")
+        ),
+        _ => "No active conflicts.".to_string(),
+    };
+
+    Ok([
+        format!("Repository path: {}", repo_path),
+        format!("Checked out branch: {}", branches.current),
+        format!(
+            "Local branches: {}",
+            format_repository_assistant_branch_names(&branches.local, "none")
+        ),
+        format!(
+            "Remote branches: {}",
+            format_repository_assistant_branch_names(&branches.remote, "none")
+        ),
+        format!("Pull status: {}", pull_line),
+        format!("Conflicts: {}", conflict_line),
+        format!(
+            "Staged files ({}): {}",
+            working_tree_status.staged.len(),
+            format_repository_assistant_working_files(&working_tree_status.staged, "none")
+        ),
+        format!(
+            "Unstaged files ({}): {}",
+            working_tree_status.unstaged.len(),
+            format_repository_assistant_working_files(&working_tree_status.unstaged, "none")
+        ),
+        format!(
+            "Recent commits:\n{}",
+            format_repository_assistant_commits(&recent_commits.commits)
+        ),
+    ]
+    .join("\n"))
+}
+
+fn describe_repository_assistant_action_args(action_id: &str) -> &'static str {
+    match action_id {
+        "git.stage_file" | "git.unstage_file" | "git.stash_file" => r#"{"file":"path/to/file"}"#,
+        "git.checkout_ref" => r#"{"ref":"feature/name"}"#,
+        "git.create_branch" => r#"{"baseBranch":"main","newBranch":"feature/name"}"#,
+        "git.merge_branches" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
+        "git.pull_current_branch" => r#"{"branchName":"main"} or {}"#,
+        "git.commit" => r#"{"title":"feat: summary","description":"- detail"}"#,
+        "git.push" => "{}",
+        "git.resolve_conflict_side" => {
+            r#"{"file":"src/app.ts","side":"ours","sessionId":"session-1"}"#
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => r#"{"sessionId":"session-1"}"#,
+        "git.apply_stash" | "git.pop_stash" => r#"{"stashId":"stash@{0}"}"#,
+        "gh.pr.prepare" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
+        "gh.pr.create" => {
+            r#"{"sourceBranch":"feature/name","targetBranch":"main","pushSourceBranch":true}"#
+        }
+        _ => "{}",
+    }
+}
+
+fn build_repository_assistant_action_catalog_prompt() -> String {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .map(|spec| {
+            format!(
+                "- {}: {} group={} risk={} args={}",
+                spec.id,
+                spec.description,
+                spec.group,
+                spec.risk,
+                describe_repository_assistant_action_args(spec.id)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn build_repository_assistant_system_prompt(context: &str) -> String {
+    [
+        "You are Git Chat UI's repository assistant.",
+        "Help the user understand and plan Git operations for the current repository.",
+        "Be concrete, operational, and concise.",
+        "Prefer the safest next action and call out destructive or conflict-prone steps.",
+        "If the repository state is ambiguous, say what additional detail is needed.",
+        "Do not invent repository state beyond the provided context.",
+        "When proposing actions, use only the catalog below and only when the next step is clear enough to run after user approval.",
+        "Return strict JSON only with this shape:",
+        r#"{"message":"short markdown reply","proposedActions":[{"action":{"id":"git.stage_file","args":{"file":"src/app.ts"}},"reason":"why this is the next step"}]}"#,
+        "If no action should be suggested, return an empty proposedActions array.",
+        "Do not include markdown fences, commentary before JSON, or unknown action ids.",
+        "Action catalog:",
+        &build_repository_assistant_action_catalog_prompt(),
+        "Repository context:",
+        context,
+    ]
+    .join("\n\n")
+}
+
+fn normalize_trimmed_string_value(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn normalize_repository_assistant_action(
+    action: &RepositoryAssistantAction,
+) -> Option<RepositoryAssistantAction> {
+    if !is_repository_assistant_action_id(&action.id) {
+        return None;
+    }
+
+    let args = match &action.args {
+        Value::Object(map) => map.clone(),
+        Value::Null => serde_json::Map::new(),
+        _ => return None,
+    };
+
+    match action.id.as_str() {
+        "git.stage_file" | "git.unstage_file" | "git.stash_file" => {
+            let file = normalize_trimmed_string_value(args.get("file"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "file": file }),
+            })
+        }
+        "git.checkout_ref" => {
+            let reference = normalize_trimmed_string_value(args.get("ref"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "ref": reference }),
+            })
+        }
+        "git.create_branch" => {
+            let base_branch = normalize_trimmed_string_value(args.get("baseBranch"))?;
+            let new_branch = normalize_trimmed_string_value(args.get("newBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "baseBranch": base_branch,
+                    "newBranch": new_branch,
+                }),
+            })
+        }
+        "git.merge_branches" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                }),
+            })
+        }
+        "git.pull_current_branch" => {
+            let branch_name = normalize_trimmed_string_value(args.get("branchName"));
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: match branch_name {
+                    Some(branch_name) => json!({ "branchName": branch_name }),
+                    None => json!({}),
+                },
+            })
+        }
+        "git.commit" => {
+            let title = normalize_trimmed_string_value(args.get("title"))?;
+            let description = args
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_string();
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "title": title,
+                    "description": description,
+                }),
+            })
+        }
+        "git.push" => Some(RepositoryAssistantAction {
+            id: action.id.clone(),
+            args: json!({}),
+        }),
+        "git.resolve_conflict_side" => {
+            let file = normalize_trimmed_string_value(args.get("file"))?;
+            let side = match args.get("side").and_then(Value::as_str) {
+                Some("merged" | "ours" | "theirs") => args
+                    .get("side")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
+                _ => return None,
+            };
+            let session_id = normalize_trimmed_string_value(args.get("sessionId"));
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: match session_id {
+                    Some(session_id) => {
+                        json!({ "file": file, "side": side, "sessionId": session_id })
+                    }
+                    None => json!({ "file": file, "side": side }),
+                },
+            })
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => {
+            let session_id = normalize_trimmed_string_value(args.get("sessionId"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "sessionId": session_id }),
+            })
+        }
+        "git.apply_stash" | "git.pop_stash" => {
+            let stash_id = normalize_trimmed_string_value(args.get("stashId"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({ "stashId": stash_id }),
+            })
+        }
+        "gh.pr.prepare" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                }),
+            })
+        }
+        "gh.pr.create" => {
+            let source_branch = normalize_trimmed_string_value(args.get("sourceBranch"))?;
+            let target_branch = normalize_trimmed_string_value(args.get("targetBranch"))?;
+            let push_source_branch = args.get("pushSourceBranch").and_then(Value::as_bool)?;
+            Some(RepositoryAssistantAction {
+                id: action.id.clone(),
+                args: json!({
+                    "sourceBranch": source_branch,
+                    "targetBranch": target_branch,
+                    "pushSourceBranch": push_source_branch,
+                }),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn extract_repository_assistant_structured_payload(raw_text: &str) -> Option<Value> {
+    let trimmed = raw_text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(trimmed).ok().or_else(|| {
+        let fence_start = trimmed.find("```")?;
+        let fenced = &trimmed[(fence_start + 3)..];
+        let fenced = fenced
+            .strip_prefix("json")
+            .or_else(|| fenced.strip_prefix("JSON"))
+            .unwrap_or(fenced);
+        let fenced = fenced.trim_start();
+        let fence_end = fenced.rfind("```")?;
+        serde_json::from_str::<Value>(fenced[..fence_end].trim()).ok()
+    })
+}
+
+fn normalize_repository_assistant_proposals(
+    value: Option<&Value>,
+) -> Vec<RepositoryAssistantActionProposal> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let Value::Object(map) = item else {
+                return None;
+            };
+            let action = map
+                .get("action")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<RepositoryAssistantAction>(value).ok())
+                .and_then(|action| normalize_repository_assistant_action(&action))?;
+            let reason = normalize_trimmed_string_value(map.get("reason"))?;
+            let id = normalize_trimmed_string_value(map.get("id"))
+                .unwrap_or_else(create_repository_assistant_message_id);
+
+            Some(RepositoryAssistantActionProposal {
+                id,
+                action,
+                reason,
+                status: "proposed".to_string(),
+                result: None,
+            })
+        })
+        .collect()
+}
+
+fn parse_repository_assistant_response_payload(
+    raw_text: &str,
+) -> Option<(String, Vec<RepositoryAssistantActionProposal>)> {
+    let Value::Object(map) = extract_repository_assistant_structured_payload(raw_text)? else {
+        return None;
+    };
+    let message = normalize_trimmed_string_value(map.get("message"))?;
+    let proposed_actions = normalize_repository_assistant_proposals(map.get("proposedActions"));
+
+    Some((message, proposed_actions))
+}
+
+fn normalize_repository_assistant_messages(
+    messages: &[RepositoryAssistantMessage],
+) -> Vec<RepositoryAssistantMessage> {
+    let mut normalized = messages
+        .iter()
+        .filter(|message| !message.content.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    if normalized.len() > MAX_REPOSITORY_ASSISTANT_MESSAGES {
+        normalized.drain(0..(normalized.len() - MAX_REPOSITORY_ASSISTANT_MESSAGES));
+    }
+
+    normalized
+}
+
+fn chat_with_openai(
+    token: &str,
+    model: &str,
+    reasoning_effort: OpenAiReasoningEffort,
+    system_prompt: &str,
+    messages: &[RepositoryAssistantMessage],
+) -> Result<String, String> {
+    let normalized_token = token.trim();
+    if normalized_token.is_empty() {
+        return Err(REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR.to_string());
+    }
+
+    let normalized_messages = normalize_repository_assistant_messages(messages);
+    if normalized_messages.is_empty() {
+        return Err("messages must include at least one non-empty user message.".to_string());
+    }
+
+    let input_messages = normalized_messages
+        .iter()
+        .map(|message| {
+            json!({
+                "role": message.role.as_str(),
+                "content": message.content.trim(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut input = vec![json!({
+        "role": "system",
+        "content": system_prompt
+    })];
+    input.extend(input_messages);
+    let resolved_model = resolve_open_ai_model(model);
+    let mut request_body = json!({
+        "model": resolved_model,
+        "max_output_tokens": 900,
+        "input": input
+    });
+
+    if should_include_open_ai_temperature(&resolved_model, reasoning_effort) {
+        request_body["temperature"] = json!(0.2);
+    }
+
+    if let Some(effort) = reasoning_effort.as_api_value() {
+        request_body["reasoning"] = json!({
+            "effort": effort
+        });
+    }
+
+    let Some(json) = run_curl_json(
+        "https://api.openai.com/v1/responses",
+        &[
+            format!("Authorization: Bearer {normalized_token}"),
+            "Content-Type: application/json".to_string(),
+        ],
+        request_body,
+    ) else {
+        return Err("OpenAI request failed.".to_string());
+    };
+
+    if let Some(text) = json.get("output_text").and_then(Value::as_str) {
+        if !text.trim().is_empty() {
+            return Ok(text.trim().to_string());
+        }
+    }
+
+    json.get("output")
+        .and_then(Value::as_array)
+        .and_then(|output| output.first())
+        .and_then(|first| first.get("content"))
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| "OpenAI API returned no text.".to_string())
+}
+
+fn get_repository_assistant_action_spec(
+    action_id: &str,
+) -> Option<&'static RepositoryAssistantActionSpec> {
+    REPOSITORY_ASSISTANT_ACTION_SPECS
+        .iter()
+        .find(|spec| spec.id == action_id)
+}
+
+fn create_repository_assistant_action_result(
+    action: &RepositoryAssistantAction,
+    status: &str,
+    message: String,
+    data: Option<Value>,
+) -> RepositoryAssistantActionResult {
+    RepositoryAssistantActionResult {
+        action: action.clone(),
+        status: status.to_string(),
+        message,
+        created_at: current_timestamp_millis(),
+        data,
+    }
+}
+
+fn format_repository_assistant_conflict_message(prefix: &str, file_count: usize) -> String {
+    format!(
+        "{} Conflicts require manual resolution ({} file{}).",
+        prefix,
+        file_count,
+        if file_count == 1 { "" } else { "s" }
+    )
+}
+
+fn is_self_repository_path(repo_path: &str) -> bool {
+    let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    canonicalize_path_string(Path::new(repo_path))
+        .zip(canonicalize_path_string(&app_root))
+        .map(|(repo, root)| repo == root)
+        .unwrap_or(false)
+}
+
+fn repository_assistant_self_repo_blocked_message(
+    action: &RepositoryAssistantAction,
+    label: &str,
+) -> String {
+    match action.id.as_str() {
+        "git.merge_branches" => format!(
+            "Repository assistant cannot run {} against git-chat-ui's own repository when the target branch is currently checked out while the app is running from that checkout.",
+            label
+        ),
+        _ => format!(
+            "Repository assistant cannot run {} against git-chat-ui's own repository while the app is running from that checkout.",
+            label
+        ),
+    }
+}
+
+fn repository_assistant_action_touches_self_working_tree(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+    spec: &RepositoryAssistantActionSpec,
+    overrides: RepositoryAssistantSafetyOverrides,
+) -> Result<bool, String> {
+    if !spec.mutates_working_tree || !is_self_repository_path(repo_path) {
+        return Ok(false);
+    }
+
+    match action.id.as_str() {
+        "git.merge_branches" => {
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            Ok(get_current_branch(repo_path)? == target_branch
+                && !overrides.allow_self_repository_current_target_merge)
+        }
+        "git.resolve_conflict_side" => {
+            Ok(
+                repository_assistant_action_arg_optional_string(action, "sessionId").is_none()
+                    && !overrides.allow_self_repository_conflict_resolution,
+            )
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => Ok(false),
+        _ => Ok(true),
+    }
+}
+
+fn assert_repository_assistant_action_safe_with_overrides(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+    overrides: RepositoryAssistantSafetyOverrides,
+) -> Result<(), String> {
+    let Some(spec) = get_repository_assistant_action_spec(&action.id) else {
+        return Err("action is invalid.".to_string());
+    };
+
+    if repository_assistant_action_touches_self_working_tree(repo_path, action, spec, overrides)? {
+        return Err(repository_assistant_self_repo_blocked_message(
+            action, spec.label,
+        ));
+    }
+
+    Ok(())
+}
+
+fn assert_repository_assistant_action_safe(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+) -> Result<(), String> {
+    assert_repository_assistant_action_safe_with_overrides(
+        repo_path,
+        action,
+        RepositoryAssistantSafetyOverrides::default(),
+    )
+}
+
+fn repository_assistant_action_arg_required_string(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Result<String, String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| "action is invalid.".to_string())
+}
+
+fn repository_assistant_action_arg_optional_string(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Option<String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn repository_assistant_action_arg_bool(
+    action: &RepositoryAssistantAction,
+    key: &str,
+) -> Result<bool, String> {
+    action
+        .args
+        .as_object()
+        .and_then(|args| args.get(key))
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "action is invalid.".to_string())
+}
+
+fn dispatch_repository_assistant_action(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+) -> Result<RepositoryAssistantActionResult, String> {
+    match action.id.as_str() {
+        "git.stage_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            stage_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Staged {}.", file),
+                None,
+            ))
+        }
+        "git.unstage_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            unstage_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Unstaged {}.", file),
+                None,
+            ))
+        }
+        "git.stash_file" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            stash_file(repo_path.to_string(), file.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Stashed {}.", file),
+                None,
+            ))
+        }
+        "git.checkout_ref" => {
+            let reference = repository_assistant_action_arg_required_string(action, "ref")?;
+            checkout(repo_path.to_string(), reference.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Checked out {}.", reference),
+                None,
+            ))
+        }
+        "git.create_branch" => {
+            let base_branch =
+                repository_assistant_action_arg_required_string(action, "baseBranch")?;
+            let new_branch = repository_assistant_action_arg_required_string(action, "newBranch")?;
+            create_branch(
+                repo_path.to_string(),
+                base_branch.clone(),
+                new_branch.clone(),
+            )?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!(
+                    "Created and checked out {} from {}.",
+                    new_branch, base_branch
+                ),
+                None,
+            ))
+        }
+        "git.merge_branches" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let result = merge_branches(
+                repo_path.to_string(),
+                source_branch.clone(),
+                target_branch.clone(),
+            )?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!(
+                            "Merge from {} into {} started.",
+                            source_branch, target_branch
+                        ),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Merged {} into {}.", source_branch, target_branch),
+                None,
+            ))
+        }
+        "git.pull_current_branch" => {
+            let branch_name = repository_assistant_action_arg_optional_string(action, "branchName");
+            pull_current_branch(repo_path.to_string(), branch_name.clone())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                match branch_name {
+                    Some(branch_name) => {
+                        format!("Pulled upstream changes into {}.", branch_name)
+                    }
+                    None => "Pulled upstream changes into the current branch.".to_string(),
+                },
+                None,
+            ))
+        }
+        "git.commit" => {
+            let title = repository_assistant_action_arg_required_string(action, "title")?;
+            let description =
+                repository_assistant_action_arg_required_string(action, "description")
+                    .unwrap_or_default();
+            commit(repo_path.to_string(), title.clone(), description)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Committed: {}", title),
+                None,
+            ))
+        }
+        "git.push" => {
+            push(repo_path.to_string())?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Pushed the current branch.".to_string(),
+                None,
+            ))
+        }
+        "git.resolve_conflict_side" => {
+            let file = repository_assistant_action_arg_required_string(action, "file")?;
+            let side =
+                match repository_assistant_action_arg_required_string(action, "side")?.as_str() {
+                    "merged" => ConflictResolutionSide::Merged,
+                    "ours" => ConflictResolutionSide::Ours,
+                    "theirs" => ConflictResolutionSide::Theirs,
+                    _ => return Err("action is invalid.".to_string()),
+                };
+            let session_id = repository_assistant_action_arg_optional_string(action, "sessionId");
+            let side_label = match side {
+                ConflictResolutionSide::Merged => "merged",
+                ConflictResolutionSide::Ours => "ours",
+                ConflictResolutionSide::Theirs => "theirs",
+            };
+            resolve_conflict_version(repo_path.to_string(), file.clone(), side, session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Resolved {} using {}.", file, side_label),
+                None,
+            ))
+        }
+        "git.complete_merge_session" => {
+            let session_id = repository_assistant_action_arg_required_string(action, "sessionId")?;
+            complete_merge_session(repo_path.to_string(), session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Completed the merge session.".to_string(),
+                None,
+            ))
+        }
+        "git.abort_merge_session" => {
+            let session_id = repository_assistant_action_arg_required_string(action, "sessionId")?;
+            abort_merge_session(repo_path.to_string(), session_id)?;
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                "Aborted the merge session.".to_string(),
+                None,
+            ))
+        }
+        "git.apply_stash" => {
+            let stash_id = repository_assistant_action_arg_required_string(action, "stashId")?;
+            let result = apply_stash(repo_path.to_string(), stash_id.clone())?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!("Applied {}.", stash_id),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Applied {}.", stash_id),
+                None,
+            ))
+        }
+        "git.pop_stash" => {
+            let stash_id = repository_assistant_action_arg_required_string(action, "stashId")?;
+            let result = pop_stash(repo_path.to_string(), stash_id.clone())?;
+            if !result.ok {
+                let data = serde_json::to_value(&result).ok();
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
+                return Ok(create_repository_assistant_action_result(
+                    action,
+                    "failed",
+                    format_repository_assistant_conflict_message(
+                        &format!("Popped {}.", stash_id),
+                        file_count,
+                    ),
+                    data,
+                ));
+            }
+
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Popped {}.", stash_id),
+                None,
+            ))
+        }
+        "gh.pr.prepare" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let result =
+                prepare_pull_request(repo_path.to_string(), source_branch.clone(), target_branch)?;
+            let message = if result.push_required {
+                format!(
+                    "{} needs a push before creating the pull request.",
+                    source_branch
+                )
+            } else {
+                format!("{} is ready for pull request creation.", source_branch)
+            };
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                message,
+                serde_json::to_value(&result).ok(),
+            ))
+        }
+        "gh.pr.create" => {
+            let source_branch =
+                repository_assistant_action_arg_required_string(action, "sourceBranch")?;
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            let push_source_branch =
+                repository_assistant_action_arg_bool(action, "pushSourceBranch")?;
+            let result = create_pull_request(
+                repo_path.to_string(),
+                source_branch,
+                target_branch,
+                push_source_branch,
+            )?;
+            let url = result.url.clone();
+            Ok(create_repository_assistant_action_result(
+                action,
+                "succeeded",
+                format!("Created pull request: {}", url),
+                serde_json::to_value(&result).ok(),
+            ))
+        }
+        _ => Err("action is invalid.".to_string()),
+    }
+}
+
 fn generate_commit_title_internal(
     config: &AppConfig,
     changed_files: &[String],
@@ -3599,6 +5326,13 @@ pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUr
 }
 
 #[tauri::command]
+pub fn get_repository_assistant_user_profile(
+    repo_path: String,
+) -> Result<RepositoryAssistantUserProfileResponse, String> {
+    get_repository_assistant_user_profile_for_repo(&repo_path)
+}
+
+#[tauri::command]
 pub fn get_branch_pull_requests(repo_path: String) -> Result<BranchPullRequestsResponse, String> {
     ensure_repo_path(&repo_path)?;
     Ok(BranchPullRequestsResponse {
@@ -3612,13 +5346,9 @@ pub fn get_repository_mutation_safety(
 ) -> Result<RepositoryMutationSafetyResponse, String> {
     ensure_repo_path(&repo_path)?;
 
-    let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let is_self_repository = canonicalize_path_string(Path::new(&repo_path))
-        .zip(canonicalize_path_string(&app_root))
-        .map(|(repo, root)| repo == root)
-        .unwrap_or(false);
-
-    Ok(RepositoryMutationSafetyResponse { is_self_repository })
+    Ok(RepositoryMutationSafetyResponse {
+        is_self_repository: is_self_repository_path(&repo_path),
+    })
 }
 
 #[tauri::command]
@@ -3802,7 +5532,11 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
     }
 
     let file_stats_raw = run_git(&["show", "--pretty=format:", "--numstat", &sha], &repo_path)?;
-    let files = parse_commit_file_stats(&file_stats_raw);
+    let file_status_raw = run_git(
+        &["show", "--pretty=format:", "--name-status", &sha],
+        &repo_path,
+    )?;
+    let files = parse_commit_file_stats(&file_stats_raw, Some(&file_status_raw));
 
     let diff = run_git(&["show", "--pretty=format:", &sha], &repo_path)?;
 
@@ -3893,7 +5627,8 @@ pub fn get_branch_diff_detail(
     let range = format!("{merge_base_sha}..{target_ref}");
 
     let file_stats_raw = run_git(&["diff", "--numstat", range.as_str()], &repo_path)?;
-    let files = parse_commit_file_stats(&file_stats_raw);
+    let file_status_raw = run_git(&["diff", "--name-status", range.as_str()], &repo_path)?;
+    let files = parse_commit_file_stats(&file_stats_raw, Some(&file_status_raw));
 
     let diff = run_git(&["diff", range.as_str()], &repo_path)?;
     let is_diff_truncated = diff.chars().count() > 25_000;
@@ -3969,7 +5704,11 @@ pub fn get_working_tree_diff_detail(
     numstat_args.push("--".to_string());
     numstat_args.push(file.clone());
     let file_stats_output = run_git_owned(&numstat_args, &repo_path)?;
-    let mut files = parse_commit_file_stats(&file_stats_output);
+    let mut name_status_args = working_tree_diff_args(&area, Some("--name-status"))?;
+    name_status_args.push("--".to_string());
+    name_status_args.push(file.clone());
+    let file_status_output = run_git_owned(&name_status_args, &repo_path)?;
+    let mut files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
 
     let mut diff_args = working_tree_diff_args(&area, None)?;
     diff_args.push("--".to_string());
@@ -4446,9 +6185,15 @@ fn stage_conflict_resolution(
     file: &str,
     side: ConflictResolutionSide,
 ) -> Result<(), String> {
+    if side == ConflictResolutionSide::Merged {
+        run_git(&["add", "--", file], worktree_path)?;
+        return Ok(());
+    }
+
     let (flag, stage) = match side {
         ConflictResolutionSide::Ours => ("--ours", 2),
         ConflictResolutionSide::Theirs => ("--theirs", 3),
+        ConflictResolutionSide::Merged => unreachable!("merged resolution returns early"),
     };
 
     if read_stage_buffer(worktree_path, stage, file)?.is_some() {
@@ -4667,7 +6412,17 @@ pub fn get_stash_diff_detail(
         &["stash", "show", "--numstat", "--format=", stash_id.as_str()],
         &repo_path,
     )?;
-    let files = parse_commit_file_stats(&file_stats_output);
+    let file_status_output = run_git(
+        &[
+            "stash",
+            "show",
+            "--name-status",
+            "--format=",
+            stash_id.as_str(),
+        ],
+        &repo_path,
+    )?;
+    let files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
 
     let diff = run_git(
         &["stash", "show", "--patch", "--format=", stash_id.as_str()],
@@ -4929,67 +6684,11 @@ pub fn create_branch(
 }
 
 #[tauri::command]
-pub fn get_pull_status(repo_path: String) -> Result<PullStatusResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
-    let branch_name = get_current_branch(&repo_path)?;
-    if branch_name.trim().is_empty() || branch_name == "HEAD" {
-        return Ok(PullStatusResponse {
-            branch_name: None,
-            upstream_name: None,
-            remote_name: None,
-            remote_branch_name: None,
-            ahead_count: 0,
-            behind_count: 0,
-            can_pull: false,
-            state: "detached".to_string(),
-        });
-    }
-
-    let Some(upstream_name) = get_branch_upstream(&repo_path, &branch_name) else {
-        return Ok(PullStatusResponse {
-            branch_name: Some(branch_name),
-            upstream_name: None,
-            remote_name: None,
-            remote_branch_name: None,
-            ahead_count: 0,
-            behind_count: 0,
-            can_pull: false,
-            state: "noUpstream".to_string(),
-        });
-    };
-
-    let ahead_count = parse_commit_count(&run_git(
-        &[
-            "rev-list",
-            "--count",
-            &format!("{upstream_name}..{branch_name}"),
-        ],
-        &repo_path,
-    )?);
-    let behind_count = parse_commit_count(&run_git(
-        &[
-            "rev-list",
-            "--count",
-            &format!("{branch_name}..{upstream_name}"),
-        ],
-        &repo_path,
-    )?);
-    let state = resolve_pull_status_state(ahead_count, behind_count).to_string();
-    let (remote_name, remote_branch_name) = parse_remote_branch_name(&upstream_name)
-        .map(|(remote_name, remote_branch_name)| (Some(remote_name), Some(remote_branch_name)))
-        .unwrap_or((None, None));
-
-    Ok(PullStatusResponse {
-        branch_name: Some(branch_name),
-        upstream_name: Some(upstream_name),
-        remote_name,
-        remote_branch_name,
-        ahead_count,
-        behind_count,
-        can_pull: state == "behind",
-        state,
-    })
+pub fn get_pull_status(
+    repo_path: String,
+    branch_name: Option<String>,
+) -> Result<PullStatusResponse, String> {
+    get_pull_status_for_branch(&repo_path, branch_name.as_deref())
 }
 
 #[tauri::command]
@@ -5131,27 +6830,11 @@ pub fn abort_merge_session(repo_path: String, session_id: String) -> Result<OkRe
 }
 
 #[tauri::command]
-pub fn pull_current_branch(repo_path: String) -> Result<OkResponse, String> {
-    ensure_repo_path(&repo_path)?;
-
-    let branch_name = get_current_branch(&repo_path)?;
-    if branch_name.trim().is_empty() || branch_name == "HEAD" {
-        return Err("Cannot pull while HEAD is detached.".to_string());
-    }
-
-    if get_branch_upstream(&repo_path, &branch_name).is_none() {
-        return Err(format!(
-            "Current branch '{branch_name}' has no upstream branch."
-        ));
-    }
-
-    let args = vec!["pull".to_string(), "--ff-only".to_string()];
-    run_git_owned_with_env(
-        &args,
-        &repo_path,
-        &[("GIT_TERMINAL_PROMPT", "0".to_string())],
-    )?;
-
+pub fn pull_current_branch(
+    repo_path: String,
+    branch_name: Option<String>,
+) -> Result<OkResponse, String> {
+    pull_branch(&repo_path, branch_name.as_deref())?;
     Ok(OkResponse { ok: true })
 }
 
@@ -5375,6 +7058,12 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
     let next_config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
         open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
+        repository_assistant_open_ai_model: input
+            .repository_assistant_open_ai_model
+            .unwrap_or(current.repository_assistant_open_ai_model),
+        repository_assistant_reasoning_effort: input
+            .repository_assistant_reasoning_effort
+            .unwrap_or(current.repository_assistant_reasoning_effort),
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
         selected_ai_provider: input
             .selected_ai_provider
@@ -5388,6 +7077,11 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
                 .repository_scan_depth
                 .unwrap_or(current.repository_scan_depth),
         ),
+        repository_assistant_policies: input
+            .repository_assistant_policies
+            .as_ref()
+            .map(|value| normalize_repository_assistant_policies_value(Some(value)))
+            .unwrap_or(current.repository_assistant_policies),
         recently_used: current.recently_used,
         window_state: current.window_state,
     };
@@ -5408,6 +7102,8 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
     let config = AppConfig {
         open_ai_token: input.open_ai_token.unwrap_or(current.open_ai_token),
         open_ai_model: input.open_ai_model.unwrap_or(current.open_ai_model),
+        repository_assistant_open_ai_model: current.repository_assistant_open_ai_model,
+        repository_assistant_reasoning_effort: current.repository_assistant_reasoning_effort,
         claude_code_token: input.claude_code_token.unwrap_or(current.claude_code_token),
         selected_ai_provider: input
             .selected_ai_provider
@@ -5417,11 +7113,95 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: current.commit_graph_mode,
         repository_scan_depth: current.repository_scan_depth,
+        repository_assistant_policies: current.repository_assistant_policies,
         recently_used: current.recently_used,
         window_state: current.window_state,
     };
     let diff_snippet = get_diff_snippet(&input.repo_path, &input.changed_files)?;
     generate_commit_title_internal(&config, &input.changed_files, &diff_snippet)
+}
+
+#[tauri::command]
+pub fn chat_with_repository_assistant(
+    input: ChatWithRepositoryAssistantInput,
+) -> Result<RepositoryAssistantResponse, String> {
+    ensure_repo_path(&input.repo_path)?;
+
+    let config = read_config()?;
+    if config.open_ai_token.trim().is_empty() {
+        return Err(REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR.to_string());
+    }
+
+    let system_prompt = build_repository_assistant_system_prompt(
+        &build_repository_assistant_context(&input.repo_path)?,
+    );
+    let open_ai_model = input
+        .open_ai_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(config.repository_assistant_open_ai_model.as_str())
+        .to_string();
+    let message = chat_with_openai(
+        &config.open_ai_token,
+        &open_ai_model,
+        input
+            .reasoning_effort
+            .unwrap_or(config.repository_assistant_reasoning_effort),
+        &system_prompt,
+        &input.messages,
+    )?;
+    let (content, proposed_actions) = parse_repository_assistant_response_payload(&message)
+        .unwrap_or_else(|| (message.clone(), Vec::new()));
+
+    Ok(RepositoryAssistantResponse {
+        message: RepositoryAssistantMessage {
+            id: create_repository_assistant_message_id(),
+            role: RepositoryAssistantMessageRole::Assistant,
+            content,
+            created_at: current_timestamp_millis(),
+        },
+        proposed_actions,
+    })
+}
+
+#[tauri::command]
+pub fn execute_repository_assistant_action(
+    input: ExecuteRepositoryAssistantActionInput,
+) -> Result<RepositoryAssistantActionExecutionResponse, String> {
+    ensure_repo_path(&input.repo_path)?;
+
+    let action = normalize_repository_assistant_action(&input.action)
+        .ok_or_else(|| "action is invalid.".to_string())?;
+    let config = read_config()?;
+    if !is_repository_assistant_action_allowed(
+        &config.repository_assistant_policies,
+        &input.repo_path,
+        &action.id,
+    ) {
+        return Err(format!(
+            "{} is not allowlisted for this repository.",
+            action.id
+        ));
+    }
+
+    assert_repository_assistant_action_safe_with_overrides(
+        &input.repo_path,
+        &action,
+        RepositoryAssistantSafetyOverrides {
+            allow_self_repository_current_target_merge: input
+                .allow_self_repository_current_target_merge,
+            allow_self_repository_conflict_resolution: input
+                .allow_self_repository_conflict_resolution,
+        },
+    )?;
+
+    let result = match dispatch_repository_assistant_action(&input.repo_path, &action) {
+        Ok(result) => result,
+        Err(error) => create_repository_assistant_action_result(&action, "failed", error, None),
+    };
+
+    Ok(RepositoryAssistantActionExecutionResponse { result })
 }
 
 #[cfg(test)]
@@ -5967,6 +7747,8 @@ mod tests {
         let config = normalize_config_value(json!({
             "openAiToken": "sk-openai",
             "openAiModel": "gpt-4.1",
+            "repositoryAssistantOpenAiModel": "gpt-5.4",
+            "repositoryAssistantReasoningEffort": "high",
             "claudeCodeToken": "cc-token",
             "selectedAiProvider": "claudeCode",
             "commitTitlePrompt": "Write a short Japanese commit message.",
@@ -5976,6 +7758,11 @@ mod tests {
 
         assert_eq!(config.open_ai_token, "sk-openai");
         assert_eq!(config.open_ai_model, "gpt-4.1");
+        assert_eq!(config.repository_assistant_open_ai_model, "gpt-5.4");
+        assert_eq!(
+            config.repository_assistant_reasoning_effort,
+            OpenAiReasoningEffort::High
+        );
         assert_eq!(config.claude_code_token, "cc-token");
         assert_eq!(config.selected_ai_provider, AiProvider::ClaudeCode);
         assert_eq!(
@@ -6006,6 +7793,289 @@ mod tests {
     }
 
     #[test]
+    fn parse_github_viewer_response_extracts_login_and_avatar_url() {
+        assert_eq!(
+            parse_github_viewer_response(
+                r#"{"login":"octocat","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"}"#
+            ),
+            RepositoryAssistantUserProfileResponse {
+                login: Some("octocat".to_string()),
+                avatar_url: Some("https://avatars.githubusercontent.com/u/1?v=4".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_github_viewer_response_normalizes_blank_fields_to_none() {
+        assert_eq!(
+            parse_github_viewer_response(r#"{"login":"   ","avatar_url":""}"#),
+            RepositoryAssistantUserProfileResponse {
+                login: None,
+                avatar_url: None,
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_config_value_falls_back_to_commit_model_for_repository_assistant() {
+        let config = normalize_config_value(json!({
+            "openAiModel": "gpt-4.1",
+            "repositoryAssistantOpenAiModel": "   "
+        }));
+
+        assert_eq!(config.repository_assistant_open_ai_model, "gpt-4.1");
+        assert_eq!(
+            config.repository_assistant_reasoning_effort,
+            OpenAiReasoningEffort::Default
+        );
+    }
+
+    #[test]
+    fn normalize_config_value_normalizes_repository_assistant_policies() {
+        let config = normalize_config_value(json!({
+            "repositoryAssistantPolicies": {
+                " /tmp/repo-a ": {
+                    "allowedActionIds": [
+                        "git.push",
+                        "gh.pr.create",
+                        "git.push",
+                        "not.valid"
+                    ]
+                },
+                "": {
+                    "allowedActionIds": ["git.stage_file"]
+                }
+            }
+        }));
+
+        assert_eq!(config.repository_assistant_policies.len(), 1);
+        assert_eq!(
+            config
+                .repository_assistant_policies
+                .get("/tmp/repo-a")
+                .expect("policy should exist")
+                .allowed_action_ids,
+            vec!["git.push".to_string(), "gh.pr.create".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_repository_assistant_action_rejects_blank_strings() {
+        let action = RepositoryAssistantAction {
+            id: "git.stage_file".to_string(),
+            args: json!({
+                "file": "   "
+            }),
+        };
+
+        assert!(normalize_repository_assistant_action(&action).is_none());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_metadata_only_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+
+        let stage_action = RepositoryAssistantAction {
+            id: "git.stage_file".to_string(),
+            args: json!({
+                "file": "src/App.tsx"
+            }),
+        };
+        let commit_action = RepositoryAssistantAction {
+            id: "git.commit".to_string(),
+            args: json!({
+                "title": "test: metadata only",
+                "description": ""
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &stage_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &commit_action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_blocks_working_tree_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.checkout_ref".to_string(),
+            args: json!({
+                "ref": "main"
+            }),
+        };
+
+        assert_eq!(
+            assert_repository_assistant_action_safe(&repo_path, &action),
+            Err("Repository assistant cannot run Checkout Ref against git-chat-ui's own repository while the app is running from that checkout.".to_string())
+        );
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_on_non_current_target() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "feature/safe-merge",
+                "targetBranch": "__self_repo_safe_target__"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_blocks_merge_into_current_branch() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let current_branch = get_current_branch(&repo_path).expect("current branch should resolve");
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "feature/unsafe-merge",
+                "targetBranch": current_branch
+            }),
+        };
+
+        assert_eq!(
+            assert_repository_assistant_action_safe(&repo_path, &action),
+            Err("Repository assistant cannot run Merge Branches against git-chat-ui's own repository when the target branch is currently checked out while the app is running from that checkout.".to_string())
+        );
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_into_current_branch_with_override() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let current_branch = get_current_branch(&repo_path).expect("current branch should resolve");
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "main",
+                "targetBranch": current_branch
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe_with_overrides(
+            &repo_path,
+            &action,
+            RepositoryAssistantSafetyOverrides {
+                allow_self_repository_current_target_merge: true,
+                allow_self_repository_conflict_resolution: false,
+            },
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_session_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let resolve_action = RepositoryAssistantAction {
+            id: "git.resolve_conflict_side".to_string(),
+            args: json!({
+                "file": "src/App.tsx",
+                "side": "ours",
+                "sessionId": "session-1"
+            }),
+        };
+        let complete_action = RepositoryAssistantAction {
+            id: "git.complete_merge_session".to_string(),
+            args: json!({
+                "sessionId": "session-1"
+            }),
+        };
+        let abort_action = RepositoryAssistantAction {
+            id: "git.abort_merge_session".to_string(),
+            args: json!({
+                "sessionId": "session-1"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &resolve_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &complete_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &abort_action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_repository_conflict_resolution_with_override() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.resolve_conflict_side".to_string(),
+            args: json!({
+                "file": "src/App.tsx",
+                "side": "ours"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe_with_overrides(
+            &repo_path,
+            &action,
+            RepositoryAssistantSafetyOverrides {
+                allow_self_repository_current_target_merge: false,
+                allow_self_repository_conflict_resolution: true,
+            },
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn parse_repository_assistant_response_payload_extracts_message_and_actions() {
+        let payload = r#"```json
+{
+  "message": "Stage the file first.",
+  "proposedActions": [
+    {
+      "action": {
+        "id": "git.stage_file",
+        "args": {
+          "file": "src/App.tsx"
+        }
+      },
+      "reason": "The file is ready to be staged."
+    }
+  ]
+}
+```"#;
+
+        let (message, proposed_actions) =
+            parse_repository_assistant_response_payload(payload).expect("payload should parse");
+
+        assert_eq!(message, "Stage the file first.");
+        assert_eq!(proposed_actions.len(), 1);
+        assert_eq!(proposed_actions[0].action.id, "git.stage_file");
+        assert_eq!(
+            proposed_actions[0].action.args,
+            json!({
+                "file": "src/App.tsx"
+            })
+        );
+        assert_eq!(
+            proposed_actions[0].reason,
+            "The file is ready to be staged."
+        );
+        assert_eq!(proposed_actions[0].status, "proposed");
+        assert!(proposed_actions[0].result.is_none());
+    }
+
+    #[test]
     fn resolve_commit_title_prompt_uses_default_when_blank() {
         assert_eq!(
             resolve_commit_title_prompt("   "),
@@ -6021,6 +8091,28 @@ mod tests {
     fn resolve_open_ai_model_uses_default_when_blank() {
         assert_eq!(resolve_open_ai_model("   "), DEFAULT_OPENAI_MODEL);
         assert_eq!(resolve_open_ai_model("gpt-4.1"), "gpt-4.1");
+    }
+
+    #[test]
+    fn open_ai_reasoning_effort_as_api_value_omits_default() {
+        assert_eq!(OpenAiReasoningEffort::Default.as_api_value(), None);
+        assert_eq!(OpenAiReasoningEffort::High.as_api_value(), Some("high"));
+    }
+
+    #[test]
+    fn should_include_open_ai_temperature_only_for_supported_models() {
+        assert!(should_include_open_ai_temperature(
+            "gpt-4.1-mini",
+            OpenAiReasoningEffort::Default
+        ));
+        assert!(!should_include_open_ai_temperature(
+            "gpt-5.4",
+            OpenAiReasoningEffort::Default
+        ));
+        assert!(should_include_open_ai_temperature(
+            "gpt-5.1",
+            OpenAiReasoningEffort::NoneValue
+        ));
     }
 
     #[test]
@@ -6654,7 +8746,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_conflict_version_handles_text_and_delete_side_resolutions() {
+    fn resolve_conflict_version_handles_side_and_manual_resolutions() {
         let fixture = create_conflict_fixture();
         stage_conflict_entries(
             &fixture.repo_path,
@@ -6675,6 +8767,50 @@ mod tests {
                 .expect("resolved file should be readable"),
             "ours\n"
         );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "manual.txt",
+            &[(1, b"base\n"), (2, b"ours\n"), (3, b"theirs\n")],
+            Some(b"manual resolution\n"),
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "manual.txt".to_string(),
+            ConflictResolutionSide::Merged,
+            None,
+        )
+        .expect("manual resolution should stage the current file");
+        assert_eq!(
+            fs::read_to_string(Path::new(&fixture.repo_path).join("manual.txt"))
+                .expect("manual file should be readable"),
+            "manual resolution\n"
+        );
+        assert!(get_conflict_summary(fixture.repo_path.clone(), None)
+            .expect("conflict summary should resolve")
+            .files
+            .is_empty());
+
+        stage_conflict_entries(
+            &fixture.repo_path,
+            "removed.txt",
+            &[(1, b"base\n"), (2, b"ours\n")],
+            None,
+            true,
+        );
+        resolve_conflict_version(
+            fixture.repo_path.clone(),
+            "removed.txt".to_string(),
+            ConflictResolutionSide::Merged,
+            None,
+        )
+        .expect("manual delete resolution should stage removal");
+        assert!(!Path::new(&fixture.repo_path).join("removed.txt").exists());
         assert!(get_conflict_summary(fixture.repo_path.clone(), None)
             .expect("conflict summary should resolve")
             .files
@@ -6809,7 +8945,46 @@ mod tests {
             .expect("local fetch should succeed");
 
         let status =
-            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+            get_pull_status(fixture.repo_path.clone(), None).expect("pull status should resolve");
+
+        assert_eq!(status.branch_name.as_deref(), Some("main"));
+        assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
+        assert_eq!(status.remote_name.as_deref(), Some("origin"));
+        assert_eq!(status.remote_branch_name.as_deref(), Some("main"));
+        assert_eq!(status.ahead_count, 0);
+        assert_eq!(status.behind_count, 1);
+        assert!(status.can_pull);
+        assert_eq!(status.state, "behind");
+    }
+
+    #[test]
+    fn get_pull_status_can_target_a_non_current_local_branch() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/current"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch should be created");
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+        run_command("git", &["fetch", "origin"], &fixture.repo_path)
+            .expect("local fetch should succeed");
+
+        let status = get_pull_status(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("targeted pull status should resolve");
 
         assert_eq!(status.branch_name.as_deref(), Some("main"));
         assert_eq!(status.upstream_name.as_deref(), Some("origin/main"));
@@ -6839,7 +9014,7 @@ mod tests {
         run_command("git", &["push", "origin", "main"], &collaborator_path)
             .expect("remote push should succeed");
 
-        pull_current_branch(fixture.repo_path.clone()).expect("pull should succeed");
+        pull_current_branch(fixture.repo_path.clone(), None).expect("pull should succeed");
 
         let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
             .expect("current branch should resolve");
@@ -6850,11 +9025,61 @@ mod tests {
         let readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
             .expect("README should be readable");
         let status =
-            get_pull_status(fixture.repo_path.clone()).expect("pull status should resolve");
+            get_pull_status(fixture.repo_path.clone(), None).expect("pull status should resolve");
 
         assert_eq!(current_branch, "main");
         assert_eq!(head, upstream_head);
         assert!(readme.contains("remote update"));
+        assert_eq!(status.behind_count, 0);
+        assert!(!status.can_pull);
+        assert_eq!(status.state, "upToDate");
+    }
+
+    #[test]
+    fn pull_current_branch_can_fast_forward_a_non_current_branch() {
+        let (fixture, collaborator_path) = create_pull_fixture();
+
+        run_command(
+            "git",
+            &["checkout", "-b", "feature/current"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch should be created");
+        fs::write(
+            Path::new(&collaborator_path).join("README.md"),
+            "root\nremote update\n",
+        )
+        .expect("remote update should be written");
+        run_command(
+            "git",
+            &["commit", "-am", "remote update"],
+            &collaborator_path,
+        )
+        .expect("remote commit should succeed");
+        run_command("git", &["push", "origin", "main"], &collaborator_path)
+            .expect("remote push should succeed");
+
+        pull_current_branch(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("targeted pull should succeed");
+
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let local_main_head =
+            run_command("git", &["rev-parse", "refs/heads/main"], &fixture.repo_path)
+                .expect("main head should resolve");
+        let upstream_head = run_command("git", &["rev-parse", "origin/main"], &fixture.repo_path)
+            .expect("upstream head should resolve");
+        let worktree_readme = fs::read_to_string(Path::new(&fixture.repo_path).join("README.md"))
+            .expect("README should be readable");
+        let main_readme = run_command("git", &["show", "main:README.md"], &fixture.repo_path)
+            .expect("main README should resolve");
+        let status = get_pull_status(fixture.repo_path.clone(), Some("main".to_string()))
+            .expect("pull status should resolve");
+
+        assert_eq!(current_branch, "feature/current");
+        assert_eq!(local_main_head, upstream_head);
+        assert_eq!(worktree_readme, "root\n");
+        assert!(main_readme.contains("remote update"));
         assert_eq!(status.behind_count, 0);
         assert!(!status.can_pull);
         assert_eq!(status.state, "upToDate");

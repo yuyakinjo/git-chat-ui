@@ -53,10 +53,10 @@ export function parseWorkingTreeDiffArea(value: unknown): "staged" | "unstaged" 
   throw new Error("area must be staged or unstaged.");
 }
 
-export function parseConflictResolutionSide(value: unknown): "ours" | "theirs" {
-  if (value === "ours" || value === "theirs") {
+export function parseConflictResolutionSide(value: unknown): "merged" | "ours" | "theirs" {
+  if (value === "merged" || value === "ours" || value === "theirs") {
     return value;
   }
 
-  throw new Error("side must be ours or theirs.");
+  throw new Error("side must be merged, ours, or theirs.");
 }

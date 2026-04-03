@@ -26,6 +26,10 @@ export interface UseControllerDataParams {
   onCurrentBranchChange: (repoPath: string, branchName: string | null) => void;
 }
 
+export interface LoadCommitsResult {
+  status: "updated" | "focus-miss" | "error";
+}
+
 export interface UseControllerDataResult {
   branches: BranchResponse | null;
   branchPullRequests: Record<string, BranchPullRequest>;
@@ -125,7 +129,7 @@ export interface UseControllerDataResult {
     ref: string;
     compareRefs?: string[];
     focusCommitSha?: string;
-  }) => Promise<void>;
+  }) => Promise<LoadCommitsResult>;
   loadWorkingState: () => Promise<void>;
   loadBranches: () => Promise<BranchResponse | null>;
   loadPullStatus: () => Promise<void>;

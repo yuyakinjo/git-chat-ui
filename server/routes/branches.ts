@@ -90,7 +90,11 @@ router.post("/api/branches/delete", async (request, response, next) => {
 router.get("/api/pull/status", async (request, response, next) => {
   try {
     const repoPath = getRepoPathFromQuery(request);
-    const status = await getPullStatus(repoPath);
+    const branchName =
+      typeof request.query.branchName === "string" && request.query.branchName.trim()
+        ? request.query.branchName
+        : undefined;
+    const status = await getPullStatus(repoPath, branchName);
     response.json(status);
   } catch (error) {
     next(error);
@@ -100,7 +104,11 @@ router.get("/api/pull/status", async (request, response, next) => {
 router.post("/api/pull", async (request, response, next) => {
   try {
     const repoPath = getRequiredString(request.body.repoPath, "repoPath");
-    await pullCurrentBranch(repoPath);
+    const branchName =
+      typeof request.body.branchName === "string" && request.body.branchName.trim()
+        ? request.body.branchName
+        : undefined;
+    await pullCurrentBranch(repoPath, branchName);
     response.json({ ok: true });
   } catch (error) {
     next(error);
