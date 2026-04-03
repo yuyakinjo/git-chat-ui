@@ -55,11 +55,16 @@ import {
   toRepositoryAssistantConfigPatch,
   updateRepositoryAssistantProposal,
 } from "./lib/repositoryAssistant";
+import {
+  getSelfConflictResolutionConfirmationMessage,
+  getSelfCurrentBranchMergeConfirmationMessage,
+} from "./lib/repositoryMutationSafety";
 import type {
   AiGenerationConfig,
   AppConfig,
   Repository,
   RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
   RepositoryAssistantActionId,
   RepositoryAssistantActionResult,
   RepositoryAssistantMessage,
@@ -860,80 +865,128 @@ export default function App(): JSX.Element {
         return;
       }
 
-      setRepositoryAssistantConversations((current) => {
-        const conversation = getRepositoryAssistantConversationState(current, repoPath);
-        return {
-          ...current,
-          [repoPath]: {
-            ...conversation,
-            messages: updateRepositoryAssistantProposal(conversation.messages, proposalId, (proposal) => ({
-              ...proposal,
-              status: "running",
-              result: null,
-            })),
-            executingProposalId: proposalId,
-            error: null,
-          },
-        };
-      });
+      void (async () => {
+        const executionOptions: RepositoryAssistantActionExecutionOptions = {};
 
-      const finalize = (result: RepositoryAssistantActionResult): void => {
-        const mutatesRepository =
-          result.status === "succeeded" && getRepositoryAssistantActionSpec(action.id).mutatesRepository;
+        if (typeof window !== "undefined" && import.meta.env.DEV) {
+          const shouldCheckSelfRepoConfirm =
+            action.id === "git.merge_branches" || action.id === "git.resolve_conflict_side";
+
+          if (shouldCheckSelfRepoConfirm) {
+            const safety = await api.getRepositoryMutationSafety(repoPath);
+            if (safety.isSelfRepository) {
+              if (action.id === "git.merge_branches") {
+                const branches = await api.getBranches(repoPath);
+                if (branches.current === action.args.targetBranch) {
+                  if (!window.confirm(getSelfCurrentBranchMergeConfirmationMessage())) {
+                    return;
+                  }
+                  executionOptions.allowSelfRepositoryCurrentTargetMerge = true;
+                }
+              } else if (!action.args.sessionId) {
+                if (!window.confirm(getSelfConflictResolutionConfirmationMessage())) {
+                  return;
+                }
+                executionOptions.allowSelfRepositoryConflictResolution = true;
+              }
+            }
+          }
+        }
 
         setRepositoryAssistantConversations((current) => {
           const conversation = getRepositoryAssistantConversationState(current, repoPath);
-          let nextMessages = updateRepositoryAssistantProposal(
-            conversation.messages,
-            proposalId,
-            (proposal) => ({
-              ...proposal,
-              status: result.status === "succeeded" ? "succeeded" : "failed",
-              result,
-            }),
-          );
-
-          if (mutatesRepository) {
-            nextMessages = markRepositoryAssistantProposalsStale(nextMessages, proposalId);
-          }
-
-          nextMessages = [...nextMessages, createRepositoryAssistantExecutionMessage(result)];
-
           return {
             ...current,
             [repoPath]: {
               ...conversation,
-              messages: nextMessages,
-              executingProposalId: null,
-              error: result.status === "failed" ? result.message : null,
+              messages: updateRepositoryAssistantProposal(
+                conversation.messages,
+                proposalId,
+                (proposal) => ({
+                  ...proposal,
+                  status: "running",
+                  result: null,
+                }),
+              ),
+              executingProposalId: proposalId,
+              error: null,
             },
           };
         });
 
-        if (mutatesRepository) {
-          setAssistantRefreshRequestIds((current) => ({
-            ...current,
-            [repoPath]: (current[repoPath] ?? 0) + 1,
-          }));
-        }
+        const finalize = (result: RepositoryAssistantActionResult): void => {
+          const mutatesRepository =
+            result.status === "succeeded" &&
+            getRepositoryAssistantActionSpec(action.id).mutatesRepository;
 
-        setNotice(result.message);
-      };
+          setRepositoryAssistantConversations((current) => {
+            const conversation = getRepositoryAssistantConversationState(current, repoPath);
+            let nextMessages = updateRepositoryAssistantProposal(
+              conversation.messages,
+              proposalId,
+              (proposal) => ({
+                ...proposal,
+                status: result.status === "succeeded" ? "succeeded" : "failed",
+                result,
+              }),
+            );
 
-      void api
-        .executeRepositoryAssistantAction(repoPath, action)
-        .then((response) => {
-          finalize(response.result);
-        })
-        .catch((error) => {
-          finalize({
-            action,
-            status: "failed",
-            message:
-              error instanceof Error ? error.message : "Repository assistant action failed.",
-            createdAt: new Date().toISOString(),
+            if (mutatesRepository) {
+              nextMessages = markRepositoryAssistantProposalsStale(nextMessages, proposalId);
+            }
+
+            nextMessages = [...nextMessages, createRepositoryAssistantExecutionMessage(result)];
+
+            return {
+              ...current,
+              [repoPath]: {
+                ...conversation,
+                messages: nextMessages,
+                executingProposalId: null,
+                error: result.status === "failed" ? result.message : null,
+              },
+            };
           });
+
+          if (mutatesRepository) {
+            setAssistantRefreshRequestIds((current) => ({
+              ...current,
+              [repoPath]: (current[repoPath] ?? 0) + 1,
+            }));
+          }
+
+          setNotice(result.message);
+        };
+
+        void api
+          .executeRepositoryAssistantAction(repoPath, action, executionOptions)
+          .then((response) => {
+            finalize(response.result);
+          })
+          .catch((error) => {
+            finalize({
+              action,
+              status: "failed",
+              message:
+                error instanceof Error ? error.message : "Repository assistant action failed.",
+              createdAt: new Date().toISOString(),
+            });
+          });
+      })().catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "Repository assistant action failed.";
+        setRepositoryAssistantConversations((current) => {
+          const conversation = getRepositoryAssistantConversationState(current, repoPath);
+          return {
+            ...current,
+            [repoPath]: {
+              ...conversation,
+              error: message,
+            },
+          };
         });
+        setNotice(message);
+      });
     },
     [activeRepository, activeRepositoryAssistantConversation],
   );

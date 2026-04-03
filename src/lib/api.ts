@@ -21,6 +21,7 @@ import type {
   PullRequestResponse,
   RepositoryAssistantUserProfile,
   RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
   RepositoryAssistantActionExecutionResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
@@ -342,7 +343,8 @@ export const api = {
   executeRepositoryAssistantAction(
     repoPath: string,
     action: RepositoryAssistantAction,
+    options?: RepositoryAssistantActionExecutionOptions,
   ): Promise<RepositoryAssistantActionExecutionResponse> {
-    return getBusinessTransport().executeRepositoryAssistantAction(repoPath, action);
+    return getBusinessTransport().executeRepositoryAssistantAction(repoPath, action, options);
   },
 };

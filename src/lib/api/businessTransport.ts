@@ -19,6 +19,7 @@ import type {
   PullRequestPreparation,
   PullRequestResponse,
   RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
   RepositoryAssistantActionExecutionResponse,
   RepositoryAssistantMessage,
   RepositoryAssistantResponse,
@@ -158,5 +159,6 @@ export interface BusinessTransport {
   executeRepositoryAssistantAction(
     repoPath: string,
     action: RepositoryAssistantAction,
+    options?: RepositoryAssistantActionExecutionOptions,
   ): Promise<RepositoryAssistantActionExecutionResponse>;
 }

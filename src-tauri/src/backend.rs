@@ -70,6 +70,12 @@ struct RepositoryAssistantActionSpec {
     mutates_working_tree: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct RepositoryAssistantSafetyOverrides {
+    allow_self_repository_current_target_merge: bool,
+    allow_self_repository_conflict_resolution: bool,
+}
+
 const REPOSITORY_ASSISTANT_ACTION_SPECS: &[RepositoryAssistantActionSpec] = &[
     RepositoryAssistantActionSpec {
         id: "git.stage_file",
@@ -884,6 +890,10 @@ pub struct RepositoryAssistantActionExecutionResponse {
 pub struct ExecuteRepositoryAssistantActionInput {
     pub repo_path: String,
     pub action: RepositoryAssistantAction,
+    #[serde(default)]
+    pub allow_self_repository_current_target_merge: bool,
+    #[serde(default)]
+    pub allow_self_repository_conflict_resolution: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -4742,6 +4752,7 @@ fn repository_assistant_action_touches_self_working_tree(
     repo_path: &str,
     action: &RepositoryAssistantAction,
     spec: &RepositoryAssistantActionSpec,
+    overrides: RepositoryAssistantSafetyOverrides,
 ) -> Result<bool, String> {
     if !spec.mutates_working_tree || !is_self_repository_path(repo_path) {
         return Ok(false);
@@ -4751,31 +4762,47 @@ fn repository_assistant_action_touches_self_working_tree(
         "git.merge_branches" => {
             let target_branch =
                 repository_assistant_action_arg_required_string(action, "targetBranch")?;
-            Ok(get_current_branch(repo_path)? == target_branch)
+            Ok(get_current_branch(repo_path)? == target_branch
+                && !overrides.allow_self_repository_current_target_merge)
         }
         "git.resolve_conflict_side" => {
-            Ok(repository_assistant_action_arg_optional_string(action, "sessionId").is_none())
+            Ok(
+                repository_assistant_action_arg_optional_string(action, "sessionId").is_none()
+                    && !overrides.allow_self_repository_conflict_resolution,
+            )
         }
         "git.complete_merge_session" | "git.abort_merge_session" => Ok(false),
         _ => Ok(true),
     }
 }
 
-fn assert_repository_assistant_action_safe(
+fn assert_repository_assistant_action_safe_with_overrides(
     repo_path: &str,
     action: &RepositoryAssistantAction,
+    overrides: RepositoryAssistantSafetyOverrides,
 ) -> Result<(), String> {
     let Some(spec) = get_repository_assistant_action_spec(&action.id) else {
         return Err("action is invalid.".to_string());
     };
 
-    if repository_assistant_action_touches_self_working_tree(repo_path, action, spec)? {
+    if repository_assistant_action_touches_self_working_tree(repo_path, action, spec, overrides)? {
         return Err(repository_assistant_self_repo_blocked_message(
             action, spec.label,
         ));
     }
 
     Ok(())
+}
+
+fn assert_repository_assistant_action_safe(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+) -> Result<(), String> {
+    assert_repository_assistant_action_safe_with_overrides(
+        repo_path,
+        action,
+        RepositoryAssistantSafetyOverrides::default(),
+    )
 }
 
 fn repository_assistant_action_arg_required_string(
@@ -7158,7 +7185,16 @@ pub fn execute_repository_assistant_action(
         ));
     }
 
-    assert_repository_assistant_action_safe(&input.repo_path, &action)?;
+    assert_repository_assistant_action_safe_with_overrides(
+        &input.repo_path,
+        &action,
+        RepositoryAssistantSafetyOverrides {
+            allow_self_repository_current_target_merge: input
+                .allow_self_repository_current_target_merge,
+            allow_self_repository_conflict_resolution: input
+                .allow_self_repository_conflict_resolution,
+        },
+    )?;
 
     let result = match dispatch_repository_assistant_action(&input.repo_path, &action) {
         Ok(result) => result,
@@ -7918,6 +7954,32 @@ mod tests {
     }
 
     #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_into_current_branch_with_override() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let current_branch = get_current_branch(&repo_path).expect("current branch should resolve");
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "main",
+                "targetBranch": current_branch
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe_with_overrides(
+            &repo_path,
+            &action,
+            RepositoryAssistantSafetyOverrides {
+                allow_self_repository_current_target_merge: true,
+                allow_self_repository_conflict_resolution: false,
+            },
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn repository_assistant_self_repo_safety_allows_merge_session_actions() {
         let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -7947,6 +8009,31 @@ mod tests {
         assert!(assert_repository_assistant_action_safe(&repo_path, &resolve_action).is_ok());
         assert!(assert_repository_assistant_action_safe(&repo_path, &complete_action).is_ok());
         assert!(assert_repository_assistant_action_safe(&repo_path, &abort_action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_repository_conflict_resolution_with_override() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.resolve_conflict_side".to_string(),
+            args: json!({
+                "file": "src/App.tsx",
+                "side": "ours"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe_with_overrides(
+            &repo_path,
+            &action,
+            RepositoryAssistantSafetyOverrides {
+                allow_self_repository_current_target_merge: false,
+                allow_self_repository_conflict_resolution: true,
+            },
+        )
+        .is_ok());
     }
 
     #[test]

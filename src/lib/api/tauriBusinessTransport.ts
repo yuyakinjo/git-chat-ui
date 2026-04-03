@@ -263,11 +263,12 @@ export function createTauriBusinessTransport(): BusinessTransport {
       });
     },
 
-    executeRepositoryAssistantAction(repoPath, action) {
+    executeRepositoryAssistantAction(repoPath, action, options) {
       return invokeCommand("execute_repository_assistant_action", {
         input: {
           repoPath,
           action,
+          ...options,
         },
       });
     },

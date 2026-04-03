@@ -4,6 +4,8 @@ import type { Branch, RepositoryMutationSafety } from "../../../src/types";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
   canMergeBranchWithoutWorkingTreeChange,
+  getSelfConflictResolutionConfirmationMessage,
+  getSelfCurrentBranchMergeConfirmationMessage,
   getSelfPullConfirmationMessage,
   getSelfStashMutationBlockedReason,
   getSelfMutationBlockedReason,
@@ -62,6 +64,24 @@ describe("getSelfPullConfirmationMessage", () => {
     expect(message).toContain("pull");
     expect(message).toContain("再起動");
     expect(message).toContain("このまま pull しますか");
+  });
+});
+
+describe("self-repo assistant confirmation messages", () => {
+  test("describes current-branch merge risk without implying a push", () => {
+    const message = getSelfCurrentBranchMergeConfirmationMessage();
+
+    expect(message).toContain("merge");
+    expect(message).toContain("再起動");
+    expect(message).toContain("push は行いません");
+  });
+
+  test("describes local conflict resolution risk", () => {
+    const message = getSelfConflictResolutionConfirmationMessage();
+
+    expect(message).toContain("assistant");
+    expect(message).toContain("解消");
+    expect(message).toContain("再起動");
   });
 });
 

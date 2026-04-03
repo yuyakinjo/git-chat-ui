@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   getRepositoryAssistantActionSpec,
   type RepositoryAssistantAction,
+  type RepositoryAssistantActionExecutionOptions,
   type RepositoryAssistantActionResult,
 } from "../../shared/repositoryAssistant.js";
 import {
@@ -88,6 +89,7 @@ function getSelfRepositoryActionBlockedMessage(
 async function actionTouchesSelfRepositoryWorkingTree(
   repoPath: string,
   action: RepositoryAssistantAction,
+  options: RepositoryAssistantActionExecutionOptions = {},
 ): Promise<boolean> {
   const spec = getRepositoryAssistantActionSpec(action.id);
   if (!spec.mutatesWorkingTree) {
@@ -100,9 +102,12 @@ async function actionTouchesSelfRepositoryWorkingTree(
 
   switch (action.id) {
     case "git.merge_branches":
-      return (await getCurrentBranch(repoPath)) === action.args.targetBranch;
+      return (
+        (await getCurrentBranch(repoPath)) === action.args.targetBranch &&
+        !options.allowSelfRepositoryCurrentTargetMerge
+      );
     case "git.resolve_conflict_side":
-      return !action.args.sessionId;
+      return !action.args.sessionId && !options.allowSelfRepositoryConflictResolution;
     case "git.complete_merge_session":
     case "git.abort_merge_session":
       return false;
@@ -114,9 +119,10 @@ async function actionTouchesSelfRepositoryWorkingTree(
 export async function assertRepositoryAssistantActionSafe(
   repoPath: string,
   action: RepositoryAssistantAction,
+  options: RepositoryAssistantActionExecutionOptions = {},
 ): Promise<void> {
   const spec = getRepositoryAssistantActionSpec(action.id);
-  if (await actionTouchesSelfRepositoryWorkingTree(repoPath, action)) {
+  if (await actionTouchesSelfRepositoryWorkingTree(repoPath, action, options)) {
     throw new Error(getSelfRepositoryActionBlockedMessage(action, spec.label));
   }
 }

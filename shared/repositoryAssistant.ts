@@ -263,6 +263,11 @@ export interface RepositoryAssistantResponse {
   proposedActions: RepositoryAssistantActionProposal[];
 }
 
+export interface RepositoryAssistantActionExecutionOptions {
+  allowSelfRepositoryCurrentTargetMerge?: boolean;
+  allowSelfRepositoryConflictResolution?: boolean;
+}
+
 export interface RepositoryAssistantActionExecutionResponse {
   result: RepositoryAssistantActionResult;
 }
@@ -301,9 +306,7 @@ function normalizeEmptyArgs(value: unknown): EmptyArgs | null {
   return typeof value === "object" && value !== null ? {} : null;
 }
 
-function normalizeConflictResolutionSide(
-  value: unknown,
-): "merged" | "ours" | "theirs" | null {
+function normalizeConflictResolutionSide(value: unknown): "merged" | "ours" | "theirs" | null {
   if (value === "merged" || value === "ours" || value === "theirs") {
     return value;
   }
@@ -350,11 +353,14 @@ function normalizeAllowedActionIds(value: unknown): RepositoryAssistantActionId[
 
   return normalized.sort(
     (left, right) =>
-      REPOSITORY_ASSISTANT_ACTION_IDS.indexOf(left) - REPOSITORY_ASSISTANT_ACTION_IDS.indexOf(right),
+      REPOSITORY_ASSISTANT_ACTION_IDS.indexOf(left) -
+      REPOSITORY_ASSISTANT_ACTION_IDS.indexOf(right),
   );
 }
 
-export function isRepositoryAssistantActionId(value: unknown): value is RepositoryAssistantActionId {
+export function isRepositoryAssistantActionId(
+  value: unknown,
+): value is RepositoryAssistantActionId {
   return (
     typeof value === "string" &&
     REPOSITORY_ASSISTANT_ACTION_IDS.includes(value as RepositoryAssistantActionId)
@@ -364,10 +370,7 @@ export function isRepositoryAssistantActionId(value: unknown): value is Reposito
 export function getRepositoryAssistantActionSpec(
   actionId: RepositoryAssistantActionId,
 ): RepositoryAssistantActionSpec {
-  return (
-    REPOSITORY_ASSISTANT_ACTION_SPEC_MAP.get(actionId) ??
-    REPOSITORY_ASSISTANT_ACTION_SPECS[0]
-  );
+  return REPOSITORY_ASSISTANT_ACTION_SPEC_MAP.get(actionId) ?? REPOSITORY_ASSISTANT_ACTION_SPECS[0];
 }
 
 export function normalizeRepositoryAssistantAction(
@@ -404,9 +407,7 @@ export function normalizeRepositoryAssistantAction(
     case "git.create_branch": {
       const baseBranch = normalizeTrimmedString(args.baseBranch);
       const newBranch = normalizeTrimmedString(args.newBranch);
-      return baseBranch && newBranch
-        ? { id: candidate.id, args: { baseBranch, newBranch } }
-        : null;
+      return baseBranch && newBranch ? { id: candidate.id, args: { baseBranch, newBranch } } : null;
     }
     case "git.merge_branches": {
       const sourceBranch = normalizeTrimmedString(args.sourceBranch);
@@ -421,8 +422,7 @@ export function normalizeRepositoryAssistantAction(
     }
     case "git.commit": {
       const title = normalizeTrimmedString(args.title);
-      const description =
-        typeof args.description === "string" ? args.description.trim() : "";
+      const description = typeof args.description === "string" ? args.description.trim() : "";
       return title ? { id: candidate.id, args: { title, description } } : null;
     }
     case "git.push":
@@ -464,9 +464,7 @@ export function normalizeRepositoryAssistantAction(
     case "gh.pr.create": {
       const sourceBranch = normalizeTrimmedString(args.sourceBranch);
       const targetBranch = normalizeTrimmedString(args.targetBranch);
-      return sourceBranch &&
-        targetBranch &&
-        typeof args.pushSourceBranch === "boolean"
+      return sourceBranch && targetBranch && typeof args.pushSourceBranch === "boolean"
         ? {
             id: candidate.id,
             args: { sourceBranch, targetBranch, pushSourceBranch: args.pushSourceBranch },
@@ -486,7 +484,12 @@ export function normalizeRepositoryAssistantActionResult(
   const candidate = value as Partial<RepositoryAssistantActionResult>;
   const action = normalizeRepositoryAssistantAction(candidate.action);
   const status = normalizeResultStatus(candidate.status);
-  if (!action || !status || typeof candidate.message !== "string" || typeof candidate.createdAt !== "string") {
+  if (
+    !action ||
+    !status ||
+    typeof candidate.message !== "string" ||
+    typeof candidate.createdAt !== "string"
+  ) {
     return null;
   }
 
@@ -508,11 +511,7 @@ export function normalizeRepositoryAssistantActionProposal(
 
   const candidate = value as Partial<RepositoryAssistantActionProposal>;
   const action = normalizeRepositoryAssistantAction(candidate.action);
-  if (
-    typeof candidate.id !== "string" ||
-    typeof candidate.reason !== "string" ||
-    !action
-  ) {
+  if (typeof candidate.id !== "string" || typeof candidate.reason !== "string" || !action) {
     return null;
   }
 
@@ -525,9 +524,7 @@ export function normalizeRepositoryAssistantActionProposal(
   };
 }
 
-export function normalizeRepositoryAssistantPolicies(
-  value: unknown,
-): RepositoryAssistantPolicies {
+export function normalizeRepositoryAssistantPolicies(value: unknown): RepositoryAssistantPolicies {
   if (typeof value !== "object" || value === null) {
     return {};
   }

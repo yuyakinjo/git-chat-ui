@@ -203,6 +203,7 @@ describe("createAiRouter", () => {
         },
       },
     }));
+    const assertRepositoryAssistantActionSafe = mock(async () => {});
     const executeRepositoryAssistantAction = mock(async () => ({
       action: {
         id: "git.checkout_ref" as const,
@@ -219,6 +220,7 @@ describe("createAiRouter", () => {
       invokeJsonRoute(
         createAiRouter({
           readConfig,
+          assertRepositoryAssistantActionSafe,
           executeRepositoryAssistantAction,
         }),
         "post",
@@ -258,6 +260,85 @@ describe("createAiRouter", () => {
         ref: "feature/login",
       },
     });
+    expect(assertRepositoryAssistantActionSafe).toHaveBeenCalledWith(
+      "/tmp/repo",
+      {
+        id: "git.checkout_ref",
+        args: {
+          ref: "feature/login",
+        },
+      },
+      {
+        allowSelfRepositoryCurrentTargetMerge: false,
+        allowSelfRepositoryConflictResolution: false,
+      },
+    );
+  });
+
+  test("passes assistant self-repo override flags to the safety check", async () => {
+    const readConfig = mock(async () => ({
+      ...DEFAULT_APP_CONFIG,
+      repositoryAssistantPolicies: {
+        "/tmp/repo": {
+          allowedActionIds: ["git.merge_branches" as const],
+        },
+      },
+    }));
+    const assertRepositoryAssistantActionSafe = mock(async () => {});
+
+    await expect(
+      invokeJsonRoute(
+        createAiRouter({
+          readConfig,
+          assertRepositoryAssistantActionSafe,
+          executeRepositoryAssistantAction: mock(async () => ({
+            action: {
+              id: "git.merge_branches" as const,
+              args: {
+                sourceBranch: "main",
+                targetBranch: "feature/test",
+              },
+            },
+            status: "succeeded" as const,
+            message: "Merged main into feature/test.",
+            createdAt: "2026-04-03T00:03:00.000Z",
+          })),
+        }),
+        "post",
+        "/api/ai/execute",
+        {
+          body: {
+            repoPath: "/tmp/repo",
+            action: {
+              id: "git.merge_branches",
+              args: {
+                sourceBranch: "main",
+                targetBranch: "feature/test",
+              },
+            },
+            allowSelfRepositoryCurrentTargetMerge: true,
+            allowSelfRepositoryConflictResolution: true,
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+    });
+
+    expect(assertRepositoryAssistantActionSafe).toHaveBeenCalledWith(
+      "/tmp/repo",
+      {
+        id: "git.merge_branches",
+        args: {
+          sourceBranch: "main",
+          targetBranch: "feature/test",
+        },
+      },
+      {
+        allowSelfRepositoryCurrentTargetMerge: true,
+        allowSelfRepositoryConflictResolution: true,
+      },
+    );
   });
 
   test("rejects repository assistant action execution when the action is not allowlisted", async () => {

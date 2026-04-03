@@ -388,12 +388,13 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       });
     },
 
-    executeRepositoryAssistantAction(repoPath, action) {
+    executeRepositoryAssistantAction(repoPath, action, options) {
       return request(baseUrl, "/ai/execute", {
         method: "POST",
         body: JSON.stringify({
           repoPath,
           action,
+          ...options,
         }),
       });
     },

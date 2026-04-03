@@ -69,6 +69,26 @@ describe("assertRepositoryAssistantActionSafe", () => {
     );
   });
 
+  test("allows merge into the checked out branch when the assistant override is set", async () => {
+    const currentBranch = await getCurrentBranch(process.cwd());
+
+    await expect(
+      assertRepositoryAssistantActionSafe(
+        process.cwd(),
+        {
+          id: "git.merge_branches",
+          args: {
+            sourceBranch: "main",
+            targetBranch: currentBranch,
+          },
+        },
+        {
+          allowSelfRepositoryCurrentTargetMerge: true,
+        },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   test("allows merge-session follow-up actions in the app repository", async () => {
     await expect(
       assertRepositoryAssistantActionSafe(process.cwd(), {
@@ -97,6 +117,24 @@ describe("assertRepositoryAssistantActionSafe", () => {
           sessionId: "session-1",
         },
       }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("allows repository conflict resolution when the assistant override is set", async () => {
+    await expect(
+      assertRepositoryAssistantActionSafe(
+        process.cwd(),
+        {
+          id: "git.resolve_conflict_side",
+          args: {
+            file: "src/App.tsx",
+            side: "ours",
+          },
+        },
+        {
+          allowSelfRepositoryConflictResolution: true,
+        },
+      ),
     ).resolves.toBeUndefined();
   });
 });

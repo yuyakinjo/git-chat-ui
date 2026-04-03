@@ -26,6 +26,7 @@ interface AiRouterDependencies {
   getDiffSnippet?: typeof getDiffSnippet;
   generateRepositoryAssistantReply?: typeof generateRepositoryAssistantReply;
   getRepositoryAssistantUserProfile?: typeof getRepositoryAssistantUserProfile;
+  assertRepositoryAssistantActionSafe?: typeof assertRepositoryAssistantActionSafe;
   executeRepositoryAssistantAction?: typeof executeRepositoryAssistantAction;
 }
 
@@ -37,6 +38,8 @@ export function createAiRouter({
     generateRepositoryAssistantReplyImpl = generateRepositoryAssistantReply,
   getRepositoryAssistantUserProfile:
     getRepositoryAssistantUserProfileImpl = getRepositoryAssistantUserProfile,
+  assertRepositoryAssistantActionSafe:
+    assertRepositoryAssistantActionSafeImpl = assertRepositoryAssistantActionSafe,
   executeRepositoryAssistantAction:
     executeRepositoryAssistantActionImpl = executeRepositoryAssistantAction,
 }: AiRouterDependencies = {}): Router {
@@ -143,11 +146,18 @@ export function createAiRouter({
       }
 
       const config = await readConfigImpl();
-      if (!isRepositoryAssistantActionAllowed(config.repositoryAssistantPolicies, repoPath, action)) {
+      if (
+        !isRepositoryAssistantActionAllowed(config.repositoryAssistantPolicies, repoPath, action)
+      ) {
         throw new Error(`${action.id} is not allowlisted for this repository.`);
       }
 
-      await assertRepositoryAssistantActionSafe(repoPath, action);
+      await assertRepositoryAssistantActionSafeImpl(repoPath, action, {
+        allowSelfRepositoryCurrentTargetMerge:
+          request.body.allowSelfRepositoryCurrentTargetMerge === true,
+        allowSelfRepositoryConflictResolution:
+          request.body.allowSelfRepositoryConflictResolution === true,
+      });
       const payload: RepositoryAssistantActionExecutionResponse = {
         result: await executeRepositoryAssistantActionImpl(repoPath, action),
       };

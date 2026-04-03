@@ -7,6 +7,7 @@ export type {
 } from "../shared/ai.js";
 export type {
   RepositoryAssistantAction,
+  RepositoryAssistantActionExecutionOptions,
   RepositoryAssistantActionExecutionResponse,
   RepositoryAssistantActionId,
   RepositoryAssistantActionProposal,
