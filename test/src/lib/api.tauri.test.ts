@@ -62,12 +62,18 @@ describe("api in Tauri", () => {
       ],
       repositoryAssistantSettings,
     );
-    await api.executeRepositoryAssistantAction("/tmp/repo", {
-      id: "git.checkout_ref",
-      args: {
-        ref: "feature/login",
+    await api.executeRepositoryAssistantAction(
+      "/tmp/repo",
+      {
+        id: "git.checkout_ref",
+        args: {
+          ref: "feature/login",
+        },
       },
-    });
+      {
+        allowSelfRepositoryCurrentTargetMerge: true,
+      },
+    );
     await api.discardFile("/tmp/repo", "src/App.tsx");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "health", undefined);
@@ -118,6 +124,7 @@ describe("api in Tauri", () => {
             ref: "feature/login",
           },
         },
+        allowSelfRepositoryCurrentTargetMerge: true,
       },
     });
     expect(invokeMock).toHaveBeenNthCalledWith(8, "discard_file", {

@@ -1,6 +1,8 @@
 import { Check, FileWarning, GitMerge, ShieldOff, X } from "lucide-react";
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 
+import type { ConflictCompareCell, ConflictCompareRow } from "../lib/conflictCompare";
+import { buildConflictCompareRows } from "../lib/conflictCompare";
 import type {
   ConflictFileDetail,
   ConflictFileVersion,
@@ -62,24 +64,149 @@ function renderVersionContent(version: ConflictFileVersion, label: string): JSX.
     );
   }
 
-  const lines = version.content.split("\n");
+  const numberedLines = version.content.split("\n").map((line, lineIndex) => ({
+    line,
+    lineNumber: lineIndex + 1,
+    key: `${label}-${lineIndex + 1}-${line}`,
+  }));
 
   return (
     <div className="overflow-auto rounded-2xl border border-black/10 bg-black/3">
       <div className="min-w-full font-[ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] text-[12px] leading-6">
-        {lines.map((line, index) => (
+        {numberedLines.map((item) => (
           <div
-            key={`${label}-${index}`}
+            key={item.key}
             className="grid grid-cols-[56px_minmax(0,1fr)] border-b border-black/5 last:border-b-0"
           >
             <div className="select-none border-r border-black/5 px-3 py-1 text-right text-ink-subtle">
-              {index + 1}
+              {item.lineNumber}
             </div>
             <pre className="m-0 overflow-x-auto px-3 py-1 whitespace-pre-wrap break-words text-ink">
-              {line || " "}
+              {item.line || " "}
             </pre>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function renderCompareSegments(cell: ConflictCompareCell): JSX.Element {
+  if (!cell.content) {
+    return <> </>;
+  }
+
+  if (!cell.segments || cell.segments.length === 0) {
+    return <>{cell.content}</>;
+  }
+
+  return (
+    <>
+      {(() => {
+        let offset = 0;
+
+        return cell.segments.map((segment) => {
+          const key = `${cell.lineNumber ?? "missing"}-${offset}-${segment.emphasized ? "1" : "0"}`;
+          offset += segment.text.length;
+
+          return (
+            <span
+              key={key}
+              className={
+                segment.emphasized ? "diff-cell__chunk diff-cell__chunk--emphasis" : undefined
+              }
+            >
+              {segment.text || " "}
+            </span>
+          );
+        });
+      })()}
+    </>
+  );
+}
+
+function renderCompareCell(
+  cell: ConflictCompareCell | null,
+  side: "left" | "right",
+  fallbackLabel: string,
+): JSX.Element {
+  if (!cell) {
+    return (
+      <div className={`diff-cell diff-cell-empty diff-cell--${side}`} aria-label={fallbackLabel} />
+    );
+  }
+
+  return (
+    <div className={`diff-cell diff-cell--${cell.kind} diff-cell--${side}`}>
+      <div className="diff-cell__line-number">{cell.lineNumber ?? ""}</div>
+      <code className="diff-cell__content">{renderCompareSegments(cell)}</code>
+    </div>
+  );
+}
+
+function renderInlineCompare(compare: ReturnType<typeof buildConflictCompareRows>): JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+              Ours
+            </div>
+            <span className="badge bg-black/5! text-ink-soft!">{compare.leftLineCount} lines</span>
+          </div>
+          <div className="mt-1 text-sm text-ink">現在の checkout 側の内容です。</div>
+          <div className="mt-1 text-xs text-ink-subtle">削除・変更された行を赤系で示します。</div>
+        </div>
+
+        <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+              Theirs
+            </div>
+            <span className="badge bg-black/5! text-ink-soft!">{compare.rightLineCount} lines</span>
+          </div>
+          <div className="mt-1 text-sm text-ink">取り込み元の内容です。</div>
+          <div className="mt-1 text-xs text-ink-subtle">追加・変更された行を緑系で示します。</div>
+        </div>
+
+        <div className="rounded-2xl border border-black/10 bg-[#eef6ff] px-4 py-3 text-left">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[#0f4c81]">
+            Highlight
+          </div>
+          <div className="mt-1 text-sm font-semibold text-[#0f4c81]">
+            {compare.changedRows} changed row{compare.changedRows === 1 ? "" : "s"}
+          </div>
+          <div className="mt-1 text-xs text-[#3f5f7b]">
+            行背景と行内ハイライトで差分位置を示します。
+          </div>
+        </div>
+      </div>
+
+      <div className="diff-workbench diff-workbench--single-file conflict-compare">
+        <section className="diff-workbench__main">
+          <div className="diff-file__columns" aria-hidden="true">
+            <span>Ours</span>
+            <span>Theirs</span>
+          </div>
+          <div className="diff-workbench__body">
+            {compare.rows.length > 0 ? (
+              compare.rows.map((row: ConflictCompareRow) => (
+                <div
+                  key={`${row.kind}-${row.left?.lineNumber ?? "none"}-${row.right?.lineNumber ?? "none"}-${row.left?.content ?? ""}-${row.right?.content ?? ""}`}
+                  className={`diff-row diff-row--${row.kind}`}
+                >
+                  {renderCompareCell(row.left, "left", "Missing in ours")}
+                  {renderCompareCell(row.right, "right", "Missing in theirs")}
+                </div>
+              ))
+            ) : (
+              <div className="flex min-h-[180px] items-center justify-center px-6 text-sm text-ink-subtle">
+                Ours と Theirs に textual difference はありません。
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -123,6 +250,14 @@ export function ConflictOverlay({
   const isMergeSession = summary.contextType === "mergeSession";
   const activeVersion = detail && activeTab !== "compare" ? detail[activeTab] : null;
   const canCompleteMergeSession = isMergeSession && activeFileCount === 0;
+  const canRenderInlineCompare = useMemo(
+    () => Boolean(detail && !detail.ours.isBinary && !detail.theirs.isBinary),
+    [detail],
+  );
+  const inlineCompare = useMemo(
+    () => (detail ? buildConflictCompareRows(detail.ours.content, detail.theirs.content) : null),
+    [detail],
+  );
 
   useEffect(() => {
     setActiveTab("compare");
@@ -308,42 +443,46 @@ export function ConflictOverlay({
                 読み込み中...
               </div>
             ) : detail && activeTab === "compare" ? (
-              <div className="flex min-h-0 flex-1 flex-col gap-3">
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                      Current File
+              canRenderInlineCompare && inlineCompare ? (
+                renderInlineCompare(inlineCompare)
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                        Current File
+                      </div>
+                      <div className="mt-1 text-sm text-ink">
+                        Merged タブで現在の working tree 内容を確認できます。
+                      </div>
+                      <div className="mt-1 text-xs text-ink-subtle">
+                        外部 editor で解消後は Mark Resolved で stage します。
+                      </div>
                     </div>
-                    <div className="mt-1 text-sm text-ink">
-                      Merged タブで現在の working tree 内容を確認できます。
-                    </div>
-                    <div className="mt-1 text-xs text-ink-subtle">
-                      外部 editor で解消後は Mark Resolved で stage します。
+                    <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                        Base
+                      </div>
+                      <div className="mt-1 text-sm text-ink">
+                        Base タブで共通祖先を確認しながら取り込み先を判断できます。
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-black/10 bg-black/3 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                      Base
-                    </div>
-                    <div className="mt-1 text-sm text-ink">
-                      Base タブで共通祖先を確認しながら取り込み先を判断できます。
-                    </div>
-                  </div>
-                </div>
 
-                <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
-                  {renderComparePane({
-                    label: "Ours",
-                    version: detail.ours,
-                    hint: "現在の checkout 側を優先して採用します。",
-                  })}
-                  {renderComparePane({
-                    label: "Theirs",
-                    version: detail.theirs,
-                    hint: "取り込み元の変更を優先して採用します。",
-                  })}
+                  <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
+                    {renderComparePane({
+                      label: "Ours",
+                      version: detail.ours,
+                      hint: "現在の checkout 側を優先して採用します。",
+                    })}
+                    {renderComparePane({
+                      label: "Theirs",
+                      version: detail.theirs,
+                      hint: "取り込み元の変更を優先して採用します。",
+                    })}
+                  </div>
                 </div>
-              </div>
+              )
             ) : detail && activeVersion ? (
               renderVersionContent(activeVersion, tabLabels[activeTab])
             ) : (

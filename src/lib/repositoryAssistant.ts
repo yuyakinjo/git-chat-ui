@@ -11,6 +11,8 @@ import {
 } from "../../shared/repositoryAssistant.js";
 import type {
   AppConfig,
+  ConflictOperationResult,
+  ConflictSummary,
   RepositoryAssistantMessage,
   RepositoryAssistantMessageRole,
   RepositoryAssistantSettings,
@@ -83,6 +85,54 @@ export function createRepositoryAssistantExecutionMessage(
   return createRepositoryAssistantMessage("assistant", result.message, {
     actionResult: result,
   });
+}
+
+function isConflictSummary(value: unknown): value is ConflictSummary {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<ConflictSummary>;
+  return (
+    (candidate.contextType === "repository" || candidate.contextType === "mergeSession") &&
+    (candidate.operation === "merge" ||
+      candidate.operation === "pull" ||
+      candidate.operation === "stashApply" ||
+      candidate.operation === "stashPop" ||
+      candidate.operation === "unknown") &&
+    Array.isArray(candidate.files) &&
+    candidate.files.every(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof entry.file === "string" &&
+        typeof entry.x === "string" &&
+        typeof entry.y === "string" &&
+        typeof entry.statusLabel === "string",
+    )
+  );
+}
+
+export function extractRepositoryAssistantConflictOperationResult(
+  value: unknown,
+): ConflictOperationResult | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const candidate = value as Partial<ConflictOperationResult>;
+  if (candidate.ok === true) {
+    return { ok: true };
+  }
+
+  if (candidate.ok === false && isConflictSummary(candidate.conflict)) {
+    return {
+      ok: false,
+      conflict: candidate.conflict,
+    };
+  }
+
+  return null;
 }
 
 export function createDefaultRepositoryAssistantSettings(
@@ -259,6 +309,8 @@ export function formatRepositoryAssistantActionArgs(action: RepositoryAssistantA
   }
 }
 
-export function getRepositoryAssistantActionDisplayLabel(action: RepositoryAssistantAction): string {
+export function getRepositoryAssistantActionDisplayLabel(
+  action: RepositoryAssistantAction,
+): string {
   return getRepositoryAssistantActionSpec(action.id).label;
 }

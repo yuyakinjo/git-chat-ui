@@ -64,8 +64,11 @@ describe("ConflictOverlay", () => {
     expect(html).toContain(">Theirs<");
     expect(html).toContain("Both Modified");
     expect(html).toContain("src/conflict.txt");
-    expect(html).toContain("Current File");
-    expect(html).toContain("Mark Resolved で stage します。");
+    expect(html).toContain("1 changed row");
+    expect(html).toContain("差分位置を示します。");
+    expect(html).toContain("diff-cell--delete");
+    expect(html).toContain("diff-cell--add");
+    expect(html).toContain("diff-cell__chunk--emphasis");
   });
 
   test("shows the resolved-empty state when no conflicted files remain", () => {

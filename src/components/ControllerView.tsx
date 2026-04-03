@@ -31,6 +31,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
 import { isCommandPaletteShortcut } from "../lib/commandPalette";
 import { describeGitError, type UiError } from "../lib/errors";
+import { shortSha } from "../lib/format";
 import { getPullCommandDisabledReason } from "../lib/pullCommand";
 import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
 import { controllerPanelLabels } from "../lib/controllerViewUtils";
@@ -62,7 +63,14 @@ import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
 import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
 import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
-import type { AppConfig, Branch, PullStatus, Repository } from "../types";
+import type { AppConfig, Branch, ConflictSummary, PullStatus, Repository } from "../types";
+
+interface AssistantConflictOpenRequest {
+  requestId: number;
+  summary: ConflictSummary;
+  file: string | null;
+  sessionId: string | null;
+}
 
 interface ControllerViewProps {
   repository: Repository;
@@ -76,6 +84,7 @@ interface ControllerViewProps {
   repositoryGithubUrl?: string | null;
   commandPaletteOpenRequestId?: number;
   assistantRefreshRequestId?: number;
+  assistantConflictOpenRequest?: AssistantConflictOpenRequest | null;
 }
 
 type CommitMessageGenerationState =
@@ -109,6 +118,7 @@ export function ControllerView({
   repositoryGithubUrl = null,
   commandPaletteOpenRequestId = 0,
   assistantRefreshRequestId = 0,
+  assistantConflictOpenRequest = null,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -128,8 +138,15 @@ export function ControllerView({
     readInitialBranchTreeCollapsed(repoPath),
   );
   const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
+  const lastHandledAssistantConflictOpenRequestIdRef = useRef(
+    assistantConflictOpenRequest?.requestId ?? 0,
+  );
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
+  const refreshAll = data.refreshAll;
+  const loadWorkingState = data.loadWorkingState;
+  const openConflictViewer = data.openConflictViewer;
+  const reportConflictViewerError = data.reportError;
   const [commitMessageGenerationState, runCommitMessageGeneration, generatingCommitMessage] =
     useActionState(
       async (
@@ -206,6 +223,57 @@ export function ControllerView({
   const handleCloseCommandPalette = useCallback((): void => {
     setCommandPaletteOpen(false);
   }, []);
+
+  const handleJumpToCommit = useCallback(
+    async (sha: string): Promise<boolean> => {
+      const normalizedSha = sha.trim();
+      if (!normalizedSha) {
+        onNotify("SHA を入力してください。");
+        return false;
+      }
+
+      try {
+        const detail = await api.getCommitDetail(repoPath, normalizedSha);
+        const resolvedSha = detail.sha.trim();
+        if (!resolvedSha) {
+          onNotify("SHA を解決できませんでした。");
+          return false;
+        }
+
+        setSelectedBranchForHover(null);
+        setPendingScrollCommitSha(resolvedSha);
+        data.setIsWipSelected(false);
+        data.setShowBranchDiff(false);
+        data.setFocusedCommitDiffFile(null);
+
+        const result = await data.loadCommits({
+          append: false,
+          offset: 0,
+          ref: data.activeLogRef,
+          compareRefs: data.activeCompareRefs,
+          focusCommitSha: resolvedSha,
+        });
+
+        if (result.status === "focus-miss") {
+          setPendingScrollCommitSha((current) => (current === resolvedSha ? null : current));
+          onNotify("この SHA は現在の commit graph に見つかりませんでした。");
+          return false;
+        }
+
+        if (result.status === "error") {
+          setPendingScrollCommitSha((current) => (current === resolvedSha ? null : current));
+          return false;
+        }
+
+        onNotify(`${shortSha(resolvedSha)} に移動しました。`);
+        return true;
+      } catch (error) {
+        data.reportError(error, "SHA の解決に失敗しました。");
+        return false;
+      }
+    },
+    [data, onNotify, repoPath],
+  );
 
   const copyCurrentBranchName = useCallback(async (): Promise<void> => {
     if (!checkedOutBranchName) {
@@ -560,8 +628,48 @@ export function ControllerView({
       return;
     }
 
-    void data.refreshAll();
-  }, [active, assistantRefreshRequestId, data.refreshAll]);
+    void refreshAll();
+  }, [active, assistantRefreshRequestId, refreshAll]);
+
+  useEffect(() => {
+    if (!active) {
+      lastHandledAssistantConflictOpenRequestIdRef.current =
+        assistantConflictOpenRequest?.requestId ?? 0;
+      return;
+    }
+
+    if (!assistantConflictOpenRequest) {
+      return;
+    }
+
+    if (
+      assistantConflictOpenRequest.requestId ===
+      lastHandledAssistantConflictOpenRequestIdRef.current
+    ) {
+      return;
+    }
+
+    lastHandledAssistantConflictOpenRequestIdRef.current = assistantConflictOpenRequest.requestId;
+
+    void (async () => {
+      try {
+        await loadWorkingState();
+        await openConflictViewer({
+          summary: assistantConflictOpenRequest.summary,
+          file: assistantConflictOpenRequest.file,
+          sessionId: assistantConflictOpenRequest.sessionId,
+        });
+      } catch (error) {
+        reportConflictViewerError(error, "conflict viewer の起動に失敗しました。");
+      }
+    })();
+  }, [
+    active,
+    assistantConflictOpenRequest,
+    loadWorkingState,
+    openConflictViewer,
+    reportConflictViewerError,
+  ]);
 
   useEffect(() => {
     if (!active || typeof window === "undefined") {
@@ -777,6 +885,7 @@ export function ControllerView({
         });
       }}
       onNotify={onNotify}
+      onJumpToCommit={handleJumpToCommit}
       branchContext={data.branches}
     />
   );

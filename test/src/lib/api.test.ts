@@ -193,6 +193,65 @@ describe("api.executeRepositoryAssistantAction", () => {
       },
     });
   });
+
+  test("includes assistant execution options when provided", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+
+      return new Response(
+        JSON.stringify({
+          result: {
+            action: {
+              id: "git.merge_branches",
+              args: {
+                sourceBranch: "main",
+                targetBranch: "feature/login",
+              },
+            },
+            status: "failed",
+            message:
+              "Merge from main into feature/login started. Conflicts require manual resolution (1 file).",
+            createdAt: "2026-04-03T00:03:00.000Z",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    await api.executeRepositoryAssistantAction(
+      "/tmp/repo",
+      {
+        id: "git.merge_branches",
+        args: {
+          sourceBranch: "main",
+          targetBranch: "feature/login",
+        },
+      },
+      {
+        allowSelfRepositoryCurrentTargetMerge: true,
+      },
+    );
+
+    expect(requests[0]?.body).toEqual({
+      repoPath: "/tmp/repo",
+      action: {
+        id: "git.merge_branches",
+        args: {
+          sourceBranch: "main",
+          targetBranch: "feature/login",
+        },
+      },
+      allowSelfRepositoryCurrentTargetMerge: true,
+    });
+  });
 });
 
 describe("api.health", () => {

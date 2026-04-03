@@ -304,6 +304,7 @@ describe("CommitGraph", () => {
         onCheckoutBranchRef={() => {}}
         onLoadMore={() => {}}
         onNotify={() => {}}
+        onJumpToCommit={async () => false}
         branchContext={continuedDefaultBranchContext}
       />,
     );
@@ -327,6 +328,8 @@ describe("CommitGraph", () => {
     expect(html).toContain('class="wip-row__primary');
     expect(html).toContain('class="wip-row__meta');
     expect(html).toContain("commit-graph__header");
+    expect(html).toContain("commit-graph__sha-jump-trigger");
+    expect(html).toContain('title="SHA を入力して commit に移動"');
     expect(html).toContain("commit-graph__cell--primary");
     expect(html).toContain("commit-graph__ref-badge--head");
     expect(html).toContain("commit-graph__ref-badge--tag");

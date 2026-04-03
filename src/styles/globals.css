@@ -2727,6 +2727,35 @@ body[data-theme-mode="dark"] .branch-list-item__icon--remote {
   color: var(--text-subtle);
 }
 
+.commit-graph__sha-jump-trigger {
+  color: inherit;
+}
+
+.commit-graph__sha-jump-trigger[aria-expanded="true"] {
+  border-color: rgb(var(--color-accent) / 0.16);
+  background: rgb(var(--color-accent) / 0.08);
+  color: var(--text-primary);
+}
+
+.commit-graph__sha-jump-popover {
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.24) inset;
+}
+
+.commit-graph__sha-jump-input {
+  border-radius: 12px;
+}
+
+.commit-graph__sha-jump-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.commit-graph__sha-jump-submit:focus-visible,
+.commit-graph__sha-jump-trigger:focus-visible {
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.13);
+}
+
 .commit-graph__status,
 .commit-graph__cell--muted {
   color: var(--text-subtle);
@@ -2796,6 +2825,18 @@ body[data-theme-mode="dark"] .commit-graph__ref-badge--tag {
   border-color: rgb(251 191 36 / 0.38);
   background: rgb(146 64 14 / 0.2);
   color: rgb(253 230 138 / 0.98);
+}
+
+body[data-theme-mode="dark"] .commit-graph__sha-jump-popover {
+  border-color: rgb(148 163 184 / 0.16);
+  background: rgb(15 23 42 / 0.94);
+  box-shadow:
+    0 18px 42px rgba(2, 6, 23, 0.46),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+body[data-theme-mode="dark"] .commit-graph__sha-jump-submit {
+  border-color: rgb(148 163 184 / 0.18);
 }
 
 .commit-row:hover {
@@ -3890,6 +3931,16 @@ body[data-theme-mode="dark"] .git-operation-panel__file-row.is-selected:not(.is-
   min-height: 0;
   overflow: auto;
   padding: 12px 0 0;
+}
+
+.conflict-compare {
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+}
+
+.conflict-compare .diff-workbench__body {
+  padding-top: 0;
 }
 
 .diff-hunk {

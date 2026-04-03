@@ -54,6 +54,7 @@ interface CommitGraphProps {
   onCheckoutBranchRef: (refName: string) => void;
   onLoadMore: () => void;
   onNotify: (message: string) => void;
+  onJumpToCommit?: ((sha: string) => Promise<boolean>) | null;
   headerAccessory?: JSX.Element | null;
   branchContext?: BranchResponse | null;
 }
@@ -80,6 +81,7 @@ export function CommitGraph({
   onCheckoutBranchRef,
   onLoadMore,
   onNotify,
+  onJumpToCommit = null,
   headerAccessory,
   branchContext = null,
 }: CommitGraphProps): JSX.Element {
@@ -87,6 +89,8 @@ export function CommitGraph({
   const COMMIT_AVATAR_NODE_SIZE = 24;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
+  const shaJumpContainerRef = useRef<HTMLDivElement | null>(null);
+  const shaJumpInputRef = useRef<HTMLInputElement | null>(null);
   const containerWidth = useContainerWidth(rootRef);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -100,6 +104,9 @@ export function CommitGraph({
 
     return clampColumnWidth(persisted);
   });
+  const [isShaJumpOpen, setIsShaJumpOpen] = useState(false);
+  const [shaJumpValue, setShaJumpValue] = useState("");
+  const [shaJumpPending, setShaJumpPending] = useState(false);
 
   const visibleCommits = useMemo(() => commits, [commits]);
   const laneLayout = useMemo(() => buildLaneRows(commits), [commits]);
@@ -233,6 +240,36 @@ export function CommitGraph({
   }, [visibleCommits.length]);
 
   useEffect(() => {
+    if (!isShaJumpOpen) {
+      return;
+    }
+
+    shaJumpInputRef.current?.focus();
+    shaJumpInputRef.current?.select();
+  }, [isShaJumpOpen]);
+
+  useEffect(() => {
+    if (!isShaJumpOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const container = shaJumpContainerRef.current;
+      if (!container || container.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsShaJumpOpen(false);
+      setShaJumpValue("");
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [isShaJumpOpen]);
+
+  useEffect(() => {
     if (!scrollToCommitSha || !rootRef.current) {
       return;
     }
@@ -312,6 +349,49 @@ export function CommitGraph({
         });
     },
     [onNotify],
+  );
+  const handleToggleShaJump = useCallback((): void => {
+    if (!onJumpToCommit || shaJumpPending) {
+      return;
+    }
+
+    const nextIsOpen = !isShaJumpOpen;
+    setIsShaJumpOpen(nextIsOpen);
+    if (!nextIsOpen) {
+      setShaJumpValue("");
+    }
+  }, [isShaJumpOpen, onJumpToCommit, shaJumpPending]);
+  const handleSubmitShaJump = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+      event.preventDefault();
+
+      if (!onJumpToCommit || shaJumpPending) {
+        return;
+      }
+
+      const normalizedSha = shaJumpValue.trim();
+      if (!normalizedSha) {
+        onNotify("SHA を入力してください。");
+        shaJumpInputRef.current?.focus();
+        return;
+      }
+
+      setShaJumpPending(true);
+      try {
+        const didJump = await onJumpToCommit(normalizedSha);
+        if (didJump) {
+          setShaJumpValue("");
+          setIsShaJumpOpen(false);
+          return;
+        }
+
+        shaJumpInputRef.current?.focus();
+        shaJumpInputRef.current?.select();
+      } finally {
+        setShaJumpPending(false);
+      }
+    },
+    [onJumpToCommit, onNotify, shaJumpPending, shaJumpValue],
   );
   const renderWipRow = useCallback(
     (): JSX.Element => {
@@ -500,7 +580,67 @@ export function CommitGraph({
           {!isCompactLayout ? <span>Date</span> : null}
           <span>Message</span>
           <span>Author</span>
-          {!isCompactLayout ? <span className="commit-id-column">SHA</span> : null}
+          {!isCompactLayout ? (
+            <div className="commit-id-column relative" ref={shaJumpContainerRef}>
+              {onJumpToCommit ? (
+                <>
+                  <button
+                    type="button"
+                    className="commit-graph__sha-jump-trigger inline-flex items-center rounded-full border border-transparent px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:border-black/8 hover:bg-black/5 hover:text-ink focus-visible:border-black/10 focus-visible:outline-none"
+                    onClick={handleToggleShaJump}
+                    aria-expanded={isShaJumpOpen}
+                    aria-haspopup="dialog"
+                    title="SHA を入力して commit に移動"
+                  >
+                    SHA
+                  </button>
+                  {isShaJumpOpen ? (
+                    <form
+                      className="commit-graph__sha-jump-popover absolute right-0 top-full z-20 mt-2 flex w-[240px] items-center gap-2 rounded-2xl border border-black/6 bg-white/96 p-2 shadow-lg backdrop-blur-md"
+                      onSubmit={(event) => {
+                        void handleSubmitShaJump(event);
+                      }}
+                    >
+                      <input
+                        ref={shaJumpInputRef}
+                        type="text"
+                        className="input commit-graph__sha-jump-input h-9 min-w-0 flex-1 px-3 py-2 text-xs"
+                        value={shaJumpValue}
+                        onChange={(event) => {
+                          setShaJumpValue(event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape" || shaJumpPending) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          setIsShaJumpOpen(false);
+                          setShaJumpValue("");
+                        }}
+                        placeholder="git sha"
+                        aria-label="Jump to commit SHA"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        disabled={shaJumpPending}
+                      />
+                      <button
+                        type="submit"
+                        className="commit-graph__sha-jump-submit inline-flex h-9 shrink-0 items-center rounded-xl border border-black/8 px-3 text-[11px] font-semibold text-ink transition hover:border-black/12 hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={shaJumpPending}
+                      >
+                        {shaJumpPending ? "移動中" : "移動"}
+                      </button>
+                    </form>
+                  ) : null}
+                </>
+              ) : (
+                <span>SHA</span>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {loading ? (

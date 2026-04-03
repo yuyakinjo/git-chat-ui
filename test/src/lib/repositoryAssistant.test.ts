@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createRepositoryAssistantSettingsFromConfig,
+  extractRepositoryAssistantConflictOperationResult,
   isRepositoryAssistantSubmitShortcut,
   toRepositoryAssistantConfigPatch,
 } from "../../../src/lib/repositoryAssistant";
@@ -86,5 +87,52 @@ describe("toRepositoryAssistantConfigPatch", () => {
       repositoryAssistantOpenAiModel: "gpt-5.4",
       repositoryAssistantReasoningEffort: "xhigh",
     });
+  });
+});
+
+describe("extractRepositoryAssistantConflictOperationResult", () => {
+  test("returns a typed conflict result when assistant action data carries conflict metadata", () => {
+    expect(
+      extractRepositoryAssistantConflictOperationResult({
+        ok: false,
+        conflict: {
+          contextType: "mergeSession",
+          operation: "merge",
+          sessionId: "session-1",
+          sourceBranch: "main",
+          targetBranch: "feature/test",
+          files: [
+            {
+              file: "src/App.tsx",
+              x: "U",
+              y: "U",
+              statusLabel: "Both Modified",
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      conflict: {
+        contextType: "mergeSession",
+        operation: "merge",
+        sessionId: "session-1",
+        sourceBranch: "main",
+        targetBranch: "feature/test",
+        files: [
+          {
+            file: "src/App.tsx",
+            x: "U",
+            y: "U",
+            statusLabel: "Both Modified",
+          },
+        ],
+      },
+    });
+  });
+
+  test("ignores unrelated assistant action data", () => {
+    expect(extractRepositoryAssistantConflictOperationResult({ ok: false })).toBeNull();
+    expect(extractRepositoryAssistantConflictOperationResult(null)).toBeNull();
   });
 });

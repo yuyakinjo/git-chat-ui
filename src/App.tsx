@@ -46,6 +46,7 @@ import {
   createRepositoryAssistantExecutionMessage,
   createDefaultRepositoryAssistantSettings,
   createRepositoryAssistantSettingsFromConfig,
+  extractRepositoryAssistantConflictOperationResult,
   getRepositoryAssistantPolicyAllowedActionIds,
   isEditableShortcutTarget,
   isRepositoryAssistantShortcut,
@@ -62,6 +63,7 @@ import {
 import type {
   AiGenerationConfig,
   AppConfig,
+  ConflictSummary,
   Repository,
   RepositoryAssistantAction,
   RepositoryAssistantActionExecutionOptions,
@@ -88,6 +90,13 @@ function createEmptyRepositoryAssistantConversationState(): RepositoryAssistantC
     executingProposalId: null,
     error: null,
   };
+}
+
+interface AssistantConflictOpenRequest {
+  requestId: number;
+  summary: ConflictSummary;
+  file: string | null;
+  sessionId: string | null;
 }
 
 function getRepositoryAssistantConversationState(
@@ -185,6 +194,9 @@ export default function App(): JSX.Element {
   >({});
   const [assistantRefreshRequestIds, setAssistantRefreshRequestIds] = useState<
     Record<string, number>
+  >({});
+  const [assistantConflictOpenRequests, setAssistantConflictOpenRequests] = useState<
+    Record<string, AssistantConflictOpenRequest>
   >({});
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
@@ -915,9 +927,11 @@ export default function App(): JSX.Element {
         });
 
         const finalize = (result: RepositoryAssistantActionResult): void => {
+          const actionSpec = getRepositoryAssistantActionSpec(action.id);
+          const conflictResult = extractRepositoryAssistantConflictOperationResult(result.data);
           const mutatesRepository =
-            result.status === "succeeded" &&
-            getRepositoryAssistantActionSpec(action.id).mutatesRepository;
+            actionSpec.mutatesRepository &&
+            (result.status === "succeeded" || conflictResult?.ok === false);
 
           setRepositoryAssistantConversations((current) => {
             const conversation = getRepositoryAssistantConversationState(current, repoPath);
@@ -952,6 +966,18 @@ export default function App(): JSX.Element {
             setAssistantRefreshRequestIds((current) => ({
               ...current,
               [repoPath]: (current[repoPath] ?? 0) + 1,
+            }));
+          }
+
+          if (conflictResult?.ok === false) {
+            setAssistantConflictOpenRequests((current) => ({
+              ...current,
+              [repoPath]: {
+                requestId: (current[repoPath]?.requestId ?? 0) + 1,
+                summary: conflictResult.conflict,
+                file: conflictResult.conflict.files[0]?.file ?? null,
+                sessionId: conflictResult.conflict.sessionId ?? null,
+              },
             }));
           }
 
@@ -1162,6 +1188,9 @@ export default function App(): JSX.Element {
                   repositoryGithubUrl={isActive ? githubButtonUrl : null}
                   commandPaletteOpenRequestId={commandPaletteOpenRequestId}
                   assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
+                  assistantConflictOpenRequest={
+                    assistantConflictOpenRequests[repository.path] ?? null
+                  }
                 />
               </section>
             );
