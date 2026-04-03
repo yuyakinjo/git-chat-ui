@@ -1408,7 +1408,12 @@ fn is_repository_assistant_action_allowed(
 ) -> bool {
     policies
         .get(repo_path)
-        .map(|policy| policy.allowed_action_ids.iter().any(|candidate| candidate == action_id))
+        .map(|policy| {
+            policy
+                .allowed_action_ids
+                .iter()
+                .any(|candidate| candidate == action_id)
+        })
         .unwrap_or(false)
 }
 
@@ -3194,7 +3199,8 @@ fn parse_commit_file_stats(output: &str, status_output: Option<&str>) -> Vec<Com
     }
 
     let kind_by_file: HashMap<String, CommitFileKind> = statuses.into_iter().collect();
-    stats.into_iter()
+    stats
+        .into_iter()
         .map(|stat| CommitFileStat {
             kind: kind_by_file
                 .get(&stat.file)
@@ -4310,9 +4316,7 @@ fn build_repository_assistant_context(repo_path: &str) -> Result<String, String>
 
 fn describe_repository_assistant_action_args(action_id: &str) -> &'static str {
     match action_id {
-        "git.stage_file" | "git.unstage_file" | "git.stash_file" => {
-            r#"{"file":"path/to/file"}"#
-        }
+        "git.stage_file" | "git.unstage_file" | "git.stash_file" => r#"{"file":"path/to/file"}"#,
         "git.checkout_ref" => r#"{"ref":"feature/name"}"#,
         "git.create_branch" => r#"{"baseBranch":"main","newBranch":"feature/name"}"#,
         "git.merge_branches" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
@@ -4322,9 +4326,7 @@ fn describe_repository_assistant_action_args(action_id: &str) -> &'static str {
         "git.resolve_conflict_side" => {
             r#"{"file":"src/app.ts","side":"ours","sessionId":"session-1"}"#
         }
-        "git.complete_merge_session" | "git.abort_merge_session" => {
-            r#"{"sessionId":"session-1"}"#
-        }
+        "git.complete_merge_session" | "git.abort_merge_session" => r#"{"sessionId":"session-1"}"#,
         "git.apply_stash" | "git.pop_stash" => r#"{"stashId":"stash@{0}"}"#,
         "gh.pr.prepare" => r#"{"sourceBranch":"feature/name","targetBranch":"main"}"#,
         "gh.pr.create" => {
@@ -4463,9 +4465,11 @@ fn normalize_repository_assistant_action(
         "git.resolve_conflict_side" => {
             let file = normalize_trimmed_string_value(args.get("file"))?;
             let side = match args.get("side").and_then(Value::as_str) {
-                Some("merged" | "ours" | "theirs") => {
-                    args.get("side").and_then(Value::as_str).unwrap().to_string()
-                }
+                Some("merged" | "ours" | "theirs") => args
+                    .get("side")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
                 _ => return None,
             };
             let session_id = normalize_trimmed_string_value(args.get("sessionId"));
@@ -4547,7 +4551,8 @@ fn normalize_repository_assistant_proposals(
         return Vec::new();
     };
 
-    items.iter()
+    items
+        .iter()
         .filter_map(|item| {
             let Value::Object(map) = item else {
                 return None;
@@ -4717,6 +4722,45 @@ fn is_self_repository_path(repo_path: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn repository_assistant_self_repo_blocked_message(
+    action: &RepositoryAssistantAction,
+    label: &str,
+) -> String {
+    match action.id.as_str() {
+        "git.merge_branches" => format!(
+            "Repository assistant cannot run {} against git-chat-ui's own repository when the target branch is currently checked out while the app is running from that checkout.",
+            label
+        ),
+        _ => format!(
+            "Repository assistant cannot run {} against git-chat-ui's own repository while the app is running from that checkout.",
+            label
+        ),
+    }
+}
+
+fn repository_assistant_action_touches_self_working_tree(
+    repo_path: &str,
+    action: &RepositoryAssistantAction,
+    spec: &RepositoryAssistantActionSpec,
+) -> Result<bool, String> {
+    if !spec.mutates_working_tree || !is_self_repository_path(repo_path) {
+        return Ok(false);
+    }
+
+    match action.id.as_str() {
+        "git.merge_branches" => {
+            let target_branch =
+                repository_assistant_action_arg_required_string(action, "targetBranch")?;
+            Ok(get_current_branch(repo_path)? == target_branch)
+        }
+        "git.resolve_conflict_side" => {
+            Ok(repository_assistant_action_arg_optional_string(action, "sessionId").is_none())
+        }
+        "git.complete_merge_session" | "git.abort_merge_session" => Ok(false),
+        _ => Ok(true),
+    }
+}
+
 fn assert_repository_assistant_action_safe(
     repo_path: &str,
     action: &RepositoryAssistantAction,
@@ -4725,10 +4769,9 @@ fn assert_repository_assistant_action_safe(
         return Err("action is invalid.".to_string());
     };
 
-    if spec.mutates_working_tree && is_self_repository_path(repo_path) {
-        return Err(format!(
-            "Repository assistant cannot run {} against git-chat-ui's own repository while the app is running from that checkout.",
-            spec.label
+    if repository_assistant_action_touches_self_working_tree(repo_path, action, spec)? {
+        return Err(repository_assistant_self_repo_blocked_message(
+            action, spec.label,
         ));
     }
 
@@ -4821,7 +4864,11 @@ fn dispatch_repository_assistant_action(
             let base_branch =
                 repository_assistant_action_arg_required_string(action, "baseBranch")?;
             let new_branch = repository_assistant_action_arg_required_string(action, "newBranch")?;
-            create_branch(repo_path.to_string(), base_branch.clone(), new_branch.clone())?;
+            create_branch(
+                repo_path.to_string(),
+                base_branch.clone(),
+                new_branch.clone(),
+            )?;
             Ok(create_repository_assistant_action_result(
                 action,
                 "succeeded",
@@ -4837,11 +4884,18 @@ fn dispatch_repository_assistant_action(
                 repository_assistant_action_arg_required_string(action, "sourceBranch")?;
             let target_branch =
                 repository_assistant_action_arg_required_string(action, "targetBranch")?;
-            let result =
-                merge_branches(repo_path.to_string(), source_branch.clone(), target_branch.clone())?;
+            let result = merge_branches(
+                repo_path.to_string(),
+                source_branch.clone(),
+                target_branch.clone(),
+            )?;
             if !result.ok {
                 let data = serde_json::to_value(&result).ok();
-                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
                 return Ok(create_repository_assistant_action_result(
                     action,
                     "failed",
@@ -4880,8 +4934,9 @@ fn dispatch_repository_assistant_action(
         }
         "git.commit" => {
             let title = repository_assistant_action_arg_required_string(action, "title")?;
-            let description = repository_assistant_action_arg_required_string(action, "description")
-                .unwrap_or_default();
+            let description =
+                repository_assistant_action_arg_required_string(action, "description")
+                    .unwrap_or_default();
             commit(repo_path.to_string(), title.clone(), description)?;
             Ok(create_repository_assistant_action_result(
                 action,
@@ -4901,14 +4956,13 @@ fn dispatch_repository_assistant_action(
         }
         "git.resolve_conflict_side" => {
             let file = repository_assistant_action_arg_required_string(action, "file")?;
-            let side = match repository_assistant_action_arg_required_string(action, "side")?
-                .as_str()
-            {
-                "merged" => ConflictResolutionSide::Merged,
-                "ours" => ConflictResolutionSide::Ours,
-                "theirs" => ConflictResolutionSide::Theirs,
-                _ => return Err("action is invalid.".to_string()),
-            };
+            let side =
+                match repository_assistant_action_arg_required_string(action, "side")?.as_str() {
+                    "merged" => ConflictResolutionSide::Merged,
+                    "ours" => ConflictResolutionSide::Ours,
+                    "theirs" => ConflictResolutionSide::Theirs,
+                    _ => return Err("action is invalid.".to_string()),
+                };
             let session_id = repository_assistant_action_arg_optional_string(action, "sessionId");
             let side_label = match side {
                 ConflictResolutionSide::Merged => "merged",
@@ -4924,8 +4978,7 @@ fn dispatch_repository_assistant_action(
             ))
         }
         "git.complete_merge_session" => {
-            let session_id =
-                repository_assistant_action_arg_required_string(action, "sessionId")?;
+            let session_id = repository_assistant_action_arg_required_string(action, "sessionId")?;
             complete_merge_session(repo_path.to_string(), session_id)?;
             Ok(create_repository_assistant_action_result(
                 action,
@@ -4935,8 +4988,7 @@ fn dispatch_repository_assistant_action(
             ))
         }
         "git.abort_merge_session" => {
-            let session_id =
-                repository_assistant_action_arg_required_string(action, "sessionId")?;
+            let session_id = repository_assistant_action_arg_required_string(action, "sessionId")?;
             abort_merge_session(repo_path.to_string(), session_id)?;
             Ok(create_repository_assistant_action_result(
                 action,
@@ -4950,7 +5002,11 @@ fn dispatch_repository_assistant_action(
             let result = apply_stash(repo_path.to_string(), stash_id.clone())?;
             if !result.ok {
                 let data = serde_json::to_value(&result).ok();
-                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
                 return Ok(create_repository_assistant_action_result(
                     action,
                     "failed",
@@ -4974,7 +5030,11 @@ fn dispatch_repository_assistant_action(
             let result = pop_stash(repo_path.to_string(), stash_id.clone())?;
             if !result.ok {
                 let data = serde_json::to_value(&result).ok();
-                let file_count = result.conflict.as_ref().map(|conflict| conflict.files.len()).unwrap_or(0);
+                let file_count = result
+                    .conflict
+                    .as_ref()
+                    .map(|conflict| conflict.files.len())
+                    .unwrap_or(0);
                 return Ok(create_repository_assistant_action_result(
                     action,
                     "failed",
@@ -4998,13 +5058,13 @@ fn dispatch_repository_assistant_action(
                 repository_assistant_action_arg_required_string(action, "sourceBranch")?;
             let target_branch =
                 repository_assistant_action_arg_required_string(action, "targetBranch")?;
-            let result = prepare_pull_request(
-                repo_path.to_string(),
-                source_branch.clone(),
-                target_branch,
-            )?;
+            let result =
+                prepare_pull_request(repo_path.to_string(), source_branch.clone(), target_branch)?;
             let message = if result.push_required {
-                format!("{} needs a push before creating the pull request.", source_branch)
+                format!(
+                    "{} needs a push before creating the pull request.",
+                    source_branch
+                )
             } else {
                 format!("{} is ready for pull request creation.", source_branch)
             };
@@ -5445,8 +5505,10 @@ pub fn get_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
     }
 
     let file_stats_raw = run_git(&["show", "--pretty=format:", "--numstat", &sha], &repo_path)?;
-    let file_status_raw =
-        run_git(&["show", "--pretty=format:", "--name-status", &sha], &repo_path)?;
+    let file_status_raw = run_git(
+        &["show", "--pretty=format:", "--name-status", &sha],
+        &repo_path,
+    )?;
     let files = parse_commit_file_stats(&file_stats_raw, Some(&file_status_raw));
 
     let diff = run_git(&["show", "--pretty=format:", &sha], &repo_path)?;
@@ -6324,7 +6386,13 @@ pub fn get_stash_diff_detail(
         &repo_path,
     )?;
     let file_status_output = run_git(
-        &["stash", "show", "--name-status", "--format=", stash_id.as_str()],
+        &[
+            "stash",
+            "show",
+            "--name-status",
+            "--format=",
+            stash_id.as_str(),
+        ],
         &repo_path,
     )?;
     let files = parse_commit_file_stats(&file_stats_output, Some(&file_status_output));
@@ -7050,7 +7118,8 @@ pub fn chat_with_repository_assistant(
     let message = chat_with_openai(
         &config.open_ai_token,
         &open_ai_model,
-        input.reasoning_effort
+        input
+            .reasoning_effort
             .unwrap_or(config.repository_assistant_reasoning_effort),
         &system_prompt,
         &input.messages,
@@ -7075,24 +7144,25 @@ pub fn execute_repository_assistant_action(
 ) -> Result<RepositoryAssistantActionExecutionResponse, String> {
     ensure_repo_path(&input.repo_path)?;
 
-    let action =
-        normalize_repository_assistant_action(&input.action).ok_or_else(|| "action is invalid.".to_string())?;
+    let action = normalize_repository_assistant_action(&input.action)
+        .ok_or_else(|| "action is invalid.".to_string())?;
     let config = read_config()?;
     if !is_repository_assistant_action_allowed(
         &config.repository_assistant_policies,
         &input.repo_path,
         &action.id,
     ) {
-        return Err(format!("{} is not allowlisted for this repository.", action.id));
+        return Err(format!(
+            "{} is not allowlisted for this repository.",
+            action.id
+        ));
     }
 
     assert_repository_assistant_action_safe(&input.repo_path, &action)?;
 
     let result = match dispatch_repository_assistant_action(&input.repo_path, &action) {
         Ok(result) => result,
-        Err(error) => {
-            create_repository_assistant_action_result(&action, "failed", error, None)
-        }
+        Err(error) => create_repository_assistant_action_result(&action, "failed", error, None),
     };
 
     Ok(RepositoryAssistantActionExecutionResponse { result })
@@ -7810,6 +7880,76 @@ mod tests {
     }
 
     #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_on_non_current_target() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "feature/safe-merge",
+                "targetBranch": "__self_repo_safe_target__"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &action).is_ok());
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_blocks_merge_into_current_branch() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let current_branch = get_current_branch(&repo_path).expect("current branch should resolve");
+        let action = RepositoryAssistantAction {
+            id: "git.merge_branches".to_string(),
+            args: json!({
+                "sourceBranch": "feature/unsafe-merge",
+                "targetBranch": current_branch
+            }),
+        };
+
+        assert_eq!(
+            assert_repository_assistant_action_safe(&repo_path, &action),
+            Err("Repository assistant cannot run Merge Branches against git-chat-ui's own repository when the target branch is currently checked out while the app is running from that checkout.".to_string())
+        );
+    }
+
+    #[test]
+    fn repository_assistant_self_repo_safety_allows_merge_session_actions() {
+        let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        let resolve_action = RepositoryAssistantAction {
+            id: "git.resolve_conflict_side".to_string(),
+            args: json!({
+                "file": "src/App.tsx",
+                "side": "ours",
+                "sessionId": "session-1"
+            }),
+        };
+        let complete_action = RepositoryAssistantAction {
+            id: "git.complete_merge_session".to_string(),
+            args: json!({
+                "sessionId": "session-1"
+            }),
+        };
+        let abort_action = RepositoryAssistantAction {
+            id: "git.abort_merge_session".to_string(),
+            args: json!({
+                "sessionId": "session-1"
+            }),
+        };
+
+        assert!(assert_repository_assistant_action_safe(&repo_path, &resolve_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &complete_action).is_ok());
+        assert!(assert_repository_assistant_action_safe(&repo_path, &abort_action).is_ok());
+    }
+
+    #[test]
     fn parse_repository_assistant_response_payload_extracts_message_and_actions() {
         let payload = r#"```json
 {
@@ -7828,8 +7968,8 @@ mod tests {
 }
 ```"#;
 
-        let (message, proposed_actions) = parse_repository_assistant_response_payload(payload)
-            .expect("payload should parse");
+        let (message, proposed_actions) =
+            parse_repository_assistant_response_payload(payload).expect("payload should parse");
 
         assert_eq!(message, "Stage the file first.");
         assert_eq!(proposed_actions.len(), 1);

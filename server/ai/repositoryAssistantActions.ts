@@ -14,6 +14,7 @@ import {
   completeMergeSession,
   createBranch,
   createPullRequest,
+  getCurrentBranch,
   mergeBranches,
   popStash,
   preparePullRequest,
@@ -72,25 +73,60 @@ export async function isSelfRepositoryPath(repoPath: string): Promise<boolean> {
   return resolvedRepoPath === resolvedAppRootPath;
 }
 
+function getSelfRepositoryActionBlockedMessage(
+  action: RepositoryAssistantAction,
+  label: string,
+): string {
+  switch (action.id) {
+    case "git.merge_branches":
+      return `Repository assistant cannot run ${label} against git-chat-ui's own repository when the target branch is currently checked out while the app is running from that checkout.`;
+    default:
+      return `Repository assistant cannot run ${label} against git-chat-ui's own repository while the app is running from that checkout.`;
+  }
+}
+
+async function actionTouchesSelfRepositoryWorkingTree(
+  repoPath: string,
+  action: RepositoryAssistantAction,
+): Promise<boolean> {
+  const spec = getRepositoryAssistantActionSpec(action.id);
+  if (!spec.mutatesWorkingTree) {
+    return false;
+  }
+
+  if (!(await isSelfRepositoryPath(repoPath))) {
+    return false;
+  }
+
+  switch (action.id) {
+    case "git.merge_branches":
+      return (await getCurrentBranch(repoPath)) === action.args.targetBranch;
+    case "git.resolve_conflict_side":
+      return !action.args.sessionId;
+    case "git.complete_merge_session":
+    case "git.abort_merge_session":
+      return false;
+    default:
+      return true;
+  }
+}
+
 export async function assertRepositoryAssistantActionSafe(
   repoPath: string,
   action: RepositoryAssistantAction,
 ): Promise<void> {
   const spec = getRepositoryAssistantActionSpec(action.id);
-  if (!spec.mutatesWorkingTree) {
-    return;
-  }
-
-  if (await isSelfRepositoryPath(repoPath)) {
-    throw new Error(
-      `Repository assistant cannot run ${spec.label} against git-chat-ui's own repository while the app is running from that checkout.`,
-    );
+  if (await actionTouchesSelfRepositoryWorkingTree(repoPath, action)) {
+    throw new Error(getSelfRepositoryActionBlockedMessage(action, spec.label));
   }
 }
 
 export function createRepositoryAssistantActionExecutor(
   dependencies: RepositoryAssistantActionExecutorDependencies = {},
-): (repoPath: string, action: RepositoryAssistantAction) => Promise<RepositoryAssistantActionResult> {
+): (
+  repoPath: string,
+  action: RepositoryAssistantAction,
+) => Promise<RepositoryAssistantActionResult> {
   const {
     abortMergeSession: abortMergeSessionImpl = abortMergeSession,
     applyStash: applyStashImpl = applyStash,
@@ -195,16 +231,15 @@ export function createRepositoryAssistantActionExecutor(
             return createActionResult(
               action,
               "failed",
-              formatConflictMessage(`Applied ${action.args.stashId}.`, result.conflict.files.length),
+              formatConflictMessage(
+                `Applied ${action.args.stashId}.`,
+                result.conflict.files.length,
+              ),
               result,
             );
           }
 
-          return createActionResult(
-            action,
-            "succeeded",
-            `Applied ${action.args.stashId}.`,
-          );
+          return createActionResult(action, "succeeded", `Applied ${action.args.stashId}.`);
         }
         case "git.pop_stash": {
           const result = await popStashImpl(repoPath, action.args.stashId);

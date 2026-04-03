@@ -1,6 +1,6 @@
-export type DiffCellKind = "context" | "add" | "delete";
-export type ParsedDiffRowKind = "context" | "change" | "add" | "delete";
-export type ParsedDiffFileKind = "modified" | "added" | "deleted" | "renamed";
+type DiffCellKind = "context" | "add" | "delete";
+type ParsedDiffRowKind = "context" | "change" | "add" | "delete";
+type ParsedDiffFileKind = "modified" | "added" | "deleted" | "renamed";
 
 export interface ParsedDiffCell {
   kind: DiffCellKind;
@@ -14,7 +14,7 @@ export interface ParsedDiffRow {
   right: ParsedDiffCell | null;
 }
 
-export interface ParsedDiffHunk {
+interface ParsedDiffHunk {
   header: string;
   oldStart: number;
   newStart: number;
