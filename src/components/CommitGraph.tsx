@@ -516,15 +516,29 @@ export function CommitGraph({
       graphStyleMetrics.detailedLineOpacity,
     [graphStyleMetrics.detailedLineOpacity],
   );
+  const wipLaneDotSpacing = graphStyle === "japaneseExpress" ? 8 : 5;
   const resolveLaneStrokeDasharray = useCallback(
     (_rowIndex: number, laneIndex: number) => {
       if (!hasWipRow || laneIndex !== wipAnchor.laneIndex) {
         return undefined;
       }
 
-      return graphStyle === "japaneseExpress" ? "0 8" : "0 5";
+      return `0 ${wipLaneDotSpacing}`;
     },
-    [graphStyle, hasWipRow, wipAnchor.laneIndex],
+    [hasWipRow, wipAnchor.laneIndex, wipLaneDotSpacing],
+  );
+  const resolveLaneStrokeDashoffset = useCallback(
+    (laneIndex: number, absoluteStartY: number) => {
+      if (!hasWipRow || laneIndex !== wipAnchor.laneIndex) {
+        return undefined;
+      }
+
+      return (
+        (((absoluteStartY - wipLineBottomStart) % wipLaneDotSpacing) + wipLaneDotSpacing) %
+        wipLaneDotSpacing
+      );
+    },
+    [hasWipRow, wipAnchor.laneIndex, wipLaneDotSpacing, wipLineBottomStart],
   );
   const buildCommitNodeStyle = useCallback(
     (
@@ -619,6 +633,7 @@ export function CommitGraph({
   );
   const renderWipRow = useCallback((): JSX.Element => {
     const anchorLaneHasIncoming = wipAnchor.incomingLaneIndices.includes(wipAnchor.laneIndex);
+    const anchorLaneStroke = resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex);
     const anchorLaneStrokeWidth = resolveLaneStrokeWidth(
       wipAnchor.rowIndex,
       wipAnchor.laneIndex,
@@ -632,6 +647,14 @@ export function CommitGraph({
     const anchorLaneStrokeDasharray = resolveLaneStrokeDasharray(
       wipAnchor.rowIndex,
       wipAnchor.laneIndex,
+    );
+    const anchorLaneTopStrokeDashoffset = resolveLaneStrokeDashoffset(
+      wipAnchor.laneIndex,
+      -LINE_OVERDRAW,
+    );
+    const anchorLaneBottomStrokeDashoffset = resolveLaneStrokeDashoffset(
+      wipAnchor.laneIndex,
+      wipLineBottomStart,
     );
 
     return (
@@ -658,11 +681,12 @@ export function CommitGraph({
                   y1={-LINE_OVERDRAW}
                   x2={resolveLaneX(wipAnchor.laneIndex)}
                   y2={wipLineTopEnd}
-                  stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
+                  stroke={anchorLaneStroke}
                   strokeWidth={anchorLaneStrokeWidth}
                   opacity={anchorLaneOpacity}
                   strokeLinecap="round"
                   strokeDasharray={anchorLaneStrokeDasharray}
+                  strokeDashoffset={anchorLaneTopStrokeDashoffset}
                 />
               ) : null}
               <line
@@ -671,16 +695,18 @@ export function CommitGraph({
                 y1={wipLineBottomStart}
                 x2={resolveLaneX(wipAnchor.laneIndex)}
                 y2={ROW_HEIGHT + LINE_OVERDRAW}
-                stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
+                stroke={anchorLaneStroke}
                 strokeWidth={anchorLaneStrokeWidth}
                 opacity={anchorLaneOpacity}
                 strokeLinecap="round"
                 strokeDasharray={anchorLaneStrokeDasharray}
+                strokeDashoffset={anchorLaneBottomStrokeDashoffset}
               />
             </svg>
             <WipNode
               className="absolute block"
               style={{
+                color: anchorLaneStroke,
                 left: `${resolveLaneX(wipAnchor.laneIndex) - wipNodeCenter}px`,
                 top: `${ROW_HEIGHT / 2 - wipNodeCenter}px`,
               }}
@@ -705,6 +731,7 @@ export function CommitGraph({
               }}
             />
             <WipNode
+              style={{ color: anchorLaneStroke }}
               size={graphStyleMetrics.wipNodeSize}
               ringRadius={graphStyleMetrics.wipNodeRingRadius}
               strokeWidth={graphStyleMetrics.wipNodeStrokeWidth}
@@ -748,6 +775,7 @@ export function CommitGraph({
     onSelectWip,
     resolveLaneOpacity,
     resolveLaneStrokeDasharray,
+    resolveLaneStrokeDashoffset,
     resolveLaneStroke,
     resolveLaneStrokeWidth,
     resolveLaneX,
@@ -1025,6 +1053,10 @@ export function CommitGraph({
                           ? ROW_HEIGHT + LINE_OVERDRAW
                           : ROW_HEIGHT / 2 - strokeWidth / 2;
                         const strokeDasharray = resolveLaneStrokeDasharray(index, laneIndex);
+                        const strokeDashoffset = resolveLaneStrokeDashoffset(
+                          laneIndex,
+                          (index + 1) * ROW_HEIGHT + y1,
+                        );
 
                         return (
                           <line
@@ -1039,6 +1071,7 @@ export function CommitGraph({
                             opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
                             strokeLinecap="round"
                             strokeDasharray={strokeDasharray}
+                            strokeDashoffset={strokeDashoffset}
                           />
                         );
                       })}

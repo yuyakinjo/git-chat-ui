@@ -576,13 +576,18 @@ describe("CommitGraph", () => {
     expect(firstCommitLaneMatch?.[2]).toBe("-1");
     expect(firstCommitLaneMatch?.[4]).toBe("33");
     expect(wipRowHtml).toMatch(
-      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray="0 5"/,
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray="0 5"[^>]*stroke-dashoffset="0"/,
     );
     expect(firstCommitRowHtml).toMatch(
-      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*stroke-dasharray="0 5"`),
+      new RegExp(
+        `class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*stroke-dasharray="0 5"[^>]*stroke-dashoffset="2"`,
+      ),
     );
     expect(html).toContain('class="wip-node-ring"');
     expect(html).toContain('stroke-dasharray="2 3"');
+    expect(wipRowHtml).toMatch(
+      new RegExp(`class="wip-node[^"]*"[^>]*style="[^"]*color:${DEFAULT_BRANCH_LANE_COLOR}`),
+    );
     expect(html).not.toContain('class="wip-node-core"');
     expect(html).toContain('class="wip-row__badge');
     expect(html).toContain('class="wip-row__primary');
@@ -1016,13 +1021,16 @@ describe("CommitGraph", () => {
 
     expect(wipRowHtml).toMatch(
       new RegExp(
-        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"[^>]*stroke-dasharray="0 8"`,
+        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="0"`,
       ),
     );
     expect(featureTipRowHtml).toMatch(
       new RegExp(
-        `class="commit-graph__lane-line"[^>]*x1="${mainLaneX}"[^>]*y1="-1"[^>]*stroke-dasharray="0 8"`,
+        `class="commit-graph__lane-line"[^>]*x1="${mainLaneX}"[^>]*y1="-1"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="5"`,
       ),
+    );
+    expect(wipRowHtml).toMatch(
+      new RegExp(`class="wip-node[^"]*"[^>]*style="[^"]*color:${DEFAULT_BRANCH_LANE_COLOR}`),
     );
     expect(featureTipRowHtml).not.toMatch(
       new RegExp(`class="commit-graph__lane-line"[^>]*x1="${featureLaneX}"[^>]*y1="-1"`),
