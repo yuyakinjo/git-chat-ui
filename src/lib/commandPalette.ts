@@ -6,6 +6,8 @@ export interface SearchableCommandPaletteItem {
   disabledReason?: string | null;
 }
 
+const MAX_RECENT_COMMAND_PALETTE_ITEMS = 50;
+
 interface CommandPaletteShortcutLike {
   key: string;
   metaKey?: boolean;
@@ -16,6 +18,96 @@ interface CommandPaletteShortcutLike {
 
 function normalizeCommandPaletteText(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function normalizeCommandPaletteItemId(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function normalizeRecentCommandPaletteItemIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const itemId = normalizeCommandPaletteItemId(item);
+    if (!itemId || seen.has(itemId)) {
+      continue;
+    }
+
+    seen.add(itemId);
+    normalized.push(itemId);
+
+    if (normalized.length >= MAX_RECENT_COMMAND_PALETTE_ITEMS) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+export function parseRecentCommandPaletteItemIds(rawValue: string | null | undefined): string[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    return normalizeRecentCommandPaletteItemIds(JSON.parse(rawValue));
+  } catch {
+    return [];
+  }
+}
+
+export function updateRecentCommandPaletteItemIds(
+  recentItemIds: readonly string[],
+  itemId: string,
+): string[] {
+  const normalizedItemId = normalizeCommandPaletteItemId(itemId);
+  if (!normalizedItemId) {
+    return [...recentItemIds];
+  }
+
+  return [
+    normalizedItemId,
+    ...normalizeRecentCommandPaletteItemIds(recentItemIds).filter(
+      (recentItemId) => recentItemId !== normalizedItemId,
+    ),
+  ].slice(0, MAX_RECENT_COMMAND_PALETTE_ITEMS);
+}
+
+export function sortCommandPaletteItemsByRecency<T extends SearchableCommandPaletteItem>(
+  items: readonly T[],
+  recentItemIds: readonly string[],
+): T[] {
+  if (items.length <= 1 || recentItemIds.length === 0) {
+    return [...items];
+  }
+
+  const recentOrder = new Map(
+    normalizeRecentCommandPaletteItemIds(recentItemIds).map((itemId, index) => [itemId, index]),
+  );
+
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      recentIndex: recentOrder.get(item.id) ?? Number.POSITIVE_INFINITY,
+    }))
+    .sort((left, right) => {
+      if (left.recentIndex !== right.recentIndex) {
+        return left.recentIndex - right.recentIndex;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
 }
 
 export function filterCommandPaletteItems<T extends SearchableCommandPaletteItem>(

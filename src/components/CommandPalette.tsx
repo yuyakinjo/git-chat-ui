@@ -18,12 +18,14 @@ interface CommandPaletteProps {
   open: boolean;
   commands: readonly CommandPaletteCommand[];
   onClose: () => void;
+  onExecuteCommand?: (commandId: string) => void;
 }
 
 export function CommandPalette({
   open,
   commands,
   onClose,
+  onExecuteCommand,
 }: CommandPaletteProps): JSX.Element | ReturnType<typeof createPortal> | null {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const optionRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -85,6 +87,7 @@ export function CommandPalette({
       return;
     }
 
+    onExecuteCommand?.(command.id);
     onClose();
     void command.onSelect();
   };

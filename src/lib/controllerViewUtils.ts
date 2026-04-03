@@ -1,4 +1,8 @@
-import type { ControllerPanelId } from "./controllerPanelOrder";
+import {
+  DEFAULT_CONTROLLER_PANEL_ORDER,
+  type ControllerPanelId,
+  type ControllerPanelVisibility,
+} from "./controllerPanelOrder";
 import type { Branch, BranchResponse } from "../types";
 
 function getRemoteBranchShortName(branchName: string): string {
@@ -86,6 +90,7 @@ export function isHeadDecoration(decoration: string): boolean {
 }
 
 export const CONTROLLER_PANEL_ORDER_STORAGE_KEY = "git-chat-ui.controller-panel-order";
+export const CONTROLLER_PANEL_VISIBILITY_STORAGE_KEY = "git-chat-ui.controller-panel-visibility";
 export const PANEL_DRAG_THRESHOLD_PX = 6;
 export const CONTROLLER_PANEL_DRAG_IGNORE_SELECTOR = [
   '[data-controller-panel-drag-ignore="true"]',
@@ -106,6 +111,41 @@ export const controllerPanelLabels: Record<ControllerPanelId, string> = {
   gitOperations: "Git Operations",
   commitDetail: "Commit Detail",
 };
+
+export interface ControllerPanelToggleCommandSpec {
+  id: string;
+  panelId: ControllerPanelId;
+  title: string;
+  description: string;
+  keywords: string[];
+}
+
+export function buildControllerPanelToggleCommandSpecs(
+  visibility: ControllerPanelVisibility,
+): ControllerPanelToggleCommandSpec[] {
+  return DEFAULT_CONTROLLER_PANEL_ORDER.map((panelId) => {
+    const label = controllerPanelLabels[panelId];
+    const normalizedLabel = label.toLowerCase();
+    return {
+      id: `toggle-${panelId}-panel`,
+      panelId,
+      title: `Toggle ${label}`,
+      description: visibility[panelId]
+        ? `Currently visible. Hide the ${label} panel.`
+        : `Currently hidden. Show the ${label} panel.`,
+      keywords: [
+        "toggle",
+        "layout",
+        "panel",
+        "show",
+        "hide",
+        panelId,
+        normalizedLabel,
+        ...normalizedLabel.split(/\s+/),
+      ],
+    };
+  });
+}
 
 export function resolveControllerPanelDragTarget(target: EventTarget | null): Element | null {
   if (target instanceof Element) {

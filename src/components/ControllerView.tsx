@@ -3,6 +3,7 @@ import {
   Cog,
   Copy,
   Download,
+  Eye,
   ExternalLink,
   GitCommitHorizontal,
   GripVertical,
@@ -22,19 +23,37 @@ import {
   useState,
   type JSX,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { api } from "../lib/api";
 import { getAppThemeMode, type AppThemeId } from "../lib/appTheme";
 import { buildAppCommandPaletteActionSpecs } from "../lib/appCommandPalette";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getBranchDiffButtonTooltip } from "../lib/branchDiff";
-import { isCommandPaletteShortcut } from "../lib/commandPalette";
+import {
+  isCommandPaletteShortcut,
+  parseRecentCommandPaletteItemIds,
+  sortCommandPaletteItemsByRecency,
+  updateRecentCommandPaletteItemIds,
+} from "../lib/commandPalette";
 import { describeGitError, type UiError } from "../lib/errors";
 import { shortSha } from "../lib/format";
 import { getPullCommandDisabledReason } from "../lib/pullCommand";
-import { canSwapControllerPanel, type ControllerPanelId } from "../lib/controllerPanelOrder";
-import { controllerPanelLabels } from "../lib/controllerViewUtils";
+import {
+  canSwapControllerPanel,
+  DEFAULT_CONTROLLER_PANEL_ORDER,
+  DEFAULT_CONTROLLER_PANEL_VISIBILITY,
+  getVisibleControllerPanelOrder,
+  normalizeControllerPanelVisibility,
+  toggleControllerPanelVisibility,
+  type ControllerPanelId,
+  type ControllerPanelVisibility,
+} from "../lib/controllerPanelOrder";
+import {
+  CONTROLLER_PANEL_VISIBILITY_STORAGE_KEY,
+  buildControllerPanelToggleCommandSpecs,
+  controllerPanelLabels,
+} from "../lib/controllerViewUtils";
 import {
   canMergeBranchWithoutWorkingTreeChange,
   getSelfPullConfirmationMessage,
@@ -76,6 +95,7 @@ interface ControllerViewProps {
   repository: Repository;
   appConfig: AppConfig | null;
   appThemeId?: AppThemeId | null;
+  layoutPickerPortalContainer?: HTMLElement | null;
   onOpenConfig?: () => void;
   onSelectTheme?: (themeId: AppThemeId) => void;
   onNotify: (message: string) => void;
@@ -91,8 +111,26 @@ type CommitMessageGenerationState =
   | { status: "idle" }
   | { status: "success"; title: string; description: string }
   | { status: "error"; error: UiError };
+type ControllerActivityTone = "idle" | "running" | "success" | "error";
 
 const BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX = "git-chat-ui.branch-tree-collapsed";
+const COMMAND_PALETTE_RECENT_ITEM_IDS_STORAGE_KEY = "git-chat-ui.command-palette-recent-item-ids";
+const CONTROLLER_ACTIVITY_SUCCESS_DURATION_MS = 1400;
+const CONTROLLER_ACTIVITY_ERROR_DURATION_MS = 1800;
+
+function getControllerActivityMessage(tone: ControllerActivityTone): string {
+  switch (tone) {
+    case "running":
+      return "操作を実行中です。";
+    case "success":
+      return "操作が完了しました。";
+    case "error":
+      return "操作に失敗しました。";
+    case "idle":
+    default:
+      return "";
+  }
+}
 
 function getBranchTreeCollapsedStorageKey(repoPath: string): string {
   return `${BRANCH_TREE_COLLAPSED_STORAGE_KEY_PREFIX}:${repoPath}`;
@@ -106,10 +144,45 @@ function readInitialBranchTreeCollapsed(repoPath: string): boolean {
   return window.localStorage.getItem(getBranchTreeCollapsedStorageKey(repoPath)) === "1";
 }
 
+function readInitialControllerPanelVisibility(): ControllerPanelVisibility {
+  if (typeof window === "undefined") {
+    return { ...DEFAULT_CONTROLLER_PANEL_VISIBILITY };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CONTROLLER_PANEL_VISIBILITY_STORAGE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_CONTROLLER_PANEL_VISIBILITY };
+    }
+
+    const parsed = JSON.parse(raw);
+    return normalizeControllerPanelVisibility(
+      parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null,
+    );
+  } catch {
+    return { ...DEFAULT_CONTROLLER_PANEL_VISIBILITY };
+  }
+}
+
+function readInitialRecentCommandPaletteItemIds(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    return parseRecentCommandPaletteItemIds(
+      window.localStorage.getItem(COMMAND_PALETTE_RECENT_ITEM_IDS_STORAGE_KEY),
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function ControllerView({
   repository,
   appConfig,
   appThemeId = null,
+  layoutPickerPortalContainer,
   onOpenConfig,
   onSelectTheme,
   onNotify,
@@ -137,10 +210,25 @@ export function ControllerView({
   const [isBranchTreeCollapsed, setBranchTreeCollapsed] = useState<boolean>(() =>
     readInitialBranchTreeCollapsed(repoPath),
   );
+  const [isLayoutPickerOpen, setLayoutPickerOpen] = useState(false);
+  const [panelVisibility, setPanelVisibility] = useState<ControllerPanelVisibility>(() =>
+    readInitialControllerPanelVisibility(),
+  );
+  const [recentCommandPaletteItemIds, setRecentCommandPaletteItemIds] = useState<string[]>(() =>
+    readInitialRecentCommandPaletteItemIds(),
+  );
+  const [controllerActivityTone, setControllerActivityTone] =
+    useState<ControllerActivityTone>("idle");
   const lastHandledCommandPaletteOpenRequestIdRef = useRef(commandPaletteOpenRequestId);
   const lastHandledAssistantConflictOpenRequestIdRef = useRef(
     assistantConflictOpenRequest?.requestId ?? 0,
   );
+  const controllerActivityResetTimeoutRef = useRef<number | null>(null);
+  const controllerActivityPreviousErrorKeyRef = useRef<string | null>(null);
+  const controllerActivityErrorVersionRef = useRef(0);
+  const controllerActivityRunningBaselineErrorVersionRef = useRef(0);
+  const controllerActivityWasRunningRef = useRef(false);
+  const layoutPickerRef = useRef<HTMLDetailsElement | null>(null);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
   const refreshAll = data.refreshAll;
@@ -182,6 +270,55 @@ export function ControllerView({
   const isCommitMessageGenerating = commitMessageAnimationPending || generatingCommitMessage;
   const isCommitMessageEditorLocked =
     isCommitMessageGenerating || pendingCommitMessageGenerationResult.status !== "idle";
+  const branchPullStatusBusy = useMemo(
+    () => Object.values(branchPullStatusLoading).some(Boolean),
+    [branchPullStatusLoading],
+  );
+  const isControllerActionRunning =
+    data.operationBusy ||
+    isCommitMessageGenerating ||
+    data.loadingCommits ||
+    data.loadingMoreCommits ||
+    data.loadingCommitDetail ||
+    data.loadingBranchDiffDetail ||
+    data.loadingWorkingTreeDiffDetail ||
+    data.loadingConflictFileDetail ||
+    data.loadingStashDiffDetail ||
+    branchPullStatusBusy;
+  const controllerActivityMessage = getControllerActivityMessage(controllerActivityTone);
+
+  const clearControllerActivityResetTimeout = useCallback((): void => {
+    if (controllerActivityResetTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(controllerActivityResetTimeoutRef.current);
+    controllerActivityResetTimeoutRef.current = null;
+  }, []);
+
+  const scheduleControllerActivityIdle = useCallback(
+    (delayMs: number): void => {
+      clearControllerActivityResetTimeout();
+      controllerActivityResetTimeoutRef.current = window.setTimeout(() => {
+        controllerActivityResetTimeoutRef.current = null;
+        setControllerActivityTone("idle");
+      }, delayMs);
+    },
+    [clearControllerActivityResetTimeout],
+  );
+
+  const flashControllerActivity = useCallback(
+    (tone: Exclude<ControllerActivityTone, "idle" | "running">): void => {
+      clearControllerActivityResetTimeout();
+      setControllerActivityTone(tone);
+      scheduleControllerActivityIdle(
+        tone === "error"
+          ? CONTROLLER_ACTIVITY_ERROR_DURATION_MS
+          : CONTROLLER_ACTIVITY_SUCCESS_DURATION_MS,
+      );
+    },
+    [clearControllerActivityResetTimeout, scheduleControllerActivityIdle],
+  );
 
   const {
     panelOrder,
@@ -201,6 +338,50 @@ export function ControllerView({
   });
   const branchPullRequests = data.branchPullRequests;
   const reportError = data.reportError;
+
+  useEffect(() => {
+    return () => {
+      clearControllerActivityResetTimeout();
+    };
+  }, [clearControllerActivityResetTimeout]);
+
+  useEffect(() => {
+    const nextErrorKey = data.inlineError
+      ? `${data.inlineError.title}\u0000${data.inlineError.detail}`
+      : null;
+
+    if (nextErrorKey && nextErrorKey !== controllerActivityPreviousErrorKeyRef.current) {
+      controllerActivityErrorVersionRef.current += 1;
+      if (!isControllerActionRunning) {
+        flashControllerActivity("error");
+      }
+    }
+
+    controllerActivityPreviousErrorKeyRef.current = nextErrorKey;
+  }, [data.inlineError, flashControllerActivity, isControllerActionRunning]);
+
+  useEffect(() => {
+    const wasRunning = controllerActivityWasRunningRef.current;
+
+    if (isControllerActionRunning) {
+      if (!wasRunning) {
+        controllerActivityRunningBaselineErrorVersionRef.current =
+          controllerActivityErrorVersionRef.current;
+      }
+
+      clearControllerActivityResetTimeout();
+      setControllerActivityTone("running");
+    } else if (wasRunning) {
+      flashControllerActivity(
+        controllerActivityErrorVersionRef.current >
+          controllerActivityRunningBaselineErrorVersionRef.current
+          ? "error"
+          : "success",
+      );
+    }
+
+    controllerActivityWasRunningRef.current = isControllerActionRunning;
+  }, [clearControllerActivityResetTimeout, flashControllerActivity, isControllerActionRunning]);
 
   const handleOpenBranchPullRequest = useCallback(
     async (branch: Branch): Promise<void> => {
@@ -306,6 +487,11 @@ export function ControllerView({
       },
     );
   }, [data, repoPath]);
+
+  const togglePanelVisibility = useCallback((panelId: ControllerPanelId): void => {
+    setLayoutPickerOpen(false);
+    setPanelVisibility((current) => toggleControllerPanelVisibility(current, panelId));
+  }, []);
 
   const pullBranch = useCallback(
     (branch: Branch): void => {
@@ -451,6 +637,11 @@ export function ControllerView({
 
     branchOps.handleRequestCreateBranch(data.currentLocalBranch);
   }, [branchOps, data.currentLocalBranch]);
+  const handleExecuteCommandPaletteCommand = useCallback((commandId: string): void => {
+    setRecentCommandPaletteItemIds((current) =>
+      updateRecentCommandPaletteItemIds(current, commandId),
+    );
+  }, []);
 
   const appCommandPaletteCommands = useMemo<CommandPaletteCommand[]>(
     () =>
@@ -483,8 +674,22 @@ export function ControllerView({
       }),
     [appThemeId, onOpenConfig, onSelectTheme],
   );
+  const layoutCommandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () =>
+      buildControllerPanelToggleCommandSpecs(panelVisibility).map((command) => ({
+        id: command.id,
+        title: command.title,
+        description: command.description,
+        keywords: command.keywords,
+        icon: Eye,
+        onSelect: () => {
+          togglePanelVisibility(command.panelId);
+        },
+      })),
+    [panelVisibility, togglePanelVisibility],
+  );
 
-  const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+  const baseCommandPaletteCommands = useMemo<CommandPaletteCommand[]>(
     () => [
       {
         id: "copy-current-branch-name",
@@ -562,6 +767,7 @@ export function ControllerView({
         disabledReason: repositoryGithubUrl ? null : "GitHub remote を解決できたときだけ使えます。",
         onSelect: openRepositoryGithubPage,
       },
+      ...layoutCommandPaletteCommands,
       ...appCommandPaletteCommands,
     ],
     [
@@ -571,6 +777,7 @@ export function ControllerView({
       data.currentLocalBranch,
       data.operationBusy,
       data.pullStatus,
+      layoutCommandPaletteCommands,
       openCreateBranchDialog,
       openRepositoryGithubPage,
       pullCurrentBranch,
@@ -578,6 +785,10 @@ export function ControllerView({
       repository.name,
       repositoryGithubUrl,
     ],
+  );
+  const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () => sortCommandPaletteItemsByRecency(baseCommandPaletteCommands, recentCommandPaletteItemIds),
+    [baseCommandPaletteCommands, recentCommandPaletteItemIds],
   );
 
   useEffect(() => {
@@ -602,12 +813,51 @@ export function ControllerView({
   }, [isBranchTreeCollapsed, repoPath]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        CONTROLLER_PANEL_VISIBILITY_STORAGE_KEY,
+        JSON.stringify(panelVisibility),
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory state.
+    }
+  }, [panelVisibility]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        COMMAND_PALETTE_RECENT_ITEM_IDS_STORAGE_KEY,
+        JSON.stringify(recentCommandPaletteItemIds),
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory order.
+    }
+  }, [recentCommandPaletteItemIds]);
+
+  useEffect(() => {
     if (active) {
       return;
     }
 
     setCommandPaletteOpen(false);
+    setLayoutPickerOpen(false);
   }, [active]);
+
+  useEffect(() => {
+    if (!isCommandPaletteOpen) {
+      return;
+    }
+
+    setLayoutPickerOpen(false);
+  }, [isCommandPaletteOpen]);
 
   useEffect(() => {
     if (!active) {
@@ -691,6 +941,37 @@ export function ControllerView({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [active]);
+
+  useEffect(() => {
+    if (!isLayoutPickerOpen || typeof window === "undefined") {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node) || layoutPickerRef.current?.contains(target)) {
+        return;
+      }
+
+      setLayoutPickerOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setLayoutPickerOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isLayoutPickerOpen]);
 
   /* oxlint-disable react-hooks/exhaustive-deps -- depend on stable setter references, not the data object itself */
   useEffect(() => {
@@ -1112,11 +1393,76 @@ export function ControllerView({
     gitOperations: gitOperationPanel,
     commitDetail: commitDetailPanel,
   };
+  const visiblePanelOrder = useMemo(
+    () => getVisibleControllerPanelOrder(panelOrder, panelVisibility),
+    [panelOrder, panelVisibility],
+  );
+  const visiblePanelCount = visiblePanelOrder.length;
+  const panelGridVisibilityClass =
+    visiblePanelCount <= 1
+      ? "controller-panels-grid--1"
+      : visiblePanelCount === 2
+        ? "controller-panels-grid--2"
+        : "";
+  const layoutPicker = (
+    <details
+      ref={layoutPickerRef}
+      className="controller-layout-picker"
+      open={isLayoutPickerOpen}
+      onToggle={(event) => {
+        setLayoutPickerOpen(event.currentTarget.open);
+      }}
+    >
+      <summary
+        className="controller-layout-picker__trigger"
+        aria-haspopup="menu"
+        aria-expanded={isLayoutPickerOpen}
+      >
+        <span className="controller-layout-picker__label">Layout</span>
+        <span className="controller-layout-picker__summary">
+          {visiblePanelCount}/{DEFAULT_CONTROLLER_PANEL_ORDER.length}
+        </span>
+        <span className="controller-layout-picker__chevron" aria-hidden="true">
+          ▾
+        </span>
+      </summary>
+      <div className="controller-layout-picker__menu">
+        <div className="controller-layout-picker__menu-title">Visible Panels</div>
+        {panelOrder.map((panelId) => (
+          <label key={panelId} className="controller-layout-picker__option">
+            <input
+              type="checkbox"
+              className="controller-layout-picker__checkbox"
+              checked={panelVisibility[panelId]}
+              onChange={() => togglePanelVisibility(panelId)}
+            />
+            <span className="controller-layout-picker__option-label">
+              {controllerPanelLabels[panelId]}
+            </span>
+          </label>
+        ))}
+        <div className="controller-layout-picker__hint">
+          Checked panels stay visible after restart.
+        </div>
+      </div>
+    </details>
+  );
+  const shouldRenderLayoutPickerInline =
+    layoutPickerPortalContainer === undefined || typeof document === "undefined";
 
   // --- Render ---
 
   return (
-    <section className="relative flex h-full flex-col gap-3">
+    <section className="controller-view relative flex h-full flex-col gap-3">
+      <div
+        className={`controller-activity-glow controller-activity-glow--${controllerActivityTone}`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span className="sr-only">{controllerActivityMessage}</span>
+      </div>
+
       {data.inlineError ? (
         <section className="panel flex items-start justify-between gap-3 border border-red-500/25 bg-red-50/70 px-4 py-3">
           <div className="flex items-start gap-2">
@@ -1235,58 +1581,77 @@ export function ControllerView({
           onRequestPullBranch={pullBranch}
         />
 
-        <div className="controller-panels-grid">
-          {panelOrder.map((panelId) => {
-            const isDragActive = draggedPanelId !== null;
-            const isDropTarget = dropTargetPanelId === panelId;
-            const isDragSource = draggedPanelId === panelId;
-            const isDropCandidate =
-              isDragActive &&
-              canSwapControllerPanel({
-                busy: data.operationBusy,
-                sourceId: draggedPanelId,
-                targetId: panelId,
-              });
+        <div className="controller-panels-column">
+          {active && layoutPickerPortalContainer ? (
+            createPortal(layoutPicker, layoutPickerPortalContainer)
+          ) : shouldRenderLayoutPickerInline ? (
+            <div className="controller-panels-toolbar">{layoutPicker}</div>
+          ) : null}
 
-            return (
-              <div
-                key={panelId}
-                data-controller-panel-drop-id={panelId}
-                data-controller-panel-drag-source-id={panelId}
-                className={[
-                  "controller-panel-slot min-h-0",
-                  isDropCandidate ? "is-drop-candidate" : null,
-                  isDropTarget ? "is-drop-target" : null,
-                  isDragSource ? "is-drag-source" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
-              >
-                <div className="controller-panel-slot__content">{panelContentById[panelId]}</div>
+          {visiblePanelCount > 0 ? (
+            <div className={`controller-panels-grid ${panelGridVisibilityClass}`.trim()}>
+              {visiblePanelOrder.map((panelId) => {
+                const isDragActive = draggedPanelId !== null;
+                const isDropTarget = dropTargetPanelId === panelId;
+                const isDragSource = draggedPanelId === panelId;
+                const isDropCandidate =
+                  isDragActive &&
+                  canSwapControllerPanel({
+                    busy: data.operationBusy,
+                    sourceId: draggedPanelId,
+                    targetId: panelId,
+                  });
 
-                {isDropTarget && draggedPanelId ? (
-                  <div className="controller-panel-drop-split">
-                    <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--source">
-                      <div className="controller-panel-drop-split__eyebrow">From</div>
-                      <div className="controller-panel-drop-split__title">
-                        {controllerPanelLabels[draggedPanelId]}
+                return (
+                  <div
+                    key={panelId}
+                    data-controller-panel-drop-id={panelId}
+                    data-controller-panel-drag-source-id={panelId}
+                    className={[
+                      "controller-panel-slot min-h-0",
+                      isDropCandidate ? "is-drop-candidate" : null,
+                      isDropTarget ? "is-drop-target" : null,
+                      isDragSource ? "is-drag-source" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onPointerDown={(event) => handlePanelPointerDown(event, panelId)}
+                  >
+                    <div className="controller-panel-slot__content">
+                      {panelContentById[panelId]}
+                    </div>
+
+                    {isDropTarget && draggedPanelId ? (
+                      <div className="controller-panel-drop-split">
+                        <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--source">
+                          <div className="controller-panel-drop-split__eyebrow">From</div>
+                          <div className="controller-panel-drop-split__title">
+                            {controllerPanelLabels[draggedPanelId]}
+                          </div>
+                        </div>
+                        <div className="controller-panel-drop-split__flow" aria-hidden="true">
+                          <span className="controller-panel-drop-split__arrow">→</span>
+                        </div>
+                        <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--target">
+                          <div className="controller-panel-drop-split__eyebrow">Swap</div>
+                          <div className="controller-panel-drop-split__title">
+                            {controllerPanelLabels[panelId]}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="controller-panel-drop-split__flow" aria-hidden="true">
-                      <span className="controller-panel-drop-split__arrow">→</span>
-                    </div>
-                    <div className="controller-panel-drop-split__pane controller-panel-drop-split__pane--target">
-                      <div className="controller-panel-drop-split__eyebrow">Swap</div>
-                      <div className="controller-panel-drop-split__title">
-                        {controllerPanelLabels[panelId]}
-                      </div>
-                    </div>
+                    ) : null}
                   </div>
-                ) : null}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="panel controller-panels-empty">
+              <div className="controller-panels-empty__title">No panels selected</div>
+              <div className="controller-panels-empty__hint">
+                Open Layout and check the panels you want to show.
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1310,6 +1675,7 @@ export function ControllerView({
         open={isCommandPaletteOpen}
         commands={commandPaletteCommands}
         onClose={handleCloseCommandPalette}
+        onExecuteCommand={handleExecuteCommandPaletteCommand}
       />
 
       {selectedCommitDetail && data.focusedCommitDiffFile ? (

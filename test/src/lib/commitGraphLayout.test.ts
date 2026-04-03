@@ -48,4 +48,20 @@ describe("buildLaneRows", () => {
     expect(layout.rows[1].laneIndex).not.toBe(layout.rows[1].primaryParentLaneIndex);
     expect(layout.rows[1].primaryParentLaneIndex).toBe(0);
   });
+
+  test("reserves the checked out lane when its head first appears below sibling branches", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "main-tip", parentShas: ["base"] },
+        { sha: "feature-tip", parentShas: ["base"] },
+        { sha: "base", parentShas: [] },
+      ],
+      { reservedHeadSha: "feature-tip" },
+    );
+
+    expect(layout.maxLanes).toBe(2);
+    expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 0, 0]);
+    expect(layout.rows[1].primaryParentLaneIndex).toBeNull();
+    expect(layout.rows[2].incomingLaneIndices).toEqual([0, 1]);
+  });
 });

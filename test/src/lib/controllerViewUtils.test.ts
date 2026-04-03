@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { BranchResponse } from "../../../src/types";
 
-import { resolveDefaultBranch } from "../../../src/lib/controllerViewUtils";
+import {
+  buildControllerPanelToggleCommandSpecs,
+  resolveDefaultBranch,
+} from "../../../src/lib/controllerViewUtils";
 
 describe("resolveDefaultBranch", () => {
   test("prefers the local branch that matches remote default metadata", () => {
@@ -51,5 +54,25 @@ describe("resolveDefaultBranch", () => {
     };
 
     expect(resolveDefaultBranch(branches)?.name).toBe("feature/refactor");
+  });
+});
+
+describe("buildControllerPanelToggleCommandSpecs", () => {
+  test("builds toggle commands with visibility-aware descriptions", () => {
+    const specs = buildControllerPanelToggleCommandSpecs({
+      commitGraph: true,
+      gitOperations: false,
+      commitDetail: true,
+    });
+
+    expect(specs.map((spec) => spec.title)).toEqual([
+      "Toggle Commit Graph",
+      "Toggle Git Operations",
+      "Toggle Commit Detail",
+    ]);
+    expect(specs[0]?.description).toBe("Currently visible. Hide the Commit Graph panel.");
+    expect(specs[1]?.description).toBe("Currently hidden. Show the Git Operations panel.");
+    expect(specs[2]?.keywords).toContain("layout");
+    expect(specs[2]?.keywords).toContain("commit detail");
   });
 });

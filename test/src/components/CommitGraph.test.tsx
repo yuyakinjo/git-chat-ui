@@ -413,14 +413,12 @@ describe("CommitGraph", () => {
     const wipConnectorMatch = html.match(
       /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="([^"]+)"/,
     );
-    const firstCommitLaneMatch = html.match(
-      /data-commit-sha="main-tip"[\s\S]*?class="commit-graph__lane-line"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"/,
-    );
+    const mainRowHtml = extractCommitRowMarkup(html, "main-tip");
 
     expect(html.indexOf("chore: main tip")).toBeLessThan(html.indexOf("// WIP"));
     expect(html.indexOf("// WIP")).toBeLessThan(html.indexOf("feat: current branch tip"));
-    expect(wipConnectorMatch?.[1]).toBe(String(laneX(1)));
-    expect(firstCommitLaneMatch?.[2]).toBe("17.1");
+    expect(wipConnectorMatch?.[1]).toBe(String(laneX(0)));
+    expect(mainRowHtml).toMatch(new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(1)}"`));
   });
 
   test("keeps sibling lanes continuous through an inserted WIP row", () => {
@@ -452,7 +450,7 @@ describe("CommitGraph", () => {
 
     const wipRowHtml = extractWipRowMarkup(html);
     const passthroughLanePattern = new RegExp(
-      `class="wip-row__lane-line wip-row__lane-line--passthrough"[^>]*x1="${laneX(0)}"[^>]*y1="-1"[^>]*x2="${laneX(0)}"[^>]*y2="33"[^>]*stroke="${DEFAULT_BRANCH_LANE_COLOR}"`,
+      `class="wip-row__lane-line wip-row__lane-line--passthrough"[^>]*x1="${laneX(1)}"[^>]*y1="-1"[^>]*x2="${laneX(1)}"[^>]*y2="33"[^>]*stroke="${DEFAULT_BRANCH_LANE_COLOR}"`,
     );
 
     expect(wipRowHtml).toMatch(passthroughLanePattern);

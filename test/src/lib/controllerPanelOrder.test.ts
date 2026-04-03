@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   canSwapControllerPanel,
+  getVisibleControllerPanelOrder,
+  normalizeControllerPanelVisibility,
   normalizeControllerPanelOrder,
   swapControllerPanels,
+  toggleControllerPanelVisibility,
 } from "../../../src/lib/controllerPanelOrder";
 
 describe("controllerPanelOrder", () => {
@@ -51,5 +54,45 @@ describe("controllerPanelOrder", () => {
         "commitDetail",
       ),
     ).toEqual(["commitDetail", "gitOperations", "commitGraph"]);
+  });
+
+  test("normalizes partial persisted visibility state", () => {
+    expect(
+      normalizeControllerPanelVisibility({
+        gitOperations: false,
+        invalid: true,
+      }),
+    ).toEqual({
+      commitGraph: true,
+      gitOperations: false,
+      commitDetail: true,
+    });
+  });
+
+  test("filters panel order using the current visibility state", () => {
+    expect(
+      getVisibleControllerPanelOrder(["commitGraph", "gitOperations", "commitDetail"], {
+        commitGraph: false,
+        gitOperations: true,
+        commitDetail: false,
+      }),
+    ).toEqual(["gitOperations"]);
+  });
+
+  test("toggles one panel without changing the others", () => {
+    expect(
+      toggleControllerPanelVisibility(
+        {
+          commitGraph: true,
+          gitOperations: false,
+          commitDetail: true,
+        },
+        "gitOperations",
+      ),
+    ).toEqual({
+      commitGraph: true,
+      gitOperations: true,
+      commitDetail: true,
+    });
   });
 });

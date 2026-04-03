@@ -174,6 +174,8 @@ export default function App(): JSX.Element {
   const [lastRepositoryPath, setLastRepositoryPath] = useState<string | null>(null);
   const [githubButtonUrl, setGithubButtonUrl] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
+  const [controllerLayoutPickerPortalContainer, setControllerLayoutPickerPortalContainer] =
+    useState<HTMLDivElement | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [_aiGenerationConfig, setAiGenerationConfig] = useState<AiGenerationConfig | null>(null);
   const [commandPaletteOpenRequestId, setCommandPaletteOpenRequestId] = useState(0);
@@ -1136,6 +1138,12 @@ export default function App(): JSX.Element {
                 <ExternalLink size={18} />
               </button>
             ) : null}
+            {activeRepository ? (
+              <div
+                ref={setControllerLayoutPickerPortalContainer}
+                className="app-controller-layout-slot"
+              />
+            ) : null}
             <button
               type="button"
               className={`app-tab app-tab--utility app-tab--icon ${isConfigActive ? "is-active" : ""}`}
@@ -1180,6 +1188,7 @@ export default function App(): JSX.Element {
                   repository={repository}
                   appConfig={appConfig}
                   appThemeId={appTheme}
+                  layoutPickerPortalContainer={controllerLayoutPickerPortalContainer}
                   onOpenConfig={handleOpenConfig}
                   onSelectTheme={handleSelectAppTheme}
                   onNotify={setNotice}

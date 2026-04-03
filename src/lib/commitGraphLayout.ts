@@ -3,6 +3,10 @@ export interface CommitForLane {
   parentShas: string[];
 }
 
+export interface LaneLayoutOptions {
+  reservedHeadSha?: string | null;
+}
+
 export interface LaneRow {
   laneIndex: number;
   activeLaneIndices: number[];
@@ -17,6 +21,10 @@ export interface LaneLayout {
   maxLanes: number;
 }
 
+function normalizeSha(sha: string | null | undefined): string {
+  return sha?.trim() ?? "";
+}
+
 function collectActiveLaneIndices(activeLanes: Array<string | null>): number[] {
   return activeLanes.reduce<number[]>((accumulator, sha, index) => {
     if (sha) {
@@ -26,15 +34,23 @@ function collectActiveLaneIndices(activeLanes: Array<string | null>): number[] {
   }, []);
 }
 
-export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
-  const activeLanes: Array<string | null> = [];
+export function buildLaneRows(
+  commits: CommitForLane[],
+  options: LaneLayoutOptions = {},
+): LaneLayout {
+  const reservedHeadSha = normalizeSha(options.reservedHeadSha);
+  const reservedHeadRowIndex = reservedHeadSha
+    ? commits.findIndex((commit) => normalizeSha(commit.sha) === reservedHeadSha)
+    : -1;
+  const activeLanes: Array<string | null> =
+    reservedHeadRowIndex > 0 && reservedHeadSha ? [reservedHeadSha] : [];
   const rows: LaneRow[] = [];
   let maxLanes = 1;
 
   for (const commit of commits) {
     const incomingLaneIndices = collectActiveLaneIndices(activeLanes);
-    const commitSha = commit.sha.trim();
-    const parentShas = commit.parentShas.map((sha) => sha.trim()).filter(Boolean);
+    const commitSha = normalizeSha(commit.sha);
+    const parentShas = commit.parentShas.map((sha) => normalizeSha(sha)).filter(Boolean);
     let laneIndex = activeLanes.findIndex((sha) => sha === commitSha);
     let primaryParentLaneIndex: number | null = null;
 
@@ -50,6 +66,8 @@ export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
 
     const before = collectActiveLaneIndices(activeLanes);
     const mergeTargetLaneIndices: number[] = [];
+    const isReservedLaneCommit =
+      reservedHeadRowIndex > 0 && laneIndex === 0 && activeLanes[0] === commitSha;
 
     if (parentShas.length === 0) {
       activeLanes[laneIndex] = null;
@@ -58,7 +76,7 @@ export function buildLaneRows(commits: CommitForLane[]): LaneLayout {
       const existingPrimaryParentLaneIndex = activeLanes.findIndex(
         (sha, index) => index !== laneIndex && sha === primaryParent,
       );
-      if (existingPrimaryParentLaneIndex !== -1) {
+      if (!isReservedLaneCommit && existingPrimaryParentLaneIndex !== -1) {
         primaryParentLaneIndex = existingPrimaryParentLaneIndex;
       }
 

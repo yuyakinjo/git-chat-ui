@@ -77,14 +77,33 @@ describe("globals.css", () => {
   });
 
   test("controller panel rows give git operations more height at medium widths", () => {
+    const controllerActivitySection = getSection(
+      ".controller-view {",
+      ".controller-panels-column {",
+    );
     const controllerPanelSection = getSection(
-      ".controller-panels-grid {",
+      ".controller-panels-column {",
       ".controller-panel-slot {",
     );
 
+    expect(controllerActivitySection).toContain(".controller-activity-glow {");
+    expect(controllerActivitySection).toContain("--controller-activity-rgb: var(--color-accent);");
+    expect(controllerActivitySection).toContain(".controller-activity-glow--running::before {");
+    expect(controllerActivitySection).toContain(".controller-activity-glow--error {");
+    expect(controllerActivitySection).toContain("@keyframes controller-activity-breathe {");
+    expect(controllerActivitySection).toContain("@keyframes controller-activity-sheen {");
+    expect(globalsCss).toContain("@media (prefers-reduced-motion: reduce) {");
+    expect(globalsCss).toContain(".controller-activity-glow::after {");
+    expect(controllerPanelSection).toContain(".controller-panels-toolbar {");
+    expect(controllerPanelSection).toContain(".controller-layout-picker {");
+    expect(controllerPanelSection).toContain(".controller-layout-picker__menu {");
+    expect(controllerPanelSection).toContain(".controller-layout-picker__option {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.3fr) minmax(320px, 1.15fr) minmax(170px, 0.72fr);",
     );
+    expect(controllerPanelSection).toContain(".controller-panels-grid.controller-panels-grid--2 {");
+    expect(controllerPanelSection).toContain(".controller-panels-grid.controller-panels-grid--1 {");
+    expect(globalsCss).toContain(".controller-panels-empty {");
     expect(controllerPanelSection).toContain("@media (max-width: 1320px) {");
     expect(controllerPanelSection).toContain(
       "grid-template-rows: minmax(0, 1.08fr) minmax(340px, 1.18fr) minmax(150px, 0.56fr);",
@@ -186,7 +205,9 @@ describe("globals.css", () => {
     expect(assistantSection).toContain(".repository-assistant__composer {");
     expect(assistantSection).toContain(".repository-assistant__composer-settings {");
     expect(assistantSection).toContain(".repository-assistant__action-card {");
-    expect(assistantSection).toContain(".repository-assistant__setting .config-view__combobox-menu {");
+    expect(assistantSection).toContain(
+      ".repository-assistant__setting .config-view__combobox-menu {",
+    );
     expect(assistantSection).toContain("bottom: calc(100% + 6px);");
     expect(assistantSection).toContain(".repository-assistant__textarea {");
     expect(assistantSection).toContain(".repository-assistant__message-body pre {");

@@ -5,6 +5,13 @@ export const DEFAULT_CONTROLLER_PANEL_ORDER = [
 ] as const;
 
 export type ControllerPanelId = (typeof DEFAULT_CONTROLLER_PANEL_ORDER)[number];
+export type ControllerPanelVisibility = Record<ControllerPanelId, boolean>;
+
+export const DEFAULT_CONTROLLER_PANEL_VISIBILITY: ControllerPanelVisibility = {
+  commitGraph: true,
+  gitOperations: true,
+  commitDetail: true,
+};
 
 const CONTROLLER_PANEL_ID_SET = new Set<string>(DEFAULT_CONTROLLER_PANEL_ORDER);
 
@@ -34,6 +41,42 @@ export function normalizeControllerPanelOrder(
   }
 
   return normalized;
+}
+
+export function normalizeControllerPanelVisibility(
+  input: Record<string, unknown> | null | undefined,
+): ControllerPanelVisibility {
+  const normalized: ControllerPanelVisibility = { ...DEFAULT_CONTROLLER_PANEL_VISIBILITY };
+
+  if (!input) {
+    return normalized;
+  }
+
+  for (const panelId of DEFAULT_CONTROLLER_PANEL_ORDER) {
+    const value = input[panelId];
+    if (typeof value === "boolean") {
+      normalized[panelId] = value;
+    }
+  }
+
+  return normalized;
+}
+
+export function getVisibleControllerPanelOrder(
+  order: readonly ControllerPanelId[],
+  visibility: ControllerPanelVisibility,
+): ControllerPanelId[] {
+  return order.filter((panelId) => visibility[panelId]);
+}
+
+export function toggleControllerPanelVisibility(
+  visibility: ControllerPanelVisibility,
+  panelId: ControllerPanelId,
+): ControllerPanelVisibility {
+  return {
+    ...visibility,
+    [panelId]: !visibility[panelId],
+  };
 }
 
 export function canSwapControllerPanel(options: {

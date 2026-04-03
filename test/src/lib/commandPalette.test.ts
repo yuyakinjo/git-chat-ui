@@ -5,6 +5,9 @@ import {
   getDefaultActiveCommandPaletteItemId,
   getNextActiveCommandPaletteItemId,
   isCommandPaletteShortcut,
+  parseRecentCommandPaletteItemIds,
+  sortCommandPaletteItemsByRecency,
+  updateRecentCommandPaletteItemIds,
 } from "../../../src/lib/commandPalette";
 
 describe("filterCommandPaletteItems", () => {
@@ -71,6 +74,71 @@ describe("isCommandPaletteShortcut", () => {
         shiftKey: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("parseRecentCommandPaletteItemIds", () => {
+  test("returns an empty list for invalid storage values", () => {
+    expect(parseRecentCommandPaletteItemIds(null)).toEqual([]);
+    expect(parseRecentCommandPaletteItemIds("not json")).toEqual([]);
+    expect(parseRecentCommandPaletteItemIds('{"id":"open-config"}')).toEqual([]);
+  });
+
+  test("normalizes blank values and duplicate ids", () => {
+    expect(
+      parseRecentCommandPaletteItemIds(
+        JSON.stringify(["open-config", "  ", "pull-current-branch", "open-config"]),
+      ),
+    ).toEqual(["open-config", "pull-current-branch"]);
+  });
+});
+
+describe("updateRecentCommandPaletteItemIds", () => {
+  test("moves the latest command to the front without duplicates", () => {
+    expect(
+      updateRecentCommandPaletteItemIds(
+        ["pull-current-branch", "open-config", "push-current-branch"],
+        "open-config",
+      ),
+    ).toEqual(["open-config", "pull-current-branch", "push-current-branch"]);
+  });
+
+  test("ignores blank command ids", () => {
+    expect(updateRecentCommandPaletteItemIds(["open-config"], "   ")).toEqual(["open-config"]);
+  });
+});
+
+describe("sortCommandPaletteItemsByRecency", () => {
+  const items = [
+    {
+      id: "copy-current-branch-name",
+      title: "Copy Current Branch Name",
+    },
+    {
+      id: "create-branch",
+      title: "Create Branch",
+    },
+    {
+      id: "open-config",
+      title: "Open Config",
+    },
+    {
+      id: "select-theme:default-light",
+      title: "Theme: Default Light",
+    },
+  ];
+
+  test("places recent commands first and keeps the remaining items in definition order", () => {
+    expect(sortCommandPaletteItemsByRecency(items, ["open-config", "create-branch"])).toEqual([
+      items[2],
+      items[1],
+      items[0],
+      items[3],
+    ]);
+  });
+
+  test("ignores unknown recent ids", () => {
+    expect(sortCommandPaletteItemsByRecency(items, ["missing-command"])).toEqual([...items]);
   });
 });
 

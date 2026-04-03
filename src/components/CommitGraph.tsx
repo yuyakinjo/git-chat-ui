@@ -107,12 +107,17 @@ export function CommitGraph({
   const [isShaJumpOpen, setIsShaJumpOpen] = useState(false);
   const [shaJumpValue, setShaJumpValue] = useState("");
   const [shaJumpPending, setShaJumpPending] = useState(false);
+  const normalizedCheckedOutCommitSha = checkedOutCommitSha?.trim() ?? "";
 
   const visibleCommits = useMemo(() => commits, [commits]);
-  const laneLayout = useMemo(() => buildLaneRows(commits), [commits]);
   const defaultBranchHeadSha = useMemo(
     () => resolveDefaultBranch(branchContext)?.commit ?? null,
     [branchContext],
+  );
+  const reservedLaneHeadSha = normalizedCheckedOutCommitSha || defaultBranchHeadSha;
+  const laneLayout = useMemo(
+    () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
+    [commits, reservedLaneHeadSha],
   );
   const defaultBranchAnchorLaneIndices = useMemo(
     () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
@@ -291,7 +296,6 @@ export function CommitGraph({
   const isDetailedMode = mode === "detailed";
   const hasWipRow =
     (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
-  const normalizedCheckedOutCommitSha = checkedOutCommitSha?.trim() ?? "";
   const graphColumnWidth = isDetailedMode
     ? Math.max(72, laneLayout.maxLanes * LANE_GAP + LANE_PADDING * 2)
     : 22;
@@ -393,146 +397,143 @@ export function CommitGraph({
     },
     [onJumpToCommit, onNotify, shaJumpPending, shaJumpValue],
   );
-  const renderWipRow = useCallback(
-    (): JSX.Element => {
-      const passthroughLaneIndices = wipAnchor.incomingLaneIndices.filter(
-        (laneIndex) => laneIndex !== wipAnchor.laneIndex,
-      );
-      const anchorLaneHasIncoming = wipAnchor.incomingLaneIndices.includes(wipAnchor.laneIndex);
-      const anchorLaneStrokeWidth = resolveLaneStrokeWidth(
-        wipAnchor.rowIndex,
-        wipAnchor.laneIndex,
-        wipAnchor.laneIndex,
-      );
-      const anchorLaneOpacity = resolveLaneOpacity(
-        wipAnchor.rowIndex,
-        wipAnchor.laneIndex,
-        wipAnchor.laneIndex,
-      );
+  const renderWipRow = useCallback((): JSX.Element => {
+    const passthroughLaneIndices = wipAnchor.incomingLaneIndices.filter(
+      (laneIndex) => laneIndex !== wipAnchor.laneIndex,
+    );
+    const anchorLaneHasIncoming = wipAnchor.incomingLaneIndices.includes(wipAnchor.laneIndex);
+    const anchorLaneStrokeWidth = resolveLaneStrokeWidth(
+      wipAnchor.rowIndex,
+      wipAnchor.laneIndex,
+      wipAnchor.laneIndex,
+    );
+    const anchorLaneOpacity = resolveLaneOpacity(
+      wipAnchor.rowIndex,
+      wipAnchor.laneIndex,
+      wipAnchor.laneIndex,
+    );
 
-      return (
-        <div
-          className="wip-row commit-row"
-          style={{ gridTemplateColumns }}
-          onClick={onSelectWip}
-          title="未コミットの変更があります"
-        >
-          {isDetailedMode ? (
-            <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
-              <svg
-                className="absolute left-0"
-                width={graphColumnWidth}
-                height={ROW_HEIGHT + LINE_OVERDRAW * 2}
-                style={{ top: `${-LINE_OVERDRAW}px` }}
-                viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
-                fill="none"
-              >
-                {passthroughLaneIndices.map((laneIndex) => {
-                  const strokeWidth = resolveLaneStrokeWidth(wipAnchor.rowIndex, laneIndex, null);
-                  return (
-                    <line
-                      className="wip-row__lane-line wip-row__lane-line--passthrough"
-                      key={`wip-passthrough-${laneIndex}`}
-                      x1={laneX(laneIndex)}
-                      y1={-LINE_OVERDRAW}
-                      x2={laneX(laneIndex)}
-                      y2={ROW_HEIGHT + LINE_OVERDRAW}
-                      stroke={resolveLaneStroke(wipAnchor.rowIndex, laneIndex)}
-                      strokeWidth={strokeWidth}
-                      opacity={resolveLaneOpacity(wipAnchor.rowIndex, laneIndex, null)}
-                      strokeLinecap="round"
-                    />
-                  );
-                })}
-                {anchorLaneHasIncoming ? (
+    return (
+      <div
+        className="wip-row commit-row"
+        style={{ gridTemplateColumns }}
+        onClick={onSelectWip}
+        title="未コミットの変更があります"
+      >
+        {isDetailedMode ? (
+          <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+            <svg
+              className="absolute left-0"
+              width={graphColumnWidth}
+              height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+              style={{ top: `${-LINE_OVERDRAW}px` }}
+              viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+              fill="none"
+            >
+              {passthroughLaneIndices.map((laneIndex) => {
+                const strokeWidth = resolveLaneStrokeWidth(wipAnchor.rowIndex, laneIndex, null);
+                return (
                   <line
-                    className="wip-row__lane-line wip-row__lane-line--connector-top"
-                    x1={laneX(wipAnchor.laneIndex)}
+                    className="wip-row__lane-line wip-row__lane-line--passthrough"
+                    key={`wip-passthrough-${laneIndex}`}
+                    x1={laneX(laneIndex)}
                     y1={-LINE_OVERDRAW}
-                    x2={laneX(wipAnchor.laneIndex)}
-                    y2={wipLineTopEnd}
-                    stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
-                    strokeWidth={anchorLaneStrokeWidth}
-                    opacity={anchorLaneOpacity}
+                    x2={laneX(laneIndex)}
+                    y2={ROW_HEIGHT + LINE_OVERDRAW}
+                    stroke={resolveLaneStroke(wipAnchor.rowIndex, laneIndex)}
+                    strokeWidth={strokeWidth}
+                    opacity={resolveLaneOpacity(wipAnchor.rowIndex, laneIndex, null)}
                     strokeLinecap="round"
                   />
-                ) : null}
+                );
+              })}
+              {anchorLaneHasIncoming ? (
                 <line
-                  className="wip-row__lane-line wip-row__lane-line--connector"
+                  className="wip-row__lane-line wip-row__lane-line--connector-top"
                   x1={laneX(wipAnchor.laneIndex)}
-                  y1={wipLineBottomStart}
+                  y1={-LINE_OVERDRAW}
                   x2={laneX(wipAnchor.laneIndex)}
-                  y2={ROW_HEIGHT + LINE_OVERDRAW}
+                  y2={wipLineTopEnd}
                   stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
                   strokeWidth={anchorLaneStrokeWidth}
                   opacity={anchorLaneOpacity}
                   strokeLinecap="round"
                 />
-              </svg>
-              <WipNode
-                className="absolute block"
-                style={{
-                  left: `${laneX(wipAnchor.laneIndex) - WIP_NODE_CENTER}px`,
-                  top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
-                }}
+              ) : null}
+              <line
+                className="wip-row__lane-line wip-row__lane-line--connector"
+                x1={laneX(wipAnchor.laneIndex)}
+                y1={wipLineBottomStart}
+                x2={laneX(wipAnchor.laneIndex)}
+                y2={ROW_HEIGHT + LINE_OVERDRAW}
+                stroke={resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)}
+                strokeWidth={anchorLaneStrokeWidth}
+                opacity={anchorLaneOpacity}
+                strokeLinecap="round"
               />
-            </div>
-          ) : (
-            <div className="relative flex h-8 items-center justify-center">
-              <div
-                className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
-                style={{
-                  top: `${wipLineBottomStart}px`,
-                  height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
-                }}
-              />
-              <WipNode />
-            </div>
-          )}
-          <div className="overflow-hidden whitespace-nowrap text-xs">
-            <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
-              WIP
-            </span>
+            </svg>
+            <WipNode
+              className="absolute block"
+              style={{
+                left: `${laneX(wipAnchor.laneIndex) - WIP_NODE_CENTER}px`,
+                top: `${ROW_HEIGHT / 2 - WIP_NODE_CENTER}px`,
+              }}
+            />
           </div>
-          {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
-          <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
-            <span>{"// WIP"}</span>
-            <span className="wip-row__meta truncate text-xs font-normal">
-              {[
-                wipStagedCount > 0 ? `${wipStagedCount} staged` : null,
-                wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : null,
-                wipConflictedCount > 0 ? `${wipConflictedCount} conflicted` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
+        ) : (
+          <div className="relative flex h-8 items-center justify-center">
+            <div
+              className="wip-row__lane-line wip-row__lane-line--compact absolute w-[2px] bg-accent/20"
+              style={{
+                top: `${wipLineBottomStart}px`,
+                height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
+              }}
+            />
+            <WipNode />
           </div>
-          <div className="wip-row__meta truncate text-xs">—</div>
-          {!isCompactLayout ? (
-            <div className="wip-row__meta commit-id-column truncate text-xs">—</div>
-          ) : null}
+        )}
+        <div className="overflow-hidden whitespace-nowrap text-xs">
+          <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
+            WIP
+          </span>
         </div>
-      );
-    },
-    [
-      graphColumnWidth,
-      gridTemplateColumns,
-      isCompactLayout,
-      isDetailedMode,
-      onSelectWip,
-      resolveLaneOpacity,
-      resolveLaneStroke,
-      resolveLaneStrokeWidth,
-      wipAnchor.incomingLaneIndices,
-      wipAnchor.laneIndex,
-      wipAnchor.rowIndex,
-      wipConflictedCount,
-      wipLineBottomStart,
-      wipLineTopEnd,
-      wipStagedCount,
-      wipUnstagedCount,
-    ],
-  );
+        {!isCompactLayout ? <div className="wip-row__meta truncate text-xs">今</div> : null}
+        <div className="wip-row__primary flex items-center gap-2 truncate text-sm font-medium">
+          <span>{"// WIP"}</span>
+          <span className="wip-row__meta truncate text-xs font-normal">
+            {[
+              wipStagedCount > 0 ? `${wipStagedCount} staged` : null,
+              wipUnstagedCount > 0 ? `${wipUnstagedCount} unstaged` : null,
+              wipConflictedCount > 0 ? `${wipConflictedCount} conflicted` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+        <div className="wip-row__meta truncate text-xs">—</div>
+        {!isCompactLayout ? (
+          <div className="wip-row__meta commit-id-column truncate text-xs">—</div>
+        ) : null}
+      </div>
+    );
+  }, [
+    graphColumnWidth,
+    gridTemplateColumns,
+    isCompactLayout,
+    isDetailedMode,
+    onSelectWip,
+    resolveLaneOpacity,
+    resolveLaneStroke,
+    resolveLaneStrokeWidth,
+    wipAnchor.incomingLaneIndices,
+    wipAnchor.laneIndex,
+    wipAnchor.rowIndex,
+    wipConflictedCount,
+    wipLineBottomStart,
+    wipLineTopEnd,
+    wipStagedCount,
+    wipUnstagedCount,
+  ]);
 
   return (
     <section className="panel flex min-h-0 min-w-0 flex-col overflow-hidden p-3">
@@ -732,34 +733,34 @@ export function CommitGraph({
                         const sourceX = laneX(row.laneIndex);
                         const targetX = laneX(targetLaneIndex);
                         const midY = ROW_HEIGHT / 2;
-                      return (
-                        <path
-                          key={`${commit.sha}-merge-${targetLaneIndex}`}
-                          d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
-                          stroke={resolveLaneStroke(index, targetLaneIndex)}
-                          strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
-                          opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
-                        />
-                      );
-                    })}
+                        return (
+                          <path
+                            key={`${commit.sha}-merge-${targetLaneIndex}`}
+                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
+                            stroke={resolveLaneStroke(index, targetLaneIndex)}
+                            strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
+                            opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
+                          />
+                        );
+                      })}
 
                       {row.primaryParentLaneIndex !== null &&
                       row.primaryParentLaneIndex !== row.laneIndex ? (
-                      <path
-                        d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
-                        stroke={resolveLaneStroke(index, row.primaryParentLaneIndex)}
-                        strokeWidth={resolveLaneStrokeWidth(
-                          index,
-                          row.primaryParentLaneIndex,
-                          row.primaryParentLaneIndex,
-                        )}
-                        opacity={resolveLaneOpacity(
-                          index,
-                          row.primaryParentLaneIndex,
-                          row.primaryParentLaneIndex,
-                        )}
-                      />
-                    ) : null}
+                        <path
+                          d={`M ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2} C ${laneX(row.laneIndex)} ${ROW_HEIGHT / 2 + 6}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT - 8}, ${laneX(row.primaryParentLaneIndex)} ${ROW_HEIGHT}`}
+                          stroke={resolveLaneStroke(index, row.primaryParentLaneIndex)}
+                          strokeWidth={resolveLaneStrokeWidth(
+                            index,
+                            row.primaryParentLaneIndex,
+                            row.primaryParentLaneIndex,
+                          )}
+                          opacity={resolveLaneOpacity(
+                            index,
+                            row.primaryParentLaneIndex,
+                            row.primaryParentLaneIndex,
+                          )}
+                        />
+                      ) : null}
                     </svg>
 
                     <span
