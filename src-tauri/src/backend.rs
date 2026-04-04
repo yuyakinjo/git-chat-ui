@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use git2::{build::CheckoutBuilder, Commit as GitCommit, Repository as GitRepository, Status};
+use git2::{Commit as GitCommit, Repository as GitRepository, Status};
 use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Url;
@@ -2713,7 +2713,10 @@ fn build_automatic_controller_snapshot_compare_refs(
 
     if let Some(default_ref) = default_ref {
         ordered.push(default_ref.clone());
-        ordered.extend(refs.into_iter().filter(|reference| reference != &default_ref));
+        ordered.extend(
+            refs.into_iter()
+                .filter(|reference| reference != &default_ref),
+        );
     } else {
         ordered.extend(refs);
     }
@@ -6476,7 +6479,10 @@ pub fn stash_file(repo_path: String, file: String) -> Result<OkResponse, String>
     let entry = get_working_tree_file_status_entry(&repo_path, &normalized_file)?;
     let message = format!("git-chat-ui: {normalized_file}");
     let mut args = vec!["stash", "push"];
-    if matches!(entry, Some(WorkingTreeFileStatusEntryRecord { x: '?', y: '?', .. })) {
+    if matches!(
+        entry,
+        Some(WorkingTreeFileStatusEntryRecord { x: '?', y: '?', .. })
+    ) {
         args.push("--include-untracked");
     }
     args.push("-m");
@@ -6822,36 +6828,13 @@ pub fn pop_stash(repo_path: String, stash_id: String) -> Result<ConflictOperatio
 
 #[tauri::command]
 pub fn checkout(repo_path: String, reference: String) -> Result<OkResponse, String> {
-    if reference.trim().is_empty() {
+    let normalized_reference = reference.trim().to_string();
+    if normalized_reference.is_empty() {
         return Err("ref is required.".to_string());
     }
 
-    let repository = open_repository(&repo_path)?;
-    let (object, reference_match) = repository
-        .revparse_ext(reference.trim())
-        .map_err(map_git2_error)?;
-
-    let mut checkout = CheckoutBuilder::new();
-    checkout.safe();
-
-    if let Some(git_reference) = reference_match {
-        let reference_name = git_reference
-            .name()
-            .ok_or_else(|| "Failed to resolve reference name.".to_string())?;
-        repository
-            .set_head(reference_name)
-            .map_err(map_git2_error)?;
-        repository
-            .checkout_head(Some(&mut checkout))
-            .map_err(map_git2_error)?;
-    } else {
-        repository
-            .checkout_tree(&object, Some(&mut checkout))
-            .map_err(map_git2_error)?;
-        repository
-            .set_head_detached(object.id())
-            .map_err(map_git2_error)?;
-    }
+    ensure_repo_path(&repo_path)?;
+    run_git(&["checkout", normalized_reference.as_str()], &repo_path)?;
 
     Ok(OkResponse { ok: true })
 }
@@ -7344,7 +7327,9 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: input.commit_graph_mode.unwrap_or(current.commit_graph_mode),
-        commit_graph_style: input.commit_graph_style.unwrap_or(current.commit_graph_style),
+        commit_graph_style: input
+            .commit_graph_style
+            .unwrap_or(current.commit_graph_style),
         repository_scan_depth: normalize_repository_scan_depth(
             input
                 .repository_scan_depth
@@ -8778,8 +8763,11 @@ mod tests {
         let fixture = create_working_tree_diff_fixture();
         run_command("git", &["add", "README.md"], &fixture.repo_path)
             .expect("README should be staged");
-        fs::write(Path::new(&fixture.repo_path).join("notes.txt"), "note base\n")
-            .expect("notes base should be written");
+        fs::write(
+            Path::new(&fixture.repo_path).join("notes.txt"),
+            "note base\n",
+        )
+        .expect("notes base should be written");
         run_command("git", &["add", "notes.txt"], &fixture.repo_path)
             .expect("notes should be staged");
         run_command("git", &["commit", "-m", "add notes"], &fixture.repo_path)
@@ -8792,8 +8780,11 @@ mod tests {
         .expect("staged README change should be written");
         run_command("git", &["add", "README.md"], &fixture.repo_path)
             .expect("README should be re-staged");
-        fs::write(Path::new(&fixture.repo_path).join("notes.txt"), "note updated\n")
-            .expect("unstaged notes change should be written");
+        fs::write(
+            Path::new(&fixture.repo_path).join("notes.txt"),
+            "note updated\n",
+        )
+        .expect("unstaged notes change should be written");
         fs::write(Path::new(&fixture.repo_path).join("draft.txt"), "draft\n")
             .expect("untracked draft should be written");
 
@@ -8921,6 +8912,56 @@ mod tests {
             .collect();
         assert_eq!(messages, vec!["On main: second stash".to_string()]);
         assert_eq!(stashes.stashes[0].files, vec!["beta.txt".to_string()]);
+    }
+
+    #[test]
+    fn checkout_switches_local_branch_without_leaving_index_or_worktree_dirty() {
+        let fixture = create_merge_fixture();
+        run_command("git", &["checkout", "main"], &fixture.repo_path)
+            .expect("checkout main should succeed");
+
+        let status_before = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("status before checkout should resolve");
+        assert_eq!(status_before, "");
+
+        checkout(fixture.repo_path.clone(), "feature/dnd-merge".to_string())
+            .expect("branch checkout should succeed");
+
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let status_after = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("status after checkout should resolve");
+
+        assert_eq!(current_branch, "feature/dnd-merge");
+        assert_eq!(status_after, "");
+    }
+
+    #[test]
+    fn checkout_detaches_head_at_commit_without_leaving_index_or_worktree_dirty() {
+        let fixture = create_merge_fixture();
+        run_command("git", &["checkout", "main"], &fixture.repo_path)
+            .expect("checkout main should succeed");
+
+        let target_commit = run_command(
+            "git",
+            &["rev-parse", "feature/dnd-merge"],
+            &fixture.repo_path,
+        )
+        .expect("feature branch sha should resolve");
+
+        checkout(fixture.repo_path.clone(), target_commit.clone())
+            .expect("commit checkout should succeed");
+
+        let head_sha = run_command("git", &["rev-parse", "HEAD"], &fixture.repo_path)
+            .expect("head sha should resolve");
+        let current_branch = run_command("git", &["branch", "--show-current"], &fixture.repo_path)
+            .expect("current branch should resolve");
+        let status_after = run_command("git", &["status", "--porcelain"], &fixture.repo_path)
+            .expect("status after checkout should resolve");
+
+        assert_eq!(head_sha, target_commit);
+        assert_eq!(current_branch, "");
+        assert_eq!(status_after, "");
     }
 
     #[test]
@@ -9371,18 +9412,14 @@ mod tests {
 
         let branches = get_branches(fixture.repo_path.clone()).expect("branches should resolve");
 
-        assert!(
-            branches
-                .remote
-                .iter()
-                .any(|branch| branch.name == "origin/main")
-        );
-        assert!(
-            branches
-                .remote
-                .iter()
-                .all(|branch| !branch.full_ref.ends_with("/HEAD"))
-        );
+        assert!(branches
+            .remote
+            .iter()
+            .any(|branch| branch.name == "origin/main"));
+        assert!(branches
+            .remote
+            .iter()
+            .all(|branch| !branch.full_ref.ends_with("/HEAD")));
         assert!(branches.remote.iter().all(|branch| branch.name != "origin"));
     }
 

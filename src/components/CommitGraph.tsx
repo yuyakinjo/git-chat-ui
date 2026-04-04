@@ -139,10 +139,7 @@ export function CommitGraph({
     [branchContext],
   );
   const graphStyleMetrics = useMemo(() => resolveCommitGraphStyleMetrics(graphStyle), [graphStyle]);
-  const reservedLaneHeadSha =
-    graphStyle === "japaneseExpress"
-      ? (defaultBranchHeadSha ?? normalizedCheckedOutCommitSha)
-      : normalizedCheckedOutCommitSha || defaultBranchHeadSha;
+  const reservedLaneHeadSha = normalizedCheckedOutCommitSha || defaultBranchHeadSha || "";
   const laneLayout = useMemo(
     () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
     [commits, reservedLaneHeadSha],
@@ -151,107 +148,31 @@ export function CommitGraph({
     () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
     [commits, defaultBranchHeadSha, laneLayout.rows],
   );
-  const rowIndexBySha = useMemo(
-    () =>
-      new Map(
-        visibleCommits.map(
-          (commit, index) => [commit.sha.trim(), index] satisfies [string, number],
-        ),
-      ),
-    [visibleCommits],
-  );
-  const firstParentRowIndices = useMemo(
-    () =>
-      visibleCommits.map((commit) => {
-        const firstParentSha = commit.parentShas[0]?.trim();
-        if (!firstParentSha) {
-          return null;
-        }
-
-        return rowIndexBySha.get(firstParentSha) ?? null;
-      }),
-    [rowIndexBySha, visibleCommits],
-  );
-  const defaultBranchRowIndices = useMemo(() => {
-    const indices = new Set<number>();
-    const defaultHeadRowIndex = defaultBranchHeadSha
-      ? (rowIndexBySha.get(defaultBranchHeadSha.trim()) ?? null)
-      : null;
-    let currentRowIndex = defaultHeadRowIndex;
-
-    while (currentRowIndex !== null) {
-      indices.add(currentRowIndex);
-      currentRowIndex = firstParentRowIndices[currentRowIndex] ?? null;
-    }
-
-    return indices;
-  }, [defaultBranchHeadSha, firstParentRowIndices, rowIndexBySha]);
-  const japaneseExpressStemTargets = useMemo(
-    () =>
-      visibleCommits.map((_, rowIndex) => {
-        if (graphStyle !== "japaneseExpress") {
-          return null;
-        }
-
-        const row = laneLayout.rows[rowIndex];
-        if (
-          !row ||
-          row.primaryParentLaneIndex === null ||
-          row.primaryParentLaneIndex === row.laneIndex ||
-          row.primaryParentRowIndex === null
-        ) {
-          return null;
-        }
-
-        let targetRowIndex: number | null = row.primaryParentRowIndex;
-        while (targetRowIndex !== null && !defaultBranchRowIndices.has(targetRowIndex)) {
-          targetRowIndex = firstParentRowIndices[targetRowIndex] ?? null;
-        }
-
-        if (targetRowIndex === null) {
-          return null;
-        }
-
-        return {
-          laneIndex:
-            defaultBranchAnchorLaneIndices[targetRowIndex] ??
-            laneLayout.rows[targetRowIndex]?.laneIndex ??
-            0,
-          rowIndex: targetRowIndex,
-        };
-      }),
-    [
-      defaultBranchAnchorLaneIndices,
-      defaultBranchRowIndices,
-      firstParentRowIndices,
-      graphStyle,
-      laneLayout.rows,
-      visibleCommits,
-    ],
-  );
   const sharedStemLaneIndicesByRow = useMemo(() => {
     const byRow = new Map<number, number[]>();
     if (graphStyle !== "japaneseExpress") {
       return byRow;
     }
 
-    visibleCommits.forEach((_, rowIndex) => {
-      const row = laneLayout.rows[rowIndex];
-      const target = japaneseExpressStemTargets[rowIndex];
-      if (!row || !target || target.rowIndex === rowIndex || target.laneIndex === row.laneIndex) {
+    laneLayout.rows.forEach((row) => {
+      if (
+        row.primaryParentLaneIndex === null ||
+        row.primaryParentLaneIndex === row.laneIndex ||
+        row.primaryParentRowIndex === null
+      ) {
         return;
       }
 
-      const lanes = byRow.get(target.rowIndex) ?? [];
+      const lanes = byRow.get(row.primaryParentRowIndex) ?? [];
       if (!lanes.includes(row.laneIndex)) {
         lanes.push(row.laneIndex);
         lanes.sort((left, right) => left - right);
       }
-      byRow.set(target.rowIndex, lanes);
+      byRow.set(row.primaryParentRowIndex, lanes);
     });
 
     return byRow;
-  }, [graphStyle, japaneseExpressStemTargets, laneLayout.rows, visibleCommits]);
+  }, [graphStyle, laneLayout.rows]);
   const commitRefScopeContext = useMemo(
     () =>
       branchContext
@@ -501,6 +422,14 @@ export function CommitGraph({
       laneIndex: anchorLaneIndex,
     };
   }, [hasWipRow, laneLayout.rows, reservedLaneHeadSha, visibleCommits]);
+  const reservedHeadRowIndex = useMemo(() => {
+    const headSha = reservedLaneHeadSha.trim();
+    if (!headSha) {
+      return -1;
+    }
+
+    return visibleCommits.findIndex((commit) => commit.sha.trim() === headSha);
+  }, [reservedLaneHeadSha, visibleCommits]);
   const resolveLaneStroke = useCallback(
     (rowIndex: number, laneIndex: number) =>
       laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0, graphStyle),
@@ -673,6 +602,7 @@ export function CommitGraph({
               style={{ top: `${-LINE_OVERDRAW}px` }}
               viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
               fill="none"
+              overflow="hidden"
             >
               {anchorLaneHasIncoming ? (
                 <line
@@ -929,6 +859,14 @@ export function CommitGraph({
           const nodeSize = avatarSrc
             ? graphStyleMetrics.avatarNodeSize
             : graphStyleMetrics.nodeSize;
+          const nodeHorizontalOverlap =
+            graphStyle === "japaneseExpress" && avatarSrc
+              ? Math.max(2, Math.min(4, nodeSize * 0.12))
+              : null;
+          const nodeJoinInset =
+            graphStyle === "japaneseExpress" && avatarSrc
+              ? Math.max(1, Math.min(2, nodeSize * 0.06))
+              : Math.max(1, Math.min(3, nodeSize * 0.18));
           const row = laneLayout.rows[index] ?? {
             laneIndex: 0,
             activeLaneIndices: [0],
@@ -948,14 +886,6 @@ export function CommitGraph({
           const primaryParentAvatarSrc = primaryParentCommit
             ? commitAuthorAvatars[primaryParentCommit.sha]
             : undefined;
-          const nodeHorizontalOverlap =
-            graphStyle === "japaneseExpress" && avatarSrc
-              ? Math.max(2, Math.min(4, nodeSize * 0.12))
-              : null;
-          const nodeJoinInset =
-            graphStyle === "japaneseExpress" && avatarSrc
-              ? Math.max(1, Math.min(2, nodeSize * 0.06))
-              : Math.max(1, Math.min(3, nodeSize * 0.18));
           const primaryParentNodeSize = primaryParentAvatarSrc
             ? graphStyleMetrics.avatarNodeSize
             : graphStyleMetrics.nodeSize;
@@ -1032,17 +962,27 @@ export function CommitGraph({
                       style={{ top: `${-LINE_OVERDRAW}px` }}
                       viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${graphSvgHeight}`}
                       fill="none"
+                      overflow="hidden"
                     >
                       {row.activeLaneIndices.map((laneIndex) => {
+                        const isReservedHeadEntryLane =
+                          reservedHeadRowIndex > 0 &&
+                          index === reservedHeadRowIndex &&
+                          laneIndex === row.laneIndex;
                         const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
                         const hasIncoming =
-                          (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex);
+                          ((index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
+                            (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex)) &&
+                          !isReservedHeadEntryLane;
+                        const isTopRowSiblingPassthroughLane =
+                          index === 0 && laneIndex !== row.laneIndex && !hasIncoming;
                         const hasOutgoingRaw =
                           row.outgoingLaneIndices.includes(laneIndex) &&
                           !(isPrimaryBranchSourceRow && laneIndex === row.laneIndex);
                         const hasOutgoing =
-                          hasOutgoingRaw && !(index === visibleCommits.length - 1 && !hasMore);
+                          hasOutgoingRaw &&
+                          !(index === visibleCommits.length - 1 && !hasMore) &&
+                          !isTopRowSiblingPassthroughLane;
 
                         if (!hasIncoming && !hasOutgoing) {
                           return null;
@@ -1076,21 +1016,6 @@ export function CommitGraph({
                         );
                       })}
 
-                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
-                        const sourceX = resolveLaneX(row.laneIndex);
-                        const targetX = resolveLaneX(targetLaneIndex);
-                        const midY = ROW_HEIGHT / 2;
-                        return (
-                          <path
-                            key={`${commit.sha}-merge-${targetLaneIndex}`}
-                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
-                            stroke={resolveLaneStroke(index, targetLaneIndex)}
-                            strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
-                            opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
-                          />
-                        );
-                      })}
-
                       {sharedStemLaneIndices.map((laneIndex) => {
                         const laneXValue = resolveLaneX(laneIndex);
                         const joinDirection =
@@ -1113,6 +1038,21 @@ export function CommitGraph({
                             strokeWidth={resolveLaneStrokeWidth(index, laneIndex, row.laneIndex)}
                             opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
                             strokeLinecap="round"
+                          />
+                        );
+                      })}
+
+                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
+                        const sourceX = resolveLaneX(row.laneIndex);
+                        const targetX = resolveLaneX(targetLaneIndex);
+                        const midY = ROW_HEIGHT / 2;
+                        return (
+                          <path
+                            key={`${commit.sha}-merge-${targetLaneIndex}`}
+                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
+                            stroke={resolveLaneStroke(index, targetLaneIndex)}
+                            strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
+                            opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
                           />
                         );
                       })}

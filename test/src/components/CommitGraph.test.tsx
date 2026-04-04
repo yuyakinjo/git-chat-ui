@@ -377,12 +377,12 @@ describe("CommitGraph", () => {
     expect(laneX(1) - laneX(0)).toBe(27);
   });
 
-  test("alternates Japanese Express sibling lanes around the centered main lane", () => {
+  test("uses standard lane display offsets for Japanese Express", () => {
     expect(getLaneDisplayOffset(0, "japaneseExpress")).toBe(0);
-    expect(getLaneDisplayOffset(1, "japaneseExpress")).toBe(-1);
-    expect(getLaneDisplayOffset(2, "japaneseExpress")).toBe(1);
-    expect(laneColor(1, 0, "japaneseExpress")).toBe(LEFT_BRANCH_LANE_COLORS[0]);
-    expect(laneColor(2, 0, "japaneseExpress")).toBe(RIGHT_BRANCH_LANE_COLORS[0]);
+    expect(getLaneDisplayOffset(1, "japaneseExpress")).toBe(1);
+    expect(getLaneDisplayOffset(2, "japaneseExpress")).toBe(2);
+    expect(laneColor(0, 1, "japaneseExpress")).toBe(LEFT_BRANCH_LANE_COLORS[0]);
+    expect(laneColor(2, 1, "japaneseExpress")).toBe(RIGHT_BRANCH_LANE_COLORS[0]);
   });
 
   test("builds branch-off paths that round slightly into the parent node edge", () => {
@@ -624,6 +624,41 @@ describe("CommitGraph", () => {
     expect(html).not.toContain("Detailed lane mode (branch / merge)");
   });
 
+  test("clips detailed lane SVG overflow so rounded caps do not bleed past row bounds", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={commits}
+        mode="detailed"
+        graphStyle="standard"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha={null}
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={1}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={branchContext}
+      />,
+    );
+
+    const wipRowHtml = extractWipRowMarkup(html);
+    const firstCommitRowHtml = extractCommitRowMarkup(html, "abc1234");
+
+    expect(wipRowHtml).toContain('overflow="hidden"');
+    expect(firstCommitRowHtml).toContain('overflow="hidden"');
+  });
+
   test("renders the WIP row when conflicts exist without staged or unstaged files", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
@@ -693,6 +728,83 @@ describe("CommitGraph", () => {
     expect(html.indexOf("// WIP")).toBeLessThan(html.indexOf("feat: current branch tip"));
     expect(wipConnectorMatch?.[1]).toBe(String(laneX(0)));
     expect(mainRowHtml).toMatch(new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(1)}"`));
+    expect(mainRowHtml).toMatch(new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"`));
+  });
+
+  test("does not draw sibling passthrough lanes on the topmost commit row", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={nonHeadFirstCommits}
+        mode="detailed"
+        graphStyle="standard"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="feature-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={nonHeadFirstBranchContext}
+      />,
+    );
+
+    const mainRowHtml = extractCommitRowMarkup(html, "main-tip");
+
+    expect(mainRowHtml).toMatch(new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(1)}"`));
+    expect(mainRowHtml).not.toMatch(
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"`),
+    );
+  });
+
+  test("does not draw an incoming segment above the reserved checked out branch head row", () => {
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={nonHeadFirstCommits}
+        mode="detailed"
+        graphStyle="standard"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="feature-tip"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        branchContext={nonHeadFirstBranchContext}
+      />,
+    );
+
+    const featureRowHtml = extractCommitRowMarkup(html, "feature-tip");
+
+    expect(featureRowHtml).toMatch(
+      new RegExp(
+        `class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*y1="17\\.1"[^>]*x2="${laneX(0)}"[^>]*y2="33"`,
+      ),
+    );
+    expect(featureRowHtml).not.toMatch(
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*y1="-1"`),
+    );
   });
 
   test("does not draw sibling passthrough lanes on the topmost WIP row", () => {
@@ -910,19 +1022,19 @@ describe("CommitGraph", () => {
     expect(html).toContain('class="commit-node__avatar"');
   });
 
-  test("renders Japanese Express style with a centered main lane and thicker station lines", () => {
+  test("uses standard lane ordering for Japanese Express while keeping thicker station lines", () => {
     const metrics = resolveCommitGraphStyleMetrics("japaneseExpress");
     const minLaneDisplayOffset = Math.min(
       getLaneDisplayOffset(0, "japaneseExpress"),
       getLaneDisplayOffset(1, "japaneseExpress"),
     );
-    const mainLaneX = laneX(0, {
+    const checkedOutLaneX = laneX(0, {
       style: "japaneseExpress",
       minLaneDisplayOffset,
       laneGap: metrics.laneGap,
       lanePadding: metrics.lanePadding,
     });
-    const featureLaneX = laneX(1, {
+    const siblingLaneX = laneX(1, {
       style: "japaneseExpress",
       minLaneDisplayOffset,
       laneGap: metrics.laneGap,
@@ -961,29 +1073,38 @@ describe("CommitGraph", () => {
     expect(html).toContain('data-commit-graph-style="japaneseExpress"');
     expect(html).toContain('stroke-width="4.4"');
     expect(mainRowHtml).toMatch(
-      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${mainLaneX}"`),
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${siblingLaneX}"`),
     );
-    expect(featureRowHtml).toContain(
-      `d="M ${featureLaneX} 16 L ${featureLaneX} 44 Q ${featureLaneX} 48, ${featureLaneX + 4} 48 L ${mainLaneX - 6} 48"`,
+    expect(mainRowHtml).not.toMatch(
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${checkedOutLaneX}"`),
     );
-    expect(featureRowHtml).toContain(`left:${featureLaneX - 9}px;top:7px;`);
+    expect(featureRowHtml).toMatch(
+      new RegExp(
+        `class="commit-graph__lane-line"[^>]*x1="${checkedOutLaneX}"[^>]*y1="18\\.2"[^>]*x2="${checkedOutLaneX}"[^>]*y2="33"`,
+      ),
+    );
+    expect(featureRowHtml).not.toMatch(
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${checkedOutLaneX}"[^>]*y1="-1"`),
+    );
+    expect(featureRowHtml).not.toMatch(/<path d="M [^"]+" stroke="#/);
+    expect(featureRowHtml).toContain(`left:${checkedOutLaneX - 9}px;top:7px;`);
     expect(html).toContain("commit-node--japanese-express");
     expect(html).toContain('style="width:18px;height:18px;');
   });
 
-  test("anchors the Japanese Express WIP row to the default branch lane", () => {
+  test("anchors the Japanese Express WIP row to the checked out lane like standard", () => {
     const metrics = resolveCommitGraphStyleMetrics("japaneseExpress");
     const minLaneDisplayOffset = Math.min(
       getLaneDisplayOffset(0, "japaneseExpress"),
       getLaneDisplayOffset(1, "japaneseExpress"),
     );
-    const mainLaneX = laneX(0, {
+    const checkedOutLaneX = laneX(0, {
       style: "japaneseExpress",
       minLaneDisplayOffset,
       laneGap: metrics.laneGap,
       lanePadding: metrics.lanePadding,
     });
-    const featureLaneX = laneX(1, {
+    const siblingLaneX = laneX(1, {
       style: "japaneseExpress",
       minLaneDisplayOffset,
       laneGap: metrics.laneGap,
@@ -1021,19 +1142,19 @@ describe("CommitGraph", () => {
 
     expect(wipRowHtml).toMatch(
       new RegExp(
-        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="0"`,
+        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${checkedOutLaneX}"[^>]*x2="${checkedOutLaneX}"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="0"`,
       ),
     );
     expect(featureTipRowHtml).toMatch(
       new RegExp(
-        `class="commit-graph__lane-line"[^>]*x1="${mainLaneX}"[^>]*y1="-1"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="5"`,
+        `class="commit-graph__lane-line"[^>]*x1="${checkedOutLaneX}"[^>]*y1="-1"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="5"`,
       ),
     );
     expect(wipRowHtml).toMatch(
       new RegExp(`class="wip-node[^"]*"[^>]*style="[^"]*color:${DEFAULT_BRANCH_LANE_COLOR}`),
     );
     expect(featureTipRowHtml).not.toMatch(
-      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${featureLaneX}"[^>]*y1="-1"`),
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${siblingLaneX}"[^>]*y1="-1"`),
     );
     expect(featureTipRowHtml).toContain("<path");
     expect(featureTipRowHtml).not.toMatch(/<path[^>]*stroke-dasharray=/);
@@ -1058,7 +1179,8 @@ describe("CommitGraph", () => {
       lanePadding: metrics.lanePadding,
     });
     const expectedOverlap = Math.max(2, Math.min(4, metrics.avatarNodeSize * 0.12));
-    const expectedJoinX = roundGraphCoordinate(mainLaneX + expectedOverlap);
+    const expectedJoinX = roundGraphCoordinate(mainLaneX - expectedOverlap);
+    const expectedStemJoinX = mainLaneX - expectedOverlap;
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={checkedOutMainBranchingCommits}
@@ -1093,7 +1215,10 @@ describe("CommitGraph", () => {
     const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(featureSeedRowHtml).toContain(
-      `d="M ${featureLaneX} 16 L ${featureLaneX} 44 Q ${featureLaneX} 48, ${featureLaneX + 4} 48 L ${expectedJoinX} 48"`,
+      `d="M ${featureLaneX} 16 L ${featureLaneX} 44 Q ${featureLaneX} 48, ${featureLaneX - 4} 48 L ${expectedJoinX} 48"`,
+    );
+    expect(mainBaseRowHtml).toContain(
+      `class="commit-graph__lane-line" x1="${featureLaneX}" y1="16" x2="${expectedStemJoinX}" y2="16"`,
     );
     expect(mainBaseRowHtml).toContain('src="data:image/png;base64,avatar-parent"');
   });
@@ -1119,6 +1244,7 @@ describe("CommitGraph", () => {
     });
     const expectedOverlap = Math.max(2, Math.min(4, metrics.avatarNodeSize * 0.12));
     const expectedRightJoinX = roundGraphCoordinate(mainLaneX - expectedOverlap);
+    const expectedRightStemJoinX = mainLaneX - expectedOverlap;
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={rightBranchOffCommits}
@@ -1150,13 +1276,17 @@ describe("CommitGraph", () => {
     );
 
     const rightSeedRowHtml = extractCommitRowMarkup(html, "right-seed");
+    const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(rightSeedRowHtml).toContain(
       `d="M ${rightLaneX} 16 L ${rightLaneX} 76 Q ${rightLaneX} 80, ${rightLaneX - 4} 80 L ${expectedRightJoinX} 80"`,
     );
+    expect(mainBaseRowHtml).toContain(
+      `class="commit-graph__lane-line" x1="${rightLaneX}" y1="16" x2="${expectedRightStemJoinX}" y2="16"`,
+    );
   });
 
-  test("keeps stacked Japanese Express sibling branches on short parent joins while sharing the main stem row", () => {
+  test("keeps stacked Japanese Express sibling branches sprouting from their source rows", () => {
     const metrics = resolveCommitGraphStyleMetrics("japaneseExpress");
     const minLaneDisplayOffset = Math.min(
       getLaneDisplayOffset(0, "japaneseExpress"),
@@ -1189,15 +1319,14 @@ describe("CommitGraph", () => {
       lanePadding: metrics.lanePadding,
     });
     const expectedOverlap = Math.max(2, Math.min(4, metrics.avatarNodeSize * 0.12));
-    const expectedMainJoinX = roundGraphCoordinate(mainLaneX + expectedOverlap);
-    const expectedSharedStemLeftJoinX = mainLaneX + expectedOverlap;
-    const expectedSharedStemRightJoinX = mainLaneX - expectedOverlap;
+    const expectedMainJoinX = roundGraphCoordinate(mainLaneX - expectedOverlap);
+    const expectedMainStemJoinX = mainLaneX - expectedOverlap;
     const primaryParentJoinInset = Math.max(1, Math.min(3, metrics.nodeSize * 0.18));
     const expectedCSeedJoinX = roundGraphCoordinate(
       laneTwoX - (metrics.nodeSize / 2 - primaryParentJoinInset),
     );
     const expectedBSeedJoinX = roundGraphCoordinate(
-      laneThreeX + (metrics.nodeSize / 2 - primaryParentJoinInset),
+      laneThreeX - (metrics.nodeSize / 2 - primaryParentJoinInset),
     );
     const html = renderToStaticMarkup(
       <CommitGraph
@@ -1238,20 +1367,25 @@ describe("CommitGraph", () => {
       `d="M ${laneOneX} 16 L ${laneOneX} 44 Q ${laneOneX} 48, ${laneOneX + 4} 48 L ${expectedCSeedJoinX} 48"`,
     );
     expect(bSeedRowHtml).toContain(
-      `d="M ${laneTwoX} 16 L ${laneTwoX} 44 Q ${laneTwoX} 48, ${laneTwoX - 4} 48 L ${expectedBSeedJoinX} 48"`,
+      `d="M ${laneTwoX} 16 L ${laneTwoX} 44 Q ${laneTwoX} 48, ${laneTwoX + 4} 48 L ${expectedBSeedJoinX} 48"`,
     );
     expect(aSeedRowHtml).toContain(
-      `d="M ${laneThreeX} 16 L ${laneThreeX} 44 Q ${laneThreeX} 48, ${laneThreeX + 4} 48 L ${expectedMainJoinX} 48"`,
+      `d="M ${laneThreeX} 16 L ${laneThreeX} 44 Q ${laneThreeX} 48, ${laneThreeX - 4} 48 L ${expectedMainJoinX} 48"`,
+    );
+    expect(bSeedRowHtml).toContain(
+      `class="commit-graph__lane-line" x1="${laneOneX}" y1="16" x2="${expectedCSeedJoinX}" y2="16"`,
+    );
+    expect(aSeedRowHtml).toContain(
+      `class="commit-graph__lane-line" x1="${laneTwoX}" y1="16" x2="${expectedBSeedJoinX}" y2="16"`,
     );
     expect(mainBaseRowHtml).toContain(
-      `class="commit-graph__lane-line" x1="${laneOneX}" y1="16" x2="${expectedSharedStemLeftJoinX}" y2="16"`,
+      `class="commit-graph__lane-line" x1="${laneThreeX}" y1="16" x2="${expectedMainStemJoinX}" y2="16"`,
     );
-    expect(mainBaseRowHtml).toContain(
-      `class="commit-graph__lane-line" x1="${laneTwoX}" y1="16" x2="${expectedSharedStemRightJoinX}" y2="16"`,
-    );
+    expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
+    expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
   });
 
-  test("keeps stacked Japanese Express shared stems on the main avatar row even with WIP", () => {
+  test("keeps stacked Japanese Express WIP on the standard anchor while source stems stay on commit rows", () => {
     const metrics = resolveCommitGraphStyleMetrics("japaneseExpress");
     const minLaneDisplayOffset = Math.min(
       getLaneDisplayOffset(0, "japaneseExpress"),
@@ -1277,9 +1411,12 @@ describe("CommitGraph", () => {
       laneGap: metrics.laneGap,
       lanePadding: metrics.lanePadding,
     });
-    const expectedOverlap = Math.max(2, Math.min(4, metrics.avatarNodeSize * 0.12));
-    const expectedLeftJoinX = mainLaneX + expectedOverlap;
-    const expectedRightJoinX = mainLaneX - expectedOverlap;
+    const laneThreeX = laneX(3, {
+      style: "japaneseExpress",
+      minLaneDisplayOffset,
+      laneGap: metrics.laneGap,
+      lanePadding: metrics.lanePadding,
+    });
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={stackedBranchOffCommits}
@@ -1311,6 +1448,7 @@ describe("CommitGraph", () => {
     );
 
     const wipRowHtml = extractWipRowMarkup(html);
+    const aSeedRowHtml = extractCommitRowMarkup(html, "a-seed");
     const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(wipRowHtml).toMatch(
@@ -1320,11 +1458,9 @@ describe("CommitGraph", () => {
     );
     expect(wipRowHtml).not.toContain(`x1="${laneOneX}"`);
     expect(wipRowHtml).not.toContain(`x1="${laneTwoX}"`);
-    expect(mainBaseRowHtml).toContain(
-      `class="commit-graph__lane-line" x1="${laneOneX}" y1="16" x2="${expectedLeftJoinX}" y2="16"`,
-    );
-    expect(mainBaseRowHtml).toContain(
-      `class="commit-graph__lane-line" x1="${laneTwoX}" y1="16" x2="${expectedRightJoinX}" y2="16"`,
-    );
+    expect(aSeedRowHtml).toContain(`x1="${laneTwoX}" y1="16" x2="`);
+    expect(mainBaseRowHtml).toContain(`x1="${laneThreeX}" y1="16" x2="`);
+    expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
+    expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
   });
 });

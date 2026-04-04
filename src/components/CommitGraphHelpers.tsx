@@ -130,9 +130,7 @@ function normalizeSha(sha: string | null | undefined): string {
   return sha?.trim() ?? "";
 }
 
-export function resolveCommitGraphStyleMetrics(
-  style: CommitGraphStyle,
-): CommitGraphStyleMetrics {
+export function resolveCommitGraphStyleMetrics(style: CommitGraphStyle): CommitGraphStyleMetrics {
   return style === "japaneseExpress"
     ? JAPANESE_EXPRESS_GRAPH_STYLE_METRICS
     : STANDARD_GRAPH_STYLE_METRICS;
@@ -140,14 +138,9 @@ export function resolveCommitGraphStyleMetrics(
 
 export function getLaneDisplayOffset(
   laneIndex: number,
-  style: CommitGraphStyle = "standard",
+  _style: CommitGraphStyle = "standard",
 ): number {
-  if (style !== "japaneseExpress" || laneIndex <= 0) {
-    return laneIndex;
-  }
-
-  const offset = Math.ceil(laneIndex / 2);
-  return laneIndex % 2 === 1 ? -offset : offset;
+  return laneIndex;
 }
 
 export function laneColor(
@@ -155,8 +148,7 @@ export function laneColor(
   defaultLaneIndex = 0,
   style: CommitGraphStyle = "standard",
 ): string {
-  const offset =
-    getLaneDisplayOffset(index, style) - getLaneDisplayOffset(defaultLaneIndex, style);
+  const offset = getLaneDisplayOffset(index, style) - getLaneDisplayOffset(defaultLaneIndex, style);
   if (offset === 0) {
     return DEFAULT_BRANCH_LANE_COLOR;
   }
@@ -236,9 +228,7 @@ export function laneX(
   const laneGap = options?.laneGap ?? LANE_GAP;
   const lanePadding = options?.lanePadding ?? LANE_PADDING;
   const minLaneDisplayOffset = options?.minLaneDisplayOffset ?? 0;
-  return (
-    lanePadding + (getLaneDisplayOffset(index, style) - minLaneDisplayOffset) * laneGap
-  );
+  return lanePadding + (getLaneDisplayOffset(index, style) - minLaneDisplayOffset) * laneGap;
 }
 
 function roundSvgCoordinate(value: number): string {
@@ -266,7 +256,10 @@ export function buildPrimaryParentCurvePath(input: {
 
   const verticalDistance = Math.max(input.targetY - startY, 0);
   const turnDirection = Math.sign(targetJoinX - sourceX) || Math.sign(targetX - sourceX) || 1;
-  const maxCornerRadius = Math.max(0, Math.min(verticalDistance - 2, Math.abs(targetJoinX - sourceX) - 2));
+  const maxCornerRadius = Math.max(
+    0,
+    Math.min(verticalDistance - 2, Math.abs(targetJoinX - sourceX) - 2),
+  );
   const cornerRadius = Math.min(input.cornerRadius ?? 4, maxCornerRadius);
   const elbowY = input.targetY - cornerRadius;
 
@@ -557,12 +550,7 @@ export function WipNode({
       style={style}
       aria-hidden="true"
     >
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        fill="none"
-      >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} fill="none">
         <circle
           className="wip-node-ring"
           cx={center}

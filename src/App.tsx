@@ -51,6 +51,7 @@ import {
 } from "./lib/sessionInit";
 import { requestOpenCommandPalette } from "./lib/commandPalette";
 import { isConfigShortcut } from "./lib/configShortcut";
+import { withPromiseTimeout } from "./lib/promiseTimeout";
 import {
   createRepositoryAssistantMessage,
   createRepositoryAssistantExecutionMessage,
@@ -108,6 +109,9 @@ interface AssistantConflictOpenRequest {
   file: string | null;
   sessionId: string | null;
 }
+
+const RESTORE_REPOSITORIES_TIMEOUT_MS = 5_000;
+const DASHBOARD_SCAN_TIMEOUT_MS = 8_000;
 
 function getRepositoryAssistantConversationState(
   conversations: Record<string, RepositoryAssistantConversationState>,
@@ -337,7 +341,11 @@ export default function App(): JSX.Element {
 
     void (async () => {
       try {
-        const response = await api.resolveRepositories(repoPathsToRestore);
+        const response = await withPromiseTimeout(
+          api.resolveRepositories(repoPathsToRestore),
+          RESTORE_REPOSITORIES_TIMEOUT_MS,
+          "前回開いていたリポジトリの復元がタイムアウトしました。",
+        );
         if (!active) {
           return;
         }
@@ -564,7 +572,11 @@ export default function App(): JSX.Element {
     const timer = setTimeout(async () => {
       setLoadingRepositories(true);
       try {
-        const response = await api.getRepositories(query);
+        const response = await withPromiseTimeout(
+          api.getRepositories(query),
+          DASHBOARD_SCAN_TIMEOUT_MS,
+          "リポジトリ一覧の取得がタイムアウトしました。",
+        );
         if (!active) {
           return;
         }

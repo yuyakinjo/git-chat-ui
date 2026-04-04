@@ -14,8 +14,10 @@ import {
   writeCommitMessageDraftToStorage,
   type CommitMessageDraftInput,
 } from "../lib/commitMessageDrafts";
+import { refreshAfterCheckout as runCheckoutRefresh } from "../lib/checkoutRefresh";
 import { isHeadDecoration } from "../lib/controllerViewUtils";
 import { describeGitError } from "../lib/errors";
+import { withPromiseTimeout } from "../lib/promiseTimeout";
 import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
@@ -50,6 +52,10 @@ import type {
   UseControllerDataParams,
   UseControllerDataResult,
 } from "./useControllerDataTypes";
+
+const CONTROLLER_SNAPSHOT_TIMEOUT_MS = 8_000;
+const COMMIT_DETAIL_TIMEOUT_MS = 6_000;
+const BRANCH_PULL_REQUEST_TIMEOUT_MS = 4_000;
 
 function readInitialCommitMessageDraft(repoPath: string): {
   title: string;
@@ -90,7 +96,7 @@ export function useControllerData({
   const [branchPullRequests, setBranchPullRequests] = useState<Record<string, BranchPullRequest>>(
     {},
   );
-  const [activeLogRef, setActiveLogRef] = useState<string>("HEAD");
+  const [activeLogRef, setActiveLogRefState] = useState<string>("HEAD");
   const [activeCompareRefs, setActiveCompareRefs] = useState<string[]>([]);
 
   const [commits, setCommits] = useState<CommitListItem[]>([]);
@@ -143,6 +149,7 @@ export function useControllerData({
     });
   const refreshLockRef = useRef(false);
   const currentRepoPathRef = useRef(repoPath);
+  const activeLogRefRef = useRef(activeLogRef);
   const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
   const commitAvatarRemotePrefetchDoneRef = useRef(false);
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
@@ -185,6 +192,11 @@ export function useControllerData({
   useEffect(() => {
     currentRepoPathRef.current = repoPath;
   }, [repoPath]);
+
+  const setActiveLogRef = useCallback((ref: string): void => {
+    activeLogRefRef.current = ref;
+    setActiveLogRefState(ref);
+  }, []);
 
   const persistCommitMessageDraft = useCallback(
     (draft: CommitMessageDraftInput): void => {
@@ -278,7 +290,11 @@ export function useControllerData({
     async (sha: string): Promise<void> => {
       setLoadingCommitDetail(true);
       try {
-        const detail = await api.getCommitDetail(repoPath, sha);
+        const detail = await withPromiseTimeout(
+          api.getCommitDetail(repoPath, sha),
+          COMMIT_DETAIL_TIMEOUT_MS,
+          "コミット詳細の取得がタイムアウトしました。",
+        );
         setCommitDetail(detail);
       } catch (error) {
         reportError(error, "コミット詳細の取得に失敗しました。");
@@ -642,7 +658,7 @@ export function useControllerData({
 
         setIsWipSelected(false);
         setActiveCommit(nextActiveCommit);
-        await loadCommitDetail(nextActiveCommit.sha);
+        void loadCommitDetail(nextActiveCommit.sha);
       }
 
       return { status: "updated" };
@@ -734,7 +750,7 @@ export function useControllerData({
         commitResponse: snapshot.commits,
       });
     },
-    [applyCommitPage],
+    [applyCommitPage, setActiveLogRef],
   );
 
   const loadControllerSnapshot = useCallback(
@@ -751,12 +767,16 @@ export function useControllerData({
       }
 
       try {
-        const snapshot = await api.getControllerSnapshot(repoPath, {
-          ref: options.ref,
-          offset: 0,
-          limit: 50,
-          includeCommits,
-        });
+        const snapshot = await withPromiseTimeout(
+          api.getControllerSnapshot(repoPath, {
+            ref: options.ref,
+            offset: 0,
+            limit: 50,
+            includeCommits,
+          }),
+          CONTROLLER_SNAPSHOT_TIMEOUT_MS,
+          "画面情報の取得がタイムアウトしました。",
+        );
         const result = await applyControllerSnapshot(snapshot);
         return result.status === "updated";
       } catch (error) {
@@ -784,7 +804,11 @@ export function useControllerData({
 
   const loadBranchPullRequests = useCallback(async (): Promise<void> => {
     try {
-      const response = await api.getBranchPullRequests(repoPath);
+      const response = await withPromiseTimeout(
+        api.getBranchPullRequests(repoPath),
+        BRANCH_PULL_REQUEST_TIMEOUT_MS,
+        "ブランチ Pull Request 情報の取得がタイムアウトしました。",
+      );
       setBranchPullRequests(response.pullRequests);
     } catch {
       // Keep the current metadata on transient GitHub lookup failures.
@@ -839,7 +863,7 @@ export function useControllerData({
         await Promise.all([
           loadBranchPullRequests(),
           loadControllerSnapshot({
-            ref: refOverride ?? activeLogRef,
+            ref: refOverride ?? activeLogRefRef.current,
             includeCommits: true,
           }),
         ]);
@@ -847,7 +871,32 @@ export function useControllerData({
         refreshLockRef.current = false;
       }
     },
-    [activeLogRef, loadBranchPullRequests, loadControllerSnapshot],
+    [loadBranchPullRequests, loadControllerSnapshot],
+  );
+
+  const refreshAfterCheckout = useCallback(
+    async (refOverride?: string): Promise<void> => {
+      if (refreshLockRef.current) {
+        return;
+      }
+
+      refreshLockRef.current = true;
+
+      try {
+        await runCheckoutRefresh(
+          {
+            loadBranchPullRequests,
+            loadControllerSnapshot,
+          },
+          {
+            ref: refOverride ?? activeLogRefRef.current,
+          },
+        );
+      } finally {
+        refreshLockRef.current = false;
+      }
+    },
+    [loadBranchPullRequests, loadControllerSnapshot],
   );
 
   const reloadAfterBranchMutation = useCallback(
@@ -1284,6 +1333,7 @@ export function useControllerData({
     loadWorkingState,
     loadBranches,
     loadPullStatus,
+    refreshAfterCheckout,
     refreshAll,
     reloadAfterBranchMutation,
     mutateWorkingState,
