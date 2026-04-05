@@ -109,14 +109,12 @@ export function useControllerBranchOps({
     }
 
     data.setOperationBusy(true);
-    const branchRefForLog = branch.fullRef || branch.name;
 
     try {
       await api.checkout(repoPath, branch.name);
-      data.setActiveLogRef(branchRefForLog);
       data.setInlineError(null);
       onNotify(`${branch.name} に切り替えました。`);
-      await data.refreshAfterCheckout(branchRefForLog);
+      await data.refreshAfterCheckout({ preserveGraph: true });
     } catch (error) {
       data.reportError(error, "ブランチ切り替えに失敗しました。");
     } finally {
@@ -149,7 +147,7 @@ export function useControllerBranchOps({
       await api.checkout(repoPath, commit.sha);
       data.setInlineError(null);
       onNotify(`${commit.sha.slice(0, 7)} にチェックアウトしました。`);
-      await data.refreshAfterCheckout("HEAD");
+      await data.refreshAfterCheckout({ ref: "HEAD" });
     } catch (error) {
       data.reportError(error, "コミットチェックアウトに失敗しました。");
     } finally {

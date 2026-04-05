@@ -14,9 +14,10 @@ function createDeferredPromise<T>() {
 }
 
 describe("refreshAfterCheckout", () => {
-  test("returns after the controller snapshot without waiting for branch pull requests", async () => {
+  test("returns after the metadata snapshot while commits continue refreshing in the background", async () => {
     const events: string[] = [];
     const pullRequestRefresh = createDeferredPromise<void>();
+    const commitRefresh = createDeferredPromise<boolean>();
 
     const result = await refreshAfterCheckout(
       {
@@ -29,25 +30,38 @@ describe("refreshAfterCheckout", () => {
           events.push(
             `snapshot:${options.ref ?? "HEAD"}:${options.includeCommits ? "with-commits" : "without-commits"}`,
           );
-          return true;
+          if (options.includeCommits === false) {
+            return true;
+          }
+
+          return await commitRefresh.promise;
         },
       },
       { ref: "feature/checkout-speed" },
     );
 
     expect(result).toBe(true);
-    expect(events).toEqual(["pull-requests:start", "snapshot:feature/checkout-speed:with-commits"]);
-
-    pullRequestRefresh.resolve();
-    await pullRequestRefresh.promise;
     expect(events).toEqual([
       "pull-requests:start",
+      "snapshot:feature/checkout-speed:without-commits",
+      "snapshot:feature/checkout-speed:with-commits",
+    ]);
+
+    pullRequestRefresh.resolve();
+    commitRefresh.resolve(true);
+    await pullRequestRefresh.promise;
+    await commitRefresh.promise;
+    expect(events).toEqual([
+      "pull-requests:start",
+      "snapshot:feature/checkout-speed:without-commits",
       "snapshot:feature/checkout-speed:with-commits",
       "pull-requests:done",
     ]);
   });
 
   test("continues even if branch pull request refresh fails", async () => {
+    const commitRefresh = createDeferredPromise<boolean>();
+
     await expect(
       refreshAfterCheckout(
         {
@@ -55,15 +69,50 @@ describe("refreshAfterCheckout", () => {
             throw new Error("gh unavailable");
           },
           loadControllerSnapshot: async (options) => {
+            if (options.includeCommits === false) {
+              expect(options).toEqual({
+                ref: "HEAD",
+                includeCommits: false,
+              });
+              return true;
+            }
+
             expect(options).toEqual({
               ref: "HEAD",
               includeCommits: true,
             });
-            return true;
+            return await commitRefresh.promise;
           },
         },
         { ref: "HEAD" },
       ),
     ).resolves.toBe(true);
+
+    commitRefresh.resolve(true);
+    await commitRefresh.promise;
+  });
+
+  test("skips the background commit refresh when the metadata snapshot fails", async () => {
+    const snapshotCalls: Array<{ ref?: string; includeCommits?: boolean }> = [];
+
+    await expect(
+      refreshAfterCheckout(
+        {
+          loadBranchPullRequests: async () => {},
+          loadControllerSnapshot: async (options) => {
+            snapshotCalls.push(options);
+            return false;
+          },
+        },
+        { ref: "refs/heads/main" },
+      ),
+    ).resolves.toBe(false);
+
+    expect(snapshotCalls).toEqual([
+      {
+        ref: "refs/heads/main",
+        includeCommits: false,
+      },
+    ]);
   });
 });

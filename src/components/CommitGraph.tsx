@@ -38,6 +38,7 @@ import {
   ROW_HEIGHT,
   resolveCommitGraphStyleMetrics,
   WipNode,
+  type CommitRefLabel,
 } from "./CommitGraphHelpers";
 
 interface CommitGraphProps {
@@ -81,6 +82,53 @@ export function resolveCommitEnterAnimationTargets<T>(
   }
 
   return nodes.slice(previousCommitCount);
+}
+
+function normalizeCurrentBranchLabels(
+  labels: CommitRefLabel[],
+  options: {
+    currentLocalBranchName: string;
+    isCurrentBranchCommit: boolean;
+  },
+): CommitRefLabel[] {
+  const currentLocalBranchName = options.currentLocalBranchName.trim();
+  const normalizedLabels: CommitRefLabel[] = labels.map((label) => ({
+    ...label,
+    type: label.type === "head" ? "branch" : label.type,
+  }));
+
+  if (!currentLocalBranchName) {
+    return normalizedLabels;
+  }
+
+  let promoted = false;
+  const promotedLabels = normalizedLabels.map((label) => {
+    if (
+      options.isCurrentBranchCommit &&
+      label.type !== "tag" &&
+      label.name === currentLocalBranchName
+    ) {
+      promoted = true;
+      return {
+        ...label,
+        type: "head",
+      } satisfies CommitRefLabel;
+    }
+
+    return label;
+  });
+
+  if (!options.isCurrentBranchCommit || promoted) {
+    return promotedLabels;
+  }
+
+  return [
+    {
+      type: "head",
+      name: currentLocalBranchName,
+    },
+    ...promotedLabels,
+  ];
 }
 
 export function CommitGraph({
@@ -131,15 +179,20 @@ export function CommitGraph({
   const [isShaJumpOpen, setIsShaJumpOpen] = useState(false);
   const [shaJumpValue, setShaJumpValue] = useState("");
   const [shaJumpPending, setShaJumpPending] = useState(false);
-  const normalizedCheckedOutCommitSha = checkedOutCommitSha?.trim() ?? "";
 
   const visibleCommits = useMemo(() => commits, [commits]);
+  const currentLocalBranch = useMemo(
+    () => branchContext?.local.find((branch) => branch.name === branchContext.current) ?? null,
+    [branchContext],
+  );
+  const currentLocalBranchName = currentLocalBranch?.name ?? "";
+  const currentLocalBranchCommitSha = currentLocalBranch?.commit ?? "";
   const defaultBranchHeadSha = useMemo(
     () => resolveDefaultBranch(branchContext)?.commit ?? null,
     [branchContext],
   );
   const graphStyleMetrics = useMemo(() => resolveCommitGraphStyleMetrics(graphStyle), [graphStyle]);
-  const reservedLaneHeadSha = normalizedCheckedOutCommitSha || defaultBranchHeadSha || "";
+  const reservedLaneHeadSha = defaultBranchHeadSha?.trim() ?? "";
   const laneLayout = useMemo(
     () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
     [commits, reservedLaneHeadSha],
@@ -191,10 +244,16 @@ export function CommitGraph({
       new Map(
         commits.map((commit) => [
           commit.sha,
-          buildCommitRefBadges(parseCommitRefLabels(commit.decoration), commitRefScopeContext),
+          buildCommitRefBadges(
+            normalizeCurrentBranchLabels(parseCommitRefLabels(commit.decoration), {
+              currentLocalBranchName,
+              isCurrentBranchCommit: commit.sha === currentLocalBranchCommitSha,
+            }),
+            commitRefScopeContext,
+          ),
         ]),
       ),
-    [commits, commitRefScopeContext],
+    [commits, commitRefScopeContext, currentLocalBranchCommitSha, currentLocalBranchName],
   );
   const refsAutoWidth = useMemo(() => {
     if (typeof document === "undefined") {
@@ -965,10 +1024,20 @@ export function CommitGraph({
                       overflow="hidden"
                     >
                       {row.activeLaneIndices.map((laneIndex) => {
+                        const isReservedCheckedOutPlaceholderLane =
+                          !hasWipRow &&
+                          reservedHeadRowIndex > 0 &&
+                          index < reservedHeadRowIndex &&
+                          laneIndex === 0 &&
+                          laneIndex !== row.laneIndex;
                         const isReservedHeadEntryLane =
                           reservedHeadRowIndex > 0 &&
                           index === reservedHeadRowIndex &&
                           laneIndex === row.laneIndex;
+                        if (isReservedCheckedOutPlaceholderLane) {
+                          return null;
+                        }
+
                         const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
                         const hasIncoming =
                           ((index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||

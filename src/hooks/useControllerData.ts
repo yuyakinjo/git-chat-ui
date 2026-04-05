@@ -155,6 +155,7 @@ export function useControllerData({
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
   const conflictFileRequestKeyRef = useRef<string | null>(null);
   const stashDiffRequestKeyRef = useRef<string | null>(null);
+  const commitDataRequestRef = useRef(0);
 
   const currentBranchName = branches?.current ?? null;
   const currentLocalBranch = useMemo(
@@ -674,6 +675,7 @@ export function useControllerData({
       compareRefs?: string[];
       focusCommitSha?: string;
     }): Promise<LoadCommitsResult> => {
+      const requestId = ++commitDataRequestRef.current;
       if (options.append) {
         setLoadingMoreCommits(true);
       } else {
@@ -690,6 +692,9 @@ export function useControllerData({
           api.getCommits(repoPath, normalizedRef, offset, 50, compareRefArgs);
 
         const initial = await fetchPage(options.offset);
+        if (requestId !== commitDataRequestRef.current) {
+          return { status: "updated" };
+        }
         let nextCommits = initial.commits;
         let nextHasMore = initial.hasMore;
 
@@ -702,10 +707,17 @@ export function useControllerData({
             pageGuard < 30
           ) {
             const more = await fetchPage(options.offset + nextCommits.length);
+            if (requestId !== commitDataRequestRef.current) {
+              return { status: "updated" };
+            }
             nextCommits = nextCommits.concat(more.commits);
             nextHasMore = more.hasMore;
             pageGuard += 1;
           }
+        }
+
+        if (requestId !== commitDataRequestRef.current) {
+          return { status: "updated" };
         }
 
         return await applyCommitPage({
@@ -722,8 +734,10 @@ export function useControllerData({
         reportError(error, "コミット一覧の取得に失敗しました。");
         return { status: "error" };
       } finally {
-        setLoadingCommits(false);
-        setLoadingMoreCommits(false);
+        if (requestId === commitDataRequestRef.current) {
+          setLoadingCommits(false);
+          setLoadingMoreCommits(false);
+        }
       }
     },
     [applyCommitPage, repoPath, reportError],
@@ -761,6 +775,7 @@ export function useControllerData({
       } = {},
     ): Promise<boolean> => {
       const includeCommits = options.includeCommits !== false;
+      const requestId = includeCommits ? ++commitDataRequestRef.current : 0;
       if (includeCommits) {
         setLoadingCommits(true);
         setLoadingMoreCommits(false);
@@ -777,13 +792,19 @@ export function useControllerData({
           CONTROLLER_SNAPSHOT_TIMEOUT_MS,
           "画面情報の取得がタイムアウトしました。",
         );
+        if (includeCommits && requestId !== commitDataRequestRef.current) {
+          return false;
+        }
         const result = await applyControllerSnapshot(snapshot);
+        if (includeCommits && requestId !== commitDataRequestRef.current) {
+          return false;
+        }
         return result.status === "updated";
       } catch (error) {
         reportError(error, "画面情報の取得に失敗しました。");
         return false;
       } finally {
-        if (includeCommits) {
+        if (includeCommits && requestId === commitDataRequestRef.current) {
           setLoadingCommits(false);
         }
       }
@@ -875,7 +896,12 @@ export function useControllerData({
   );
 
   const refreshAfterCheckout = useCallback(
-    async (refOverride?: string): Promise<void> => {
+    async (
+      options: {
+        ref?: string;
+        preserveGraph?: boolean;
+      } = {},
+    ): Promise<void> => {
       if (refreshLockRef.current) {
         return;
       }
@@ -883,20 +909,43 @@ export function useControllerData({
       refreshLockRef.current = true;
 
       try {
+        if (options.preserveGraph) {
+          await Promise.all([
+            loadBranches(),
+            loadWorkingState(),
+            loadPullStatus(),
+            loadBranchPullRequests(),
+          ]);
+          try {
+            const response = await api.getFingerprint(repoPath);
+            setFingerprint(response.fingerprint);
+          } catch {
+            // Fingerprint sync is best-effort; polling will recover if this fails.
+          }
+          return;
+        }
+
         await runCheckoutRefresh(
           {
             loadBranchPullRequests,
             loadControllerSnapshot,
           },
           {
-            ref: refOverride ?? activeLogRefRef.current,
+            ref: options.ref ?? activeLogRefRef.current,
           },
         );
       } finally {
         refreshLockRef.current = false;
       }
     },
-    [loadBranchPullRequests, loadControllerSnapshot],
+    [
+      loadBranchPullRequests,
+      loadBranches,
+      loadControllerSnapshot,
+      loadPullStatus,
+      loadWorkingState,
+      repoPath,
+    ],
   );
 
   const reloadAfterBranchMutation = useCallback(

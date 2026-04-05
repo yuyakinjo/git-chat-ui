@@ -135,7 +135,7 @@ export interface UseControllerDataResult {
   loadWorkingState: () => Promise<void>;
   loadBranches: () => Promise<BranchResponse | null>;
   loadPullStatus: () => Promise<void>;
-  refreshAfterCheckout: (refOverride?: string) => Promise<void>;
+  refreshAfterCheckout: (options?: { ref?: string; preserveGraph?: boolean }) => Promise<void>;
   refreshAll: (refOverride?: string) => Promise<void>;
   reloadAfterBranchMutation: (preferredBranchName?: string) => Promise<void>;
   mutateWorkingState: (

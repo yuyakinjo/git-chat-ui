@@ -10,8 +10,21 @@ export async function refreshAfterCheckout(
   } = {},
 ): Promise<boolean> {
   void dependencies.loadBranchPullRequests().catch(() => undefined);
-  return await dependencies.loadControllerSnapshot({
+  const refreshed = await dependencies.loadControllerSnapshot({
     ref: options.ref,
-    includeCommits: true,
+    includeCommits: false,
   });
+
+  if (!refreshed) {
+    return false;
+  }
+
+  void dependencies
+    .loadControllerSnapshot({
+      ref: options.ref,
+      includeCommits: true,
+    })
+    .catch(() => undefined);
+
+  return true;
 }
