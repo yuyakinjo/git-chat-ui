@@ -59,8 +59,10 @@ import {
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
 import {
+  beginAppRepositoryLoad,
   createInitialAppStartupLoadState,
   getAppStartupLoadingMessage,
+  isAppStartupLoadingVisible,
   settleAppStartupLoadState,
   syncAppStartupLoadState,
 } from "./lib/appStartupLoading";
@@ -236,7 +238,7 @@ export default function App(): JSX.Element {
   const [assistantConflictOpenRequests, setAssistantConflictOpenRequests] = useState<
     Record<string, AssistantConflictOpenRequest>
   >({});
-  const [startupLoadState, setStartupLoadState] = useState(createInitialAppStartupLoadState);
+  const [appLoadingState, setAppLoadingState] = useState(createInitialAppStartupLoadState);
   const themePickerRef = useRef<HTMLDetailsElement | null>(null);
   const [isThemePickerOpen, setThemePickerOpen] = useState(false);
 
@@ -258,8 +260,13 @@ export default function App(): JSX.Element {
   const configReturnTabId = configEscapeTabId ?? DASHBOARD_TAB_ID;
   const activeThemeLabel = getAppThemeLabel(appTheme);
   const activeThemeToolbarLabel = getThemeToolbarLabel(activeThemeLabel);
-  const isStartupLoading = startupLoadState.phase !== "ready";
-  const startupLoadingMessage = getAppStartupLoadingMessage(startupLoadState.phase);
+  const isAppLoadingVisible = isAppStartupLoadingVisible(appLoadingState, activeRepositoryPath);
+  const isRepositoryTransitionLoading = appLoadingState.phase === "repository";
+  const appLoadingMessage = getAppStartupLoadingMessage(appLoadingState.phase);
+  const appLoadingEyebrow = isRepositoryTransitionLoading ? "Loading" : "Launching";
+  const appLoadingTitle = isRepositoryTransitionLoading
+    ? "リポジトリを開いています"
+    : "前回の作業状態を復元しています";
   const ActiveThemeIcon = getAppThemeMode(appTheme) === "light" ? Sun : Moon;
   const visibleToolbarItemIds = useMemo(() => {
     const visibleIds = new Set<AppToolbarItemId>([
@@ -466,7 +473,7 @@ export default function App(): JSX.Element {
   }, [appConfig]);
 
   useEffect(() => {
-    setStartupLoadState((current) =>
+    setAppLoadingState((current) =>
       syncAppStartupLoadState(current, {
         hasInitializedSession,
         activeRepositoryPath,
@@ -739,6 +746,13 @@ export default function App(): JSX.Element {
   ]);
 
   const handleSelectRepository = (repository: Repository): void => {
+    const isNewRepositoryTab = !openRepositories.some(
+      (current) => current.path === repository.path,
+    );
+    if (isNewRepositoryTab) {
+      setAppLoadingState((current) => beginAppRepositoryLoad(current, repository.path));
+    }
+
     void api.markRecentRepository(repository.path);
     setOpenRepositories((current) => upsertRepositoryTab(current, repository));
     setLastRepositoryPath(repository.path);
@@ -749,6 +763,14 @@ export default function App(): JSX.Element {
     const result = closeRepositoryTab(openRepositories, repository.path, activeTabId);
     setOpenRepositories(result.repositories);
     setActiveTabId(result.activeTabId);
+    setAppLoadingState((current) =>
+      current.pendingRepositoryPath === repository.path
+        ? {
+            phase: "ready",
+            pendingRepositoryPath: null,
+          }
+        : current,
+    );
     setRepositoryBranchLabels((current) => {
       if (!(repository.path in current)) {
         return current;
@@ -801,7 +823,7 @@ export default function App(): JSX.Element {
 
   const handleControllerInitialLoadSettled = useCallback(
     (repoPath: string): void => {
-      setStartupLoadState((current) =>
+      setAppLoadingState((current) =>
         settleAppStartupLoadState(current, {
           repoPath,
           activeRepositoryPath,
@@ -1405,7 +1427,7 @@ export default function App(): JSX.Element {
       <div
         className={`app-content-shell ${
           isRepositoryAssistantOpen && activeRepository ? "is-assistant-open" : ""
-        } ${isStartupLoading ? "is-startup-loading" : ""}`}
+        } ${isAppLoadingVisible ? "is-startup-loading" : ""}`}
       >
         <div className="app-view-stack">
           <section className="h-full" hidden={!isDashboardActive} aria-hidden={!isDashboardActive}>
@@ -1494,7 +1516,7 @@ export default function App(): JSX.Element {
           />
         ) : null}
 
-        {isStartupLoading ? (
+        {isAppLoadingVisible ? (
           <div
             className="app-startup-loading"
             role="status"
@@ -1508,9 +1530,9 @@ export default function App(): JSX.Element {
                 className="app-startup-loading__spinner animate-spin"
                 aria-hidden="true"
               />
-              <div className="app-startup-loading__eyebrow">Launching</div>
-              <div className="app-startup-loading__title">前回の作業状態を復元しています</div>
-              <div className="app-startup-loading__message">{startupLoadingMessage}</div>
+              <div className="app-startup-loading__eyebrow">{appLoadingEyebrow}</div>
+              <div className="app-startup-loading__title">{appLoadingTitle}</div>
+              <div className="app-startup-loading__message">{appLoadingMessage}</div>
             </div>
           </div>
         ) : null}

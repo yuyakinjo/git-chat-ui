@@ -1,4 +1,4 @@
-export type AppStartupLoadPhase = "session" | "controller" | "ready";
+export type AppStartupLoadPhase = "session" | "controller" | "repository" | "ready";
 
 export interface AppStartupLoadState {
   phase: AppStartupLoadPhase;
@@ -43,6 +43,21 @@ export function syncAppStartupLoadState(
   };
 }
 
+export function beginAppRepositoryLoad(
+  current: AppStartupLoadState,
+  repoPath: string,
+): AppStartupLoadState {
+  const normalizedRepoPath = repoPath.trim();
+  if (!normalizedRepoPath) {
+    return current;
+  }
+
+  return {
+    phase: "repository",
+    pendingRepositoryPath: normalizedRepoPath,
+  };
+}
+
 export function settleAppStartupLoadState(
   current: AppStartupLoadState,
   options: {
@@ -65,12 +80,32 @@ export function settleAppStartupLoadState(
   };
 }
 
+export function isAppStartupLoadingVisible(
+  current: AppStartupLoadState,
+  activeRepositoryPath: string | null,
+): boolean {
+  if (current.phase === "ready") {
+    return false;
+  }
+
+  if (current.phase !== "repository") {
+    return true;
+  }
+
+  return (
+    Boolean(current.pendingRepositoryPath) &&
+    current.pendingRepositoryPath === activeRepositoryPath
+  );
+}
+
 export function getAppStartupLoadingMessage(phase: AppStartupLoadPhase): string {
   switch (phase) {
     case "session":
       return "前回開いていたリポジトリを復元しています。";
     case "controller":
       return "Branch list と初期状態を読み込んでいます。";
+    case "repository":
+      return "選択したリポジトリの Branch list と初期状態を読み込んでいます。";
     case "ready":
     default:
       return "";
