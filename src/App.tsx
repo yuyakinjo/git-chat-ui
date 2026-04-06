@@ -83,6 +83,10 @@ import {
   updateRepositoryAssistantProposal,
 } from "./lib/repositoryAssistant";
 import {
+  getRepositoryTabShortcutIndex,
+  getRepositoryTabShortcutLabel,
+} from "./lib/repositoryTabShortcut";
+import {
   getSelfConflictResolutionConfirmationMessage,
   getSelfCurrentBranchMergeConfirmationMessage,
 } from "./lib/repositoryMutationSafety";
@@ -571,6 +575,37 @@ export default function App(): JSX.Element {
 
     setRepositoryAssistantOpen(false);
   }, [activeRepository, hasInitializedSession]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const shortcutIndex = getRepositoryTabShortcutIndex(event);
+      if (shortcutIndex === null) {
+        return;
+      }
+
+      const targetRepository = openRepositories[shortcutIndex];
+      if (!targetRepository) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveTabId(getRepositoryTabId(targetRepository.path));
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openRepositories]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1291,10 +1326,11 @@ export default function App(): JSX.Element {
           <div className="app-tabbar__lane">
             {openRepositories.length > 0 ? (
               <div className="app-tab-toggle" aria-label="Open repositories">
-                {openRepositories.map((repository) => {
+                {openRepositories.map((repository, index) => {
                   const tabId = getRepositoryTabId(repository.path);
                   const isActive = activeTabId === tabId;
                   const branchLabel = repositoryBranchLabels[repository.path];
+                  const shortcutLabel = getRepositoryTabShortcutLabel(index);
                   return (
                     <div
                       key={repository.path}
@@ -1304,8 +1340,13 @@ export default function App(): JSX.Element {
                         type="button"
                         className="app-tab-toggle__trigger"
                         onClick={() => setActiveTabId(tabId)}
-                        title={repository.path}
+                        title={
+                          shortcutLabel ? `${repository.path} (${shortcutLabel})` : repository.path
+                        }
                         aria-pressed={isActive}
+                        aria-keyshortcuts={
+                          shortcutLabel ? `Meta+${index + 1} Control+${index + 1}` : undefined
+                        }
                       >
                         <FolderGit2 size={16} className="shrink-0" />
                         <span className="app-tab-toggle__text">
