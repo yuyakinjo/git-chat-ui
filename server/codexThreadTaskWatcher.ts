@@ -363,16 +363,6 @@ function formatList(values: string[]): string {
   return values.length > 0 ? values.join(", ") : "-";
 }
 
-function isWatcherStateFresh(state: BackgroundThreadTaskWatcherState): boolean {
-  const lastSeenAt = Date.parse(state.lastHeartbeatAt ?? state.startedAt);
-  if (Number.isNaN(lastSeenAt)) {
-    return false;
-  }
-
-  const maxAgeMs = Math.max(state.intervalSeconds * 3000, 45_000);
-  return Date.now() - lastSeenAt <= maxAgeMs;
-}
-
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

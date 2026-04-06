@@ -504,30 +504,6 @@ export function CommitGraph({
       graphStyleMetrics.detailedLineOpacity,
     [graphStyleMetrics.detailedLineOpacity],
   );
-  const wipLaneDotSpacing = graphStyle === "japaneseExpress" ? 8 : 5;
-  const resolveLaneStrokeDasharray = useCallback(
-    (_rowIndex: number, laneIndex: number) => {
-      if (!hasWipRow || laneIndex !== wipAnchor.laneIndex) {
-        return undefined;
-      }
-
-      return `0 ${wipLaneDotSpacing}`;
-    },
-    [hasWipRow, wipAnchor.laneIndex, wipLaneDotSpacing],
-  );
-  const resolveLaneStrokeDashoffset = useCallback(
-    (laneIndex: number, absoluteStartY: number) => {
-      if (!hasWipRow || laneIndex !== wipAnchor.laneIndex) {
-        return undefined;
-      }
-
-      return (
-        (((absoluteStartY - wipLineBottomStart) % wipLaneDotSpacing) + wipLaneDotSpacing) %
-        wipLaneDotSpacing
-      );
-    },
-    [hasWipRow, wipAnchor.laneIndex, wipLaneDotSpacing, wipLineBottomStart],
-  );
   const buildCommitNodeStyle = useCallback(
     (
       laneStroke: string,
@@ -632,18 +608,6 @@ export function CommitGraph({
       wipAnchor.laneIndex,
       wipAnchor.laneIndex,
     );
-    const anchorLaneStrokeDasharray = resolveLaneStrokeDasharray(
-      wipAnchor.rowIndex,
-      wipAnchor.laneIndex,
-    );
-    const anchorLaneTopStrokeDashoffset = resolveLaneStrokeDashoffset(
-      wipAnchor.laneIndex,
-      -LINE_OVERDRAW,
-    );
-    const anchorLaneBottomStrokeDashoffset = resolveLaneStrokeDashoffset(
-      wipAnchor.laneIndex,
-      wipLineBottomStart,
-    );
 
     return (
       <div
@@ -674,8 +638,6 @@ export function CommitGraph({
                   strokeWidth={anchorLaneStrokeWidth}
                   opacity={anchorLaneOpacity}
                   strokeLinecap="round"
-                  strokeDasharray={anchorLaneStrokeDasharray}
-                  strokeDashoffset={anchorLaneTopStrokeDashoffset}
                 />
               ) : null}
               <line
@@ -688,8 +650,6 @@ export function CommitGraph({
                 strokeWidth={anchorLaneStrokeWidth}
                 opacity={anchorLaneOpacity}
                 strokeLinecap="round"
-                strokeDasharray={anchorLaneStrokeDasharray}
-                strokeDashoffset={anchorLaneBottomStrokeDashoffset}
               />
             </svg>
             <WipNode
@@ -763,8 +723,6 @@ export function CommitGraph({
     isDetailedMode,
     onSelectWip,
     resolveLaneOpacity,
-    resolveLaneStrokeDasharray,
-    resolveLaneStrokeDashoffset,
     resolveLaneStroke,
     resolveLaneStrokeWidth,
     resolveLaneX,
@@ -1061,11 +1019,6 @@ export function CommitGraph({
                         const y2 = hasOutgoing
                           ? ROW_HEIGHT + LINE_OVERDRAW
                           : ROW_HEIGHT / 2 - strokeWidth / 2;
-                        const strokeDasharray = resolveLaneStrokeDasharray(index, laneIndex);
-                        const strokeDashoffset = resolveLaneStrokeDashoffset(
-                          laneIndex,
-                          (index + 1) * ROW_HEIGHT + y1,
-                        );
 
                         return (
                           <line
@@ -1079,8 +1032,6 @@ export function CommitGraph({
                             strokeWidth={strokeWidth}
                             opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
                             strokeLinecap="round"
-                            strokeDasharray={strokeDasharray}
-                            strokeDashoffset={strokeDashoffset}
                           />
                         );
                       })}

@@ -728,7 +728,7 @@ describe("CommitGraph", () => {
     expect(resolveCommitEnterAnimationTargets(["a", "b"], 4)).toEqual([]);
   });
 
-  test("renders the WIP marker as a hollow dashed circle in detailed mode", () => {
+  test("renders the WIP marker as a hollow dashed circle with a solid lane in detailed mode", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
@@ -772,13 +772,11 @@ describe("CommitGraph", () => {
     expect(wipConnectorMatch?.[4]).toBe("33");
     expect(firstCommitLaneMatch?.[2]).toBe("-1");
     expect(firstCommitLaneMatch?.[4]).toBe("33");
-    expect(wipRowHtml).toMatch(
-      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray="0 5"[^>]*stroke-dashoffset="0"/,
+    expect(wipRowHtml).not.toMatch(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray=/,
     );
-    expect(firstCommitRowHtml).toMatch(
-      new RegExp(
-        `class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*stroke-dasharray="0 5"[^>]*stroke-dashoffset="2"`,
-      ),
+    expect(firstCommitRowHtml).not.toMatch(
+      new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*stroke-dasharray=`),
     );
     expect(html).toContain('class="wip-node-ring"');
     expect(html).toContain('stroke-dasharray="2 3"');
@@ -1364,8 +1362,11 @@ describe("CommitGraph", () => {
 
     expect(featureCheckedWipRowHtml).toMatch(
       new RegExp(
-        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"[^>]*stroke-dasharray="0 8"[^>]*stroke-dashoffset="0"`,
+        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"`,
       ),
+    );
+    expect(featureCheckedWipRowHtml).not.toMatch(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray=/,
     );
     expect(featureCheckedWipRowHtml).not.toContain(`x1="${featureLaneX}"`);
     expect(extractLaneLineSignatures(featureCheckedWipRowHtml)).toEqual(
