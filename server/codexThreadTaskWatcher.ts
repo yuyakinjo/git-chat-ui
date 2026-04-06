@@ -12,6 +12,7 @@ import {
 } from "./codexTaskFolders";
 
 export const WATCH_DEFAULT_INTERVAL_SECONDS = 15;
+export const LOCAL_ACTIVE_THREAD_MAX_AGE_HOURS = 72;
 
 const THREAD_TASK_SYNC_NOTIFICATION_METHODS = new Set([
   "thread/started",
@@ -53,6 +54,8 @@ interface BackgroundThreadTaskWatcherState {
   lastHeartbeatAt?: string;
   logPath: string;
   pid: number;
+  scriptMtimeMs?: number;
+  scriptPath?: string;
   startedAt: string;
 }
 
@@ -69,20 +72,45 @@ interface WatcherRuntimePaths {
   statePath: string;
 }
 
+interface WatcherScriptSignature {
+  scriptMtimeMs?: number;
+  scriptPath: string;
+}
+
 export async function runThreadTaskSync(
   client: ThreadTaskWatcherClient,
   repoRoot: string,
 ): Promise<SyncThreadTaskDirectoriesResult> {
-  const [activeThreads, archivedThreads] = await Promise.all([
+  const [rawActiveThreads, archivedThreads] = await Promise.all([
     client.listThreads({ cwd: repoRoot, archived: false }),
     client.listThreads({ cwd: repoRoot, archived: true }),
   ]);
+  const activeThreads = filterLocalActiveThreads(rawActiveThreads);
 
   return await syncThreadTaskDirectories({
     repoRoot,
     activeThreads,
     archivedThreads,
   });
+}
+
+export function filterLocalActiveThreads(
+  threads: CodexThreadSummary[],
+  options: {
+    maxAgeHours?: number;
+    nowMs?: number;
+  } = {},
+): CodexThreadSummary[] {
+  const maxAgeHours = options.maxAgeHours ?? LOCAL_ACTIVE_THREAD_MAX_AGE_HOURS;
+  if (maxAgeHours <= 0) {
+    return [...threads];
+  }
+
+  const cutoffSeconds = Math.floor(
+    ((options.nowMs ?? Date.now()) - maxAgeHours * 60 * 60 * 1000) / 1000,
+  );
+
+  return threads.filter((thread) => !thread.updatedAt || thread.updatedAt >= cutoffSeconds);
 }
 
 export function shouldSyncThreadTasksForNotification(
@@ -198,9 +226,19 @@ export async function ensureBackgroundThreadTaskWatcher(
 ): Promise<EnsureBackgroundThreadTaskWatcherResult> {
   const runtimePaths = getWatcherRuntimePaths(options.repoRoot);
   await fsPromises.mkdir(runtimePaths.runtimeDir, { recursive: true });
+  const scriptPath =
+    options.scriptPath ?? path.join(options.repoRoot, "server", "codexThreadTasks.ts");
+  const scriptSignature = await readWatcherScriptSignature(scriptPath);
 
   const existingState = await readWatcherState(runtimePaths.statePath);
-  if (existingState && isWatcherStateFresh(existingState)) {
+  if (
+    existingState &&
+    shouldReuseWatcherState(existingState, {
+      expectedIntervalSeconds: options.intervalSeconds,
+      expectedScriptMtimeMs: scriptSignature.scriptMtimeMs,
+      expectedScriptPath: scriptSignature.scriptPath,
+    })
+  ) {
     return {
       started: false,
       pid: existingState.pid,
@@ -209,9 +247,11 @@ export async function ensureBackgroundThreadTaskWatcher(
     };
   }
 
+  if (existingState) {
+    stopWatcherProcess(existingState.pid);
+  }
+
   const logFile = fs.openSync(runtimePaths.logPath, "a");
-  const scriptPath =
-    options.scriptPath ?? path.join(options.repoRoot, "server", "codexThreadTasks.ts");
 
   try {
     const child = spawn(
@@ -236,6 +276,8 @@ export async function ensureBackgroundThreadTaskWatcher(
       intervalSeconds: options.intervalSeconds,
       logPath: runtimePaths.logPath,
       lastHeartbeatAt: new Date().toISOString(),
+      scriptMtimeMs: scriptSignature.scriptMtimeMs,
+      scriptPath: scriptSignature.scriptPath,
       startedAt: new Date().toISOString(),
     };
 
@@ -290,6 +332,9 @@ async function readWatcherState(
       intervalSeconds: parsed.intervalSeconds,
       lastHeartbeatAt:
         typeof parsed.lastHeartbeatAt === "string" ? parsed.lastHeartbeatAt : undefined,
+      scriptMtimeMs:
+        typeof parsed.scriptMtimeMs === "number" ? parsed.scriptMtimeMs : undefined,
+      scriptPath: typeof parsed.scriptPath === "string" ? parsed.scriptPath : undefined,
       startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : new Date().toISOString(),
     };
   } catch {
@@ -328,6 +373,63 @@ function isWatcherStateFresh(state: BackgroundThreadTaskWatcherState): boolean {
   return Date.now() - lastSeenAt <= maxAgeMs;
 }
 
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "EPERM"
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+}
+
+export function shouldReuseWatcherState(
+  state: BackgroundThreadTaskWatcherState,
+  options: {
+    expectedIntervalSeconds: number;
+    expectedScriptMtimeMs?: number;
+    expectedScriptPath: string;
+    isProcessAliveFn?: (pid: number) => boolean;
+    nowMs?: number;
+  },
+): boolean {
+  const lastSeenAt = Date.parse(state.lastHeartbeatAt ?? state.startedAt);
+  if (Number.isNaN(lastSeenAt)) {
+    return false;
+  }
+
+  const maxAgeMs = Math.max(state.intervalSeconds * 3000, 45_000);
+  if ((options.nowMs ?? Date.now()) - lastSeenAt > maxAgeMs) {
+    return false;
+  }
+
+  if (state.intervalSeconds !== options.expectedIntervalSeconds) {
+    return false;
+  }
+
+  if (!(options.isProcessAliveFn ?? isProcessAlive)(state.pid)) {
+    return false;
+  }
+
+  if (state.scriptPath !== options.expectedScriptPath) {
+    return false;
+  }
+
+  if (state.scriptMtimeMs !== options.expectedScriptMtimeMs) {
+    return false;
+  }
+
+  return true;
+}
+
 async function touchWatcherHeartbeat(repoRoot: string, intervalSeconds: number): Promise<void> {
   const runtimePaths = getWatcherRuntimePaths(repoRoot);
   await fsPromises.mkdir(runtimePaths.runtimeDir, { recursive: true });
@@ -339,6 +441,8 @@ async function touchWatcherHeartbeat(repoRoot: string, intervalSeconds: number):
     intervalSeconds,
     logPath: existingState?.logPath ?? runtimePaths.logPath,
     lastHeartbeatAt: now,
+    scriptMtimeMs: existingState?.scriptMtimeMs,
+    scriptPath: existingState?.scriptPath,
     startedAt: existingState?.startedAt ?? now,
   };
 
@@ -347,4 +451,28 @@ async function touchWatcherHeartbeat(repoRoot: string, intervalSeconds: number):
     `${JSON.stringify(nextState, null, 2)}\n`,
     "utf8",
   );
+}
+
+async function readWatcherScriptSignature(scriptPath: string): Promise<WatcherScriptSignature> {
+  const resolvedScriptPath = path.resolve(scriptPath);
+
+  try {
+    const stats = await fsPromises.stat(resolvedScriptPath);
+    return {
+      scriptPath: resolvedScriptPath,
+      scriptMtimeMs: stats.mtimeMs,
+    };
+  } catch {
+    return {
+      scriptPath: resolvedScriptPath,
+    };
+  }
+}
+
+function stopWatcherProcess(pid: number): void {
+  try {
+    process.kill(pid);
+  } catch {
+    // Ignore missing or already-exited watcher processes.
+  }
 }
