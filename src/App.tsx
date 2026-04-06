@@ -1,5 +1,17 @@
-import { Bot, Cog, ExternalLink, FolderGit2, Moon, Plus, Search, Sun, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import {
+  Bot,
+  Check,
+  Cog,
+  ExternalLink,
+  FolderGit2,
+  LoaderCircle,
+  Moon,
+  Plus,
+  Search,
+  Sun,
+  X,
+} from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { getRepositoryAssistantActionSpec } from "../shared/repositoryAssistant.js";
 import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
@@ -38,10 +50,7 @@ import {
   normalizeAppTheme,
   type AppThemeId,
 } from "./lib/appTheme";
-import {
-  shouldCollapseAppThemePickerOnSelect,
-  type AppThemePickerInteraction,
-} from "./lib/appThemePicker";
+import { shouldRenderAppThemePickerDivider } from "./lib/appThemePicker";
 import {
   APP_SESSION_STORAGE_KEY,
   APP_THEME_STORAGE_KEY,
@@ -49,6 +58,12 @@ import {
   getInitialPersistedAppSession,
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
+import {
+  createInitialAppStartupLoadState,
+  getAppStartupLoadingMessage,
+  settleAppStartupLoadState,
+  syncAppStartupLoadState,
+} from "./lib/appStartupLoading";
 import { requestOpenCommandPalette } from "./lib/commandPalette";
 import { isConfigShortcut } from "./lib/configShortcut";
 import { withPromiseTimeout } from "./lib/promiseTimeout";
@@ -217,10 +232,9 @@ export default function App(): JSX.Element {
   const [assistantConflictOpenRequests, setAssistantConflictOpenRequests] = useState<
     Record<string, AssistantConflictOpenRequest>
   >({});
-  const lastThemePickerInteractionRef = useRef<AppThemePickerInteraction>(null);
-  const [isThemePickerHoverSuppressed, setThemePickerHoverSuppressed] = useState(false);
-  const [isThemePickerFocusDisclosureSuppressed, setThemePickerFocusDisclosureSuppressed] =
-    useState(false);
+  const [startupLoadState, setStartupLoadState] = useState(createInitialAppStartupLoadState);
+  const themePickerRef = useRef<HTMLDetailsElement | null>(null);
+  const [isThemePickerOpen, setThemePickerOpen] = useState(false);
 
   const isDashboardActive = activeTabId === DASHBOARD_TAB_ID;
   const isConfigActive = activeTabId === CONFIG_TAB_ID;
@@ -240,6 +254,8 @@ export default function App(): JSX.Element {
   const configReturnTabId = configEscapeTabId ?? DASHBOARD_TAB_ID;
   const activeThemeLabel = getAppThemeLabel(appTheme);
   const activeThemeToolbarLabel = getThemeToolbarLabel(activeThemeLabel);
+  const isStartupLoading = startupLoadState.phase !== "ready";
+  const startupLoadingMessage = getAppStartupLoadingMessage(startupLoadState.phase);
   const ActiveThemeIcon = getAppThemeMode(appTheme) === "light" ? Sun : Moon;
   const visibleToolbarItemIds = useMemo(() => {
     const visibleIds = new Set<AppToolbarItemId>([
@@ -309,6 +325,37 @@ export default function App(): JSX.Element {
       // Ignore native window sync failures so the webview theme can still update.
     });
   }, [appTheme]);
+
+  useEffect(() => {
+    if (!isThemePickerOpen || typeof window === "undefined") {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node) || themePickerRef.current?.contains(target)) {
+        return;
+      }
+
+      setThemePickerOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setThemePickerOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isThemePickerOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -413,6 +460,15 @@ export default function App(): JSX.Element {
         : normalized;
     });
   }, [appConfig]);
+
+  useEffect(() => {
+    setStartupLoadState((current) =>
+      syncAppStartupLoadState(current, {
+        hasInitializedSession,
+        activeRepositoryPath,
+      }),
+    );
+  }, [activeRepositoryPath, hasInitializedSession]);
 
   useEffect(() => {
     if (!activeRepository) {
@@ -708,33 +764,39 @@ export default function App(): JSX.Element {
     setActiveTabId(CONFIG_TAB_ID);
   }, []);
 
-  const handleSelectAppTheme = useCallback((themeId: AppThemeId): void => {
-    const shouldCollapseThemePicker = shouldCollapseAppThemePickerOnSelect(
-      lastThemePickerInteractionRef.current,
-    );
-    setAppTheme(normalizeAppTheme(themeId));
-    setThemePickerHoverSuppressed(shouldCollapseThemePicker);
-    setThemePickerFocusDisclosureSuppressed(shouldCollapseThemePicker);
-    lastThemePickerInteractionRef.current = null;
+  const handleControllerInitialLoadSettled = useCallback(
+    (repoPath: string): void => {
+      setStartupLoadState((current) =>
+        settleAppStartupLoadState(current, {
+          repoPath,
+          activeRepositoryPath,
+        }),
+      );
+    },
+    [activeRepositoryPath],
+  );
+
+  const focusThemePickerTrigger = useCallback((): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const trigger = themePickerRef.current?.querySelector("summary");
+      if (trigger instanceof HTMLElement) {
+        trigger.focus();
+      }
+    });
   }, []);
-  const handleThemePickerPointerDown = useCallback((): void => {
-    setThemePickerHoverSuppressed(false);
-    setThemePickerFocusDisclosureSuppressed(false);
-    lastThemePickerInteractionRef.current = "pointer";
-  }, []);
-  const handleThemePickerKeyDown = useCallback((): void => {
-    setThemePickerHoverSuppressed(false);
-    setThemePickerFocusDisclosureSuppressed(false);
-    lastThemePickerInteractionRef.current = "keyboard";
-  }, []);
-  const handleThemePickerBlur = useCallback((): void => {
-    setThemePickerHoverSuppressed(false);
-    setThemePickerFocusDisclosureSuppressed(false);
-    lastThemePickerInteractionRef.current = null;
-  }, []);
-  const handleThemePickerPointerLeave = useCallback((): void => {
-    setThemePickerHoverSuppressed(false);
-  }, []);
+
+  const handleSelectAppTheme = useCallback(
+    (themeId: AppThemeId): void => {
+      setAppTheme(normalizeAppTheme(themeId));
+      setThemePickerOpen(false);
+      focusThemePickerTrigger();
+    },
+    [focusThemePickerTrigger],
+  );
 
   const handleAssistantDraftChange = (value: string): void => {
     if (!activeRepository) {
@@ -1129,35 +1191,58 @@ export default function App(): JSX.Element {
 
       case "theme":
         return (
-          <label
-            className={`app-theme-picker app-tab--utility ${
-              isThemePickerHoverSuppressed ? "is-hover-suppressed" : ""
-            } ${isThemePickerFocusDisclosureSuppressed ? "is-focus-disclosure-suppressed" : ""}`}
-            title={`Theme: ${activeThemeToolbarLabel}`}
-            onPointerLeave={handleThemePickerPointerLeave}
+          <details
+            ref={themePickerRef}
+            className="app-theme-picker"
+            open={isThemePickerOpen}
+            onToggle={(event) => {
+              setThemePickerOpen(event.currentTarget.open);
+            }}
           >
-            <span className="app-theme-picker__chrome" aria-hidden="true">
-              <ActiveThemeIcon size={16} className="app-theme-picker__icon" />
-              <span className="app-theme-picker__label app-toolbar-disclosure__label">
-                {activeThemeToolbarLabel}
-              </span>
-            </span>
-            <select
-              className="app-theme-picker__select"
+            <summary
+              className="app-theme-picker__trigger"
               aria-label="Application theme"
-              value={appTheme}
-              onPointerDown={handleThemePickerPointerDown}
-              onKeyDown={handleThemePickerKeyDown}
-              onBlur={handleThemePickerBlur}
-              onChange={(event) => handleSelectAppTheme(normalizeAppTheme(event.target.value))}
+              aria-haspopup="menu"
+              aria-expanded={isThemePickerOpen}
+              title={`Theme: ${activeThemeToolbarLabel}`}
             >
-              {APP_THEME_OPTIONS.map((theme) => (
-                <option key={theme.id} value={theme.id}>
-                  {theme.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="app-theme-picker__chrome" aria-hidden="true">
+                <ActiveThemeIcon size={16} className="app-theme-picker__icon" />
+                <span className="app-theme-picker__label app-toolbar-disclosure__label">
+                  {activeThemeToolbarLabel}
+                </span>
+              </span>
+            </summary>
+            <div className="app-theme-picker__menu">
+              {APP_THEME_OPTIONS.map((theme, index) => {
+                const previousThemeMode = index > 0 ? APP_THEME_OPTIONS[index - 1].mode : null;
+                const shouldRenderDivider = shouldRenderAppThemePickerDivider(
+                  previousThemeMode,
+                  theme.mode,
+                );
+                const isActiveTheme = theme.id === appTheme;
+
+                return (
+                  <Fragment key={theme.id}>
+                    {shouldRenderDivider ? (
+                      <div className="app-theme-picker__divider" aria-hidden="true" />
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`app-theme-picker__menu-item ${isActiveTheme ? "is-active" : ""}`}
+                      aria-pressed={isActiveTheme}
+                      onClick={() => handleSelectAppTheme(theme.id)}
+                    >
+                      <span className="app-theme-picker__menu-item-check" aria-hidden="true">
+                        <Check size={14} />
+                      </span>
+                      <span className="app-theme-picker__menu-item-label">{theme.label}</span>
+                    </button>
+                  </Fragment>
+                );
+              })}
+            </div>
+          </details>
         );
 
       case "github":
@@ -1279,7 +1364,7 @@ export default function App(): JSX.Element {
       <div
         className={`app-content-shell ${
           isRepositoryAssistantOpen && activeRepository ? "is-assistant-open" : ""
-        }`}
+        } ${isStartupLoading ? "is-startup-loading" : ""}`}
       >
         <div className="app-view-stack">
           <section className="h-full" hidden={!isDashboardActive} aria-hidden={!isDashboardActive}>
@@ -1318,6 +1403,7 @@ export default function App(): JSX.Element {
                   assistantConflictOpenRequest={
                     assistantConflictOpenRequests[repository.path] ?? null
                   }
+                  onInitialLoadSettled={handleControllerInitialLoadSettled}
                 />
               </section>
             );
@@ -1365,6 +1451,27 @@ export default function App(): JSX.Element {
             onExecuteAction={handleExecuteRepositoryAssistantAction}
             onClose={() => setRepositoryAssistantOpen(false)}
           />
+        ) : null}
+
+        {isStartupLoading ? (
+          <div
+            className="app-startup-loading"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-busy="true"
+          >
+            <div className="app-startup-loading__panel panel">
+              <LoaderCircle
+                size={22}
+                className="app-startup-loading__spinner animate-spin"
+                aria-hidden="true"
+              />
+              <div className="app-startup-loading__eyebrow">Launching</div>
+              <div className="app-startup-loading__title">前回の作業状態を復元しています</div>
+              <div className="app-startup-loading__message">{startupLoadingMessage}</div>
+            </div>
+          </div>
         ) : null}
       </div>
 

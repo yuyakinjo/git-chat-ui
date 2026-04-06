@@ -60,39 +60,33 @@ describe("globals.css", () => {
     expect(globalsCss).toContain("grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);");
   });
 
-  test("theme picker lets the native select cover the full visible hit area", () => {
+  test("theme picker renders a disclosure menu with a divider between light and dark themes", () => {
     const themePickerSection = getSection(
       ".app-theme-picker {",
       ".app-controller-layout-slot .controller-layout-picker__trigger {",
     );
 
-    expect(themePickerSection).toContain("align-items: center;");
-    expect(themePickerSection).toContain("padding: 0 11px;");
+    expect(themePickerSection).toContain(".app-theme-picker > summary {");
+    expect(themePickerSection).toContain(".app-theme-picker__trigger {");
     expect(themePickerSection).toContain(".app-theme-picker__chrome {");
     expect(themePickerSection).toContain(".app-theme-picker__icon {");
     expect(themePickerSection).toContain(".app-theme-picker__label {");
-    expect(themePickerSection).toContain(".app-theme-picker__select {");
-    expect(themePickerSection).toContain("position: absolute;");
-    expect(themePickerSection).toContain("inset: 0;");
-    expect(themePickerSection).toContain("width: 100%;");
-    expect(themePickerSection).toContain("height: 100%;");
-    expect(themePickerSection).toContain("opacity: 0;");
-    expect(themePickerSection).toContain(".app-theme-picker:not(.is-hover-suppressed):hover {");
-    expect(themePickerSection).toContain(".app-theme-picker:focus-within {");
+    expect(themePickerSection).toContain(".app-theme-picker__menu {");
+    expect(themePickerSection).toContain(".app-theme-picker__menu-item {");
+    expect(themePickerSection).toContain(".app-theme-picker__divider {");
+    expect(themePickerSection).toContain("border-top: 1px solid var(--surface-border);");
+    expect(themePickerSection).toContain(".app-theme-picker__trigger:hover {");
     expect(themePickerSection).toContain(
-      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within {",
+      ".app-theme-picker__trigger:focus-visible,",
     );
     expect(themePickerSection).toContain(
-      ".app-theme-picker:not(.is-hover-suppressed):hover .app-theme-picker__chrome {",
+      ".app-theme-picker[open] .app-theme-picker__trigger {",
     );
     expect(themePickerSection).toContain(
-      ".app-theme-picker:not(.is-hover-suppressed):hover .app-toolbar-disclosure__label {",
+      ".app-theme-picker__trigger:is(:hover, :focus-visible) .app-theme-picker__chrome,",
     );
     expect(themePickerSection).toContain(
-      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within .app-theme-picker__chrome,",
-    );
-    expect(themePickerSection).toContain(
-      ".app-theme-picker:not(.is-focus-disclosure-suppressed):focus-within .app-toolbar-disclosure__label,",
+      ".app-theme-picker__trigger:is(:hover, :focus-visible) .app-toolbar-disclosure__label,",
     );
   });
 

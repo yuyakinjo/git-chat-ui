@@ -106,6 +106,7 @@ interface ControllerViewProps {
   repositoryGithubUrl?: string | null;
   assistantRefreshRequestId?: number;
   assistantConflictOpenRequest?: AssistantConflictOpenRequest | null;
+  onInitialLoadSettled?: (repoPath: string) => void;
 }
 
 type CommitMessageGenerationState =
@@ -192,6 +193,7 @@ export function ControllerView({
   repositoryGithubUrl = null,
   assistantRefreshRequestId = 0,
   assistantConflictOpenRequest = null,
+  onInitialLoadSettled,
 }: ControllerViewProps): JSX.Element {
   const repoPath = repository.path;
 
@@ -226,6 +228,8 @@ export function ControllerView({
   const controllerActivityErrorVersionRef = useRef(0);
   const controllerActivityRunningBaselineErrorVersionRef = useRef(0);
   const controllerActivityWasRunningRef = useRef(false);
+  const initialControllerLoadStartedRef = useRef(false);
+  const initialControllerLoadSettledRef = useRef(false);
   const layoutPickerRef = useRef<HTMLDetailsElement | null>(null);
 
   const data = useControllerData({ repoPath, appConfig, onNotify, onCurrentBranchChange });
@@ -342,6 +346,28 @@ export function ControllerView({
       clearControllerActivityResetTimeout();
     };
   }, [clearControllerActivityResetTimeout]);
+
+  useEffect(() => {
+    if (!onInitialLoadSettled || initialControllerLoadSettledRef.current) {
+      return;
+    }
+
+    if (data.loadingCommits) {
+      initialControllerLoadStartedRef.current = true;
+      return;
+    }
+
+    if (!initialControllerLoadStartedRef.current) {
+      return;
+    }
+
+    if (!data.branches && !data.inlineError) {
+      return;
+    }
+
+    initialControllerLoadSettledRef.current = true;
+    onInitialLoadSettled(repoPath);
+  }, [data.branches, data.inlineError, data.loadingCommits, onInitialLoadSettled, repoPath]);
 
   useEffect(() => {
     const nextErrorKey = data.inlineError

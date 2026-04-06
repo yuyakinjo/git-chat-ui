@@ -1,7 +1,8 @@
-export type AppThemePickerInteraction = "keyboard" | "pointer" | null;
+import type { NativeWindowTheme } from "./appTheme";
 
-export function shouldCollapseAppThemePickerOnSelect(
-  interaction: AppThemePickerInteraction,
+export function shouldRenderAppThemePickerDivider(
+  previousThemeMode: NativeWindowTheme | null,
+  nextThemeMode: NativeWindowTheme,
 ): boolean {
-  return interaction === "pointer";
+  return previousThemeMode !== null && previousThemeMode !== nextThemeMode;
 }

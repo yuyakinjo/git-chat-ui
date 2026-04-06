@@ -8,7 +8,7 @@ import {
   getNativeWindowAppearance,
   normalizeAppTheme,
 } from "../../../src/lib/appTheme";
-import { shouldCollapseAppThemePickerOnSelect } from "../../../src/lib/appThemePicker";
+import { shouldRenderAppThemePickerDivider } from "../../../src/lib/appThemePicker";
 
 describe("appTheme", () => {
   test("falls back to Default Light for unknown or removed values", () => {
@@ -66,9 +66,10 @@ describe("appTheme", () => {
     });
   });
 
-  test("only collapses the theme picker after pointer-driven selections", () => {
-    expect(shouldCollapseAppThemePickerOnSelect("pointer")).toBe(true);
-    expect(shouldCollapseAppThemePickerOnSelect("keyboard")).toBe(false);
-    expect(shouldCollapseAppThemePickerOnSelect(null)).toBe(false);
+  test("only renders a theme picker divider when the theme mode changes", () => {
+    expect(shouldRenderAppThemePickerDivider(null, "light")).toBe(false);
+    expect(shouldRenderAppThemePickerDivider("light", "light")).toBe(false);
+    expect(shouldRenderAppThemePickerDivider("light", "dark")).toBe(true);
+    expect(shouldRenderAppThemePickerDivider("dark", "dark")).toBe(false);
   });
 });
