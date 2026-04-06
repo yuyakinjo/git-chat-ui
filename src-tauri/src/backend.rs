@@ -3803,6 +3803,55 @@ fn discover_repositories(
     Ok(discovered)
 }
 
+fn resolve_repository_path(input: &str) -> Result<PathBuf, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Repository path is required.".to_string());
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Ok(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
+    }
+
+    let current_dir = std::env::current_dir()
+        .map_err(|error| format!("Failed to resolve current directory: {error}"))?;
+    let absolute = current_dir.join(path);
+    Ok(fs::canonicalize(&absolute).unwrap_or(absolute))
+}
+
+fn resolve_repositories_internal(repo_paths: Vec<String>) -> Result<Vec<Repository>, String> {
+    let mut repositories = Vec::new();
+    let mut seen = HashSet::new();
+
+    for candidate in repo_paths {
+        let resolved_path = match resolve_repository_path(&candidate) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        let Some(repo_path) = resolved_path.to_str().map(ToString::to_string) else {
+            continue;
+        };
+
+        if seen.contains(&repo_path) || ensure_repo_path(&repo_path).is_err() {
+            continue;
+        }
+
+        seen.insert(repo_path.clone());
+        repositories.push(Repository {
+            name: resolved_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string(),
+            path: repo_path,
+            recently_used_at: None,
+        });
+    }
+
+    Ok(repositories)
+}
+
 fn get_current_branch(repo_path: &str) -> Result<String, String> {
     let repository = open_repository(repo_path)?;
 
@@ -5441,6 +5490,13 @@ pub fn get_repositories(query: Option<String>) -> Result<RepositoriesResponse, S
     let repositories = discover_repositories(query, recent_map, config.repository_scan_depth)?;
 
     Ok(RepositoriesResponse { repositories })
+}
+
+#[tauri::command]
+pub fn resolve_repositories(repo_paths: Vec<String>) -> Result<RepositoriesResponse, String> {
+    Ok(RepositoriesResponse {
+        repositories: resolve_repositories_internal(repo_paths)?,
+    })
 }
 
 #[tauri::command]
@@ -9646,5 +9702,49 @@ mod tests {
         assert_eq!(status.behind_count, 0);
         assert!(!status.can_pull);
         assert_eq!(status.state, "upToDate");
+    }
+
+    #[test]
+    fn resolve_repositories_returns_only_valid_repositories_in_order() {
+        let first = create_working_tree_diff_fixture();
+        let second = create_merge_fixture();
+        let missing_path = first.root_dir.join("missing");
+
+        let repositories = resolve_repositories_internal(vec![
+            second.repo_path.clone(),
+            missing_path.to_string_lossy().to_string(),
+            first.repo_path.clone(),
+            second.repo_path.clone(),
+        ])
+        .expect("repository resolution should succeed");
+
+        let resolved_second = fs::canonicalize(&second.repo_path)
+            .expect("second repo path should canonicalize")
+            .to_string_lossy()
+            .to_string();
+        let resolved_first = fs::canonicalize(&first.repo_path)
+            .expect("first repo path should canonicalize")
+            .to_string_lossy()
+            .to_string();
+
+        assert_eq!(repositories.len(), 2);
+        assert_eq!(repositories[0].path, resolved_second);
+        assert_eq!(
+            repositories[0].name,
+            Path::new(&resolved_second)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+        );
+        assert!(repositories[0].recently_used_at.is_none());
+        assert_eq!(repositories[1].path, resolved_first);
+        assert_eq!(
+            repositories[1].name,
+            Path::new(&resolved_first)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+        );
+        assert!(repositories[1].recently_used_at.is_none());
     }
 }

@@ -20,6 +20,7 @@ fn main() {
             backend::open_external_url,
             backend::sync_window_appearance,
             backend::get_repositories,
+            backend::resolve_repositories,
             backend::mark_recent_repository,
             backend::get_repository_github_url,
             backend::get_repository_assistant_user_profile,

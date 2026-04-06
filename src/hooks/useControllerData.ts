@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../lib/api";
+import { shouldAttemptRemoteCommitAvatarHydration } from "../lib/commitAvatarHydration";
 import {
   canCompareCurrentBranch,
   getBranchDiffBaseLabel,
@@ -154,7 +155,7 @@ export function useControllerData({
   const currentRepoPathRef = useRef(repoPath);
   const activeLogRefRef = useRef(activeLogRef);
   const commitMessageDraftRef = useRef<CommitMessageDraftInput>(initialCommitMessageDraft);
-  const commitAvatarRemotePrefetchDoneRef = useRef(false);
+  const commitAuthorAvatarsRef = useRef<Record<string, string>>({});
   const workingTreeDiffRequestKeyRef = useRef<string | null>(null);
   const conflictFileRequestKeyRef = useRef<string | null>(null);
   const stashDiffRequestKeyRef = useRef<string | null>(null);
@@ -338,10 +339,14 @@ export function useControllerData({
           return;
         }
 
-        setCommitAuthorAvatars((current) => ({
-          ...current,
-          ...response.avatars,
-        }));
+        setCommitAuthorAvatars((current) => {
+          const next = {
+            ...current,
+            ...response.avatars,
+          };
+          commitAuthorAvatarsRef.current = next;
+          return next;
+        });
       } catch {
         // Avatar hydration is best-effort and should not block the graph.
       }
@@ -654,10 +659,11 @@ export function useControllerData({
         setActiveCompareRefs(normalizedCompareRefs);
       }
 
-      const allowRemoteFetch = !commitAvatarRemotePrefetchDoneRef.current && !options.append;
-      if (allowRemoteFetch) {
-        commitAvatarRemotePrefetchDoneRef.current = true;
-      }
+      const allowRemoteFetch = shouldAttemptRemoteCommitAvatarHydration({
+        append: options.append,
+        commits: nextCommits,
+        currentAvatars: commitAuthorAvatarsRef.current,
+      });
       void hydrateCommitAuthorAvatars(nextCommits, normalizedRef, {
         allowRemoteFetch,
       });
@@ -1101,6 +1107,7 @@ export function useControllerData({
     setBranchPullRequests({});
     setActiveCommit(null);
     setIsWipSelected(false);
+    commitAuthorAvatarsRef.current = {};
     setCommitAuthorAvatars({});
     setCommitDetail(null);
     applyCommitMessageDraft(initialCommitMessageDraft, { persist: false });
@@ -1112,7 +1119,6 @@ export function useControllerData({
     closeStashDiffOverlay();
     setPullStatus(null);
     setInlineError(null);
-    commitAvatarRemotePrefetchDoneRef.current = false;
     void refreshAll(defaultRef);
   }, [
     clearConflictState,
