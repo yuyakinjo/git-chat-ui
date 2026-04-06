@@ -2750,6 +2750,54 @@ fn build_controller_snapshot_cache_key(
     )
 }
 
+fn join_scoped_result<'scope, T>(
+    task_name: &str,
+    handle: thread::ScopedJoinHandle<'scope, Result<T, String>>,
+) -> Result<T, String> {
+    match handle.join() {
+        Ok(result) => result,
+        Err(_) => Err(format!("{task_name} task panicked.")),
+    }
+}
+
+fn load_controller_snapshot_metadata(
+    repo_path: &str,
+) -> Result<
+    (
+        BranchResponse,
+        WorkingTreeStatus,
+        Vec<StashEntry>,
+        PullStatusResponse,
+    ),
+    String,
+> {
+    let repo_path = repo_path.to_string();
+
+    thread::scope(|scope| {
+        let branches_repo_path = repo_path.clone();
+        let branches_task = scope.spawn(move || get_branches(branches_repo_path));
+
+        let working_tree_repo_path = repo_path.clone();
+        let working_tree_task =
+            scope.spawn(move || get_working_tree_status(working_tree_repo_path));
+
+        let stashes_repo_path = repo_path.clone();
+        let stashes_task =
+            scope.spawn(move || get_stashes(stashes_repo_path).map(|response| response.stashes));
+
+        let pull_status_repo_path = repo_path.clone();
+        let pull_status_task = scope.spawn(move || get_pull_status(pull_status_repo_path, None));
+
+        let branches = join_scoped_result("controller snapshot branches", branches_task)?;
+        let working_tree_status =
+            join_scoped_result("controller snapshot working tree", working_tree_task)?;
+        let stashes = join_scoped_result("controller snapshot stashes", stashes_task)?;
+        let pull_status = join_scoped_result("controller snapshot pull status", pull_status_task)?;
+
+        Ok((branches, working_tree_status, stashes, pull_status))
+    })
+}
+
 fn get_cached_controller_snapshot(key: &str) -> Result<Option<ControllerSnapshotResponse>, String> {
     let cache = CONTROLLER_SNAPSHOT_CACHE
         .lock()
@@ -2773,6 +2821,28 @@ fn store_controller_snapshot(
 
     cache.insert(key, snapshot);
     Ok(())
+}
+
+fn list_stash_files(repo_path: &str, stash_id: &str) -> Vec<String> {
+    let files_output = run_git(
+        &[
+            "stash",
+            "show",
+            "--include-untracked",
+            "--name-only",
+            "--format=",
+            stash_id,
+        ],
+        repo_path,
+    )
+    .unwrap_or_default();
+
+    files_output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn ensure_deletable_remote_branch(
@@ -6698,26 +6768,25 @@ pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
         })
         .collect();
 
-    for stash in &mut stashes {
-        let files_output = run_git(
-            &[
-                "stash",
-                "show",
-                "--include-untracked",
-                "--name-only",
-                "--format=",
-                stash.id.as_str(),
-            ],
-            &repo_path,
-        )
-        .unwrap_or_default();
-
-        stash.files = files_output
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(ToString::to_string)
+    let repo_path_for_files = repo_path.clone();
+    let stash_files = thread::scope(|scope| {
+        let handles: Vec<_> = stashes
+            .iter()
+            .map(|stash| {
+                let repo_path = repo_path_for_files.clone();
+                let stash_id = stash.id.clone();
+                scope.spawn(move || Ok(list_stash_files(&repo_path, &stash_id)))
+            })
             .collect();
+
+        handles
+            .into_iter()
+            .map(|handle| join_scoped_result("stash file listing", handle))
+            .collect::<Result<Vec<Vec<String>>, String>>()
+    })?;
+
+    for (stash, files) in stashes.iter_mut().zip(stash_files) {
+        stash.files = files;
     }
 
     Ok(StashesResponse { stashes })
@@ -6914,10 +6983,8 @@ pub fn get_controller_snapshot(
         return Ok(cached);
     }
 
-    let branches = get_branches(repo_path.clone())?;
-    let working_tree_status = get_working_tree_status(repo_path.clone())?;
-    let stashes = get_stashes(repo_path.clone())?.stashes;
-    let pull_status = get_pull_status(repo_path.clone(), None)?;
+    let (branches, working_tree_status, stashes, pull_status) =
+        load_controller_snapshot_metadata(&repo_path)?;
     let log_ref = resolve_controller_snapshot_log_ref(&requested_ref, &branches);
     let compare_refs = if compare_refs_mode == "explicit" {
         normalize_explicit_controller_snapshot_compare_refs(&log_ref, &requested_compare_refs)
@@ -8842,6 +8909,36 @@ mod tests {
             .expect("fingerprint should be returned")
             .fingerprint;
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn get_controller_snapshot_without_commits_preserves_metadata_shape() {
+        let fixture = create_stash_fixture();
+
+        let snapshot = get_controller_snapshot(
+            fixture.repo_path.clone(),
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+        )
+        .expect("controller snapshot should be returned");
+
+        assert!(!snapshot.fingerprint.is_empty());
+        assert_eq!(snapshot.branches.current, "main");
+        assert_eq!(snapshot.log_ref, "refs/heads/main");
+        assert!(snapshot.compare_refs.is_empty());
+        assert!(snapshot.commits.is_none());
+        assert!(snapshot.working_tree_status.conflicted.is_empty());
+        assert!(snapshot.working_tree_status.staged.is_empty());
+        assert!(snapshot.working_tree_status.unstaged.is_empty());
+        assert_eq!(snapshot.pull_status.branch_name.as_deref(), Some("main"));
+        assert_eq!(snapshot.pull_status.upstream_name, None);
+        assert_eq!(snapshot.pull_status.state, "noUpstream");
+        assert_eq!(snapshot.stashes.len(), 2);
+        assert_eq!(snapshot.stashes[0].files, vec!["beta.txt".to_string()]);
+        assert_eq!(snapshot.stashes[1].files, vec!["alpha.txt".to_string()]);
     }
 
     #[test]

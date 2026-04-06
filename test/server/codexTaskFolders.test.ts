@@ -43,6 +43,34 @@ describe("ensureThreadTaskDirectory", () => {
 });
 
 describe("syncThreadTaskDirectories", () => {
+  test("creates missing active threads in tasks/threads/<threadId>", async () => {
+    const repoRoot = await createRepoRoot();
+    const thread: CodexThreadSummary = {
+      id: "thr_missing_active",
+      name: "Create on sync",
+      preview: "Local task folder should be created for active Codex threads",
+      createdAt: 1_743_380_000,
+      updatedAt: 1_743_380_120,
+    };
+
+    try {
+      const result = await syncThreadTaskDirectories({
+        repoRoot,
+        activeThreads: [thread],
+        archivedThreads: [],
+      });
+
+      const paths = getThreadTaskPaths(repoRoot);
+      const todo = await fs.readFile(path.join(paths.activeRoot, thread.id, "todo.md"), "utf8");
+
+      expect(result.createdActive).toEqual(["thr_missing_active"]);
+      expect(todo).toContain("Thread ID: thr_missing_active");
+      expect(todo).toContain("Create on sync");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   test("moves archived threads into tasks/archived/<threadId>", async () => {
     const repoRoot = await createRepoRoot();
     const thread: CodexThreadSummary = {

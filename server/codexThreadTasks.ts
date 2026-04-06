@@ -11,7 +11,7 @@ import {
   watchThreadTaskDirectories,
 } from "./codexThreadTaskWatcher";
 
-type Command = "list" | "attach" | "attach-latest" | "archive" | "sync" | "watch";
+type Command = "list" | "attach" | "attach-latest" | "archive" | "bootstrap" | "sync" | "watch";
 
 interface ParsedArgs {
   command: Command;
@@ -69,6 +69,14 @@ async function main(argv: string[]): Promise<void> {
         const syncResult = await runThreadTaskSync(client, repoRoot);
         console.log(`archived ${threadId}`);
         printSyncSummary(repoRoot, syncResult);
+      });
+      return;
+
+    case "bootstrap":
+      await withClient(repoRoot, async (client) => {
+        const syncResult = await runThreadTaskSync(client, repoRoot);
+        printSyncSummary(repoRoot, syncResult);
+        await maybeEnsureWatcher(repoRoot, parsed.flags);
       });
       return;
 
@@ -144,6 +152,7 @@ function isCommand(value: string | undefined): value is Command {
     value === "attach" ||
     value === "attach-latest" ||
     value === "archive" ||
+    value === "bootstrap" ||
     value === "sync" ||
     value === "watch"
   );
@@ -213,6 +222,7 @@ function usage(): string {
     "  attach --thread-id <threadId>",
     "  attach-latest",
     "  archive --thread-id <threadId>",
+    "  bootstrap",
     "  sync",
     "  watch [--interval <seconds>]",
   ].join("\n");

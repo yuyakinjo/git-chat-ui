@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { refreshAfterCheckout } from "../../../src/lib/checkoutRefresh";
+import {
+  refreshAfterCheckout,
+  refreshAfterCheckoutPreservingGraph,
+} from "../../../src/lib/checkoutRefresh";
 
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -113,6 +116,124 @@ describe("refreshAfterCheckout", () => {
         ref: "refs/heads/main",
         includeCommits: false,
       },
+    ]);
+  });
+});
+
+describe("refreshAfterCheckoutPreservingGraph", () => {
+  test("returns after branch, working tree, and pull status refresh while PR and fingerprint sync continue in the background", async () => {
+    const events: string[] = [];
+    const branchRefresh = createDeferredPromise<void>();
+    const workingTreeRefresh = createDeferredPromise<void>();
+    const pullStatusRefresh = createDeferredPromise<void>();
+    const pullRequestRefresh = createDeferredPromise<void>();
+    const fingerprintRefresh = createDeferredPromise<void>();
+
+    const refreshPromise = refreshAfterCheckoutPreservingGraph({
+      loadBranches: async () => {
+        events.push("branches:start");
+        await branchRefresh.promise;
+        events.push("branches:done");
+      },
+      loadWorkingTreeStatus: async () => {
+        events.push("working-tree:start");
+        await workingTreeRefresh.promise;
+        events.push("working-tree:done");
+      },
+      loadPullStatus: async () => {
+        events.push("pull-status:start");
+        await pullStatusRefresh.promise;
+        events.push("pull-status:done");
+      },
+      loadBranchPullRequests: async () => {
+        events.push("pull-requests:start");
+        await pullRequestRefresh.promise;
+        events.push("pull-requests:done");
+      },
+      syncFingerprint: async () => {
+        events.push("fingerprint:start");
+        await fingerprintRefresh.promise;
+        events.push("fingerprint:done");
+      },
+    });
+
+    expect(events).toEqual([
+      "pull-requests:start",
+      "fingerprint:start",
+      "branches:start",
+      "working-tree:start",
+      "pull-status:start",
+    ]);
+
+    branchRefresh.resolve();
+    workingTreeRefresh.resolve();
+    pullStatusRefresh.resolve();
+    await branchRefresh.promise;
+    await workingTreeRefresh.promise;
+    await pullStatusRefresh.promise;
+
+    await expect(refreshPromise).resolves.toBeUndefined();
+    expect(events).toEqual([
+      "pull-requests:start",
+      "fingerprint:start",
+      "branches:start",
+      "working-tree:start",
+      "pull-status:start",
+      "branches:done",
+      "working-tree:done",
+      "pull-status:done",
+    ]);
+
+    pullRequestRefresh.resolve();
+    fingerprintRefresh.resolve();
+    await pullRequestRefresh.promise;
+    await fingerprintRefresh.promise;
+
+    expect(events).toEqual([
+      "pull-requests:start",
+      "fingerprint:start",
+      "branches:start",
+      "working-tree:start",
+      "pull-status:start",
+      "branches:done",
+      "working-tree:done",
+      "pull-status:done",
+      "pull-requests:done",
+      "fingerprint:done",
+    ]);
+  });
+
+  test("still resolves when PR and fingerprint sync fail", async () => {
+    const events: string[] = [];
+
+    await expect(
+      refreshAfterCheckoutPreservingGraph({
+        loadBranches: async () => {
+          events.push("branches");
+        },
+        loadWorkingTreeStatus: async () => {
+          events.push("working-tree");
+        },
+        loadPullStatus: async () => {
+          events.push("pull-status");
+        },
+        loadBranchPullRequests: async () => {
+          events.push("pull-requests");
+          throw new Error("gh unavailable");
+        },
+        syncFingerprint: async () => {
+          events.push("fingerprint");
+          throw new Error("fingerprint unavailable");
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(events).toEqual([
+      "pull-requests",
+      "fingerprint",
+      "branches",
+      "working-tree",
+      "pull-status",
     ]);
   });
 });

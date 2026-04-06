@@ -117,6 +117,51 @@ describe("watchThreadTaskDirectories", () => {
     }
   });
 
+  test("creates a local task folder after thread/started notification", async () => {
+    const repoRoot = await createRepoRoot();
+    const thread: CodexThreadSummary = {
+      id: "thr_watch_create",
+      name: "Create via notification",
+      preview: "Add local task folder when Codex thread starts",
+      createdAt: 1_743_380_000,
+      updatedAt: 1_743_380_120,
+    };
+
+    try {
+      const client = new FakeThreadTaskWatcherClient();
+
+      const watchPromise = watchThreadTaskDirectories({
+        client,
+        repoRoot,
+        intervalSeconds: 60,
+        logger: {
+          info() {},
+          error() {},
+        },
+      });
+
+      await Bun.sleep(25);
+
+      client.activeThreads = [thread];
+      client.emitNotification({
+        method: "thread/started",
+        params: {
+          threadId: thread.id,
+        },
+      });
+
+      const paths = getThreadTaskPaths(repoRoot);
+      await waitFor(async () => {
+        await fs.stat(path.join(paths.activeRoot, thread.id, "todo.md"));
+      });
+
+      client.emitClose();
+      await watchPromise;
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   test("moves active task folders into tasks/archived after thread/archived notification", async () => {
     const repoRoot = await createRepoRoot();
     const thread: CodexThreadSummary = {

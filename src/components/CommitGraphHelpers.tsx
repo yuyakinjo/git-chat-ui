@@ -244,6 +244,7 @@ export function buildPrimaryParentCurvePath(input: {
   resolveLaneX?: (laneIndex: number) => number;
   targetJoinX?: number;
   cornerRadius?: number;
+  reverse?: boolean;
 }): string {
   const startY = input.startY ?? ROW_HEIGHT / 2;
   const resolveX = input.resolveLaneX ?? ((laneIndex: number) => laneX(laneIndex));
@@ -251,6 +252,10 @@ export function buildPrimaryParentCurvePath(input: {
   const targetX = resolveX(input.targetLaneIndex);
   const targetJoinX = input.targetJoinX ?? targetX;
   if (sourceX === targetX) {
+    if (input.reverse) {
+      return `M ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
+    }
+
     return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)}`;
   }
 
@@ -264,14 +269,26 @@ export function buildPrimaryParentCurvePath(input: {
   const elbowY = input.targetY - cornerRadius;
 
   if (elbowY <= startY) {
+    if (input.reverse) {
+      return `M ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
+    }
+
     return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)}`;
   }
 
   if (cornerRadius < 0.5) {
+    if (input.reverse) {
+      return `M ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
+    }
+
     return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)}`;
   }
 
   const turnEndX = sourceX + turnDirection * cornerRadius;
+
+  if (input.reverse) {
+    return `M ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(turnEndX)} ${roundSvgCoordinate(input.targetY)} Q ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)}, ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(elbowY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
+  }
 
   // Stop on the parent node edge instead of the parent lane center so the
   // branch reads as growing from the commit node, not from the WIP line.

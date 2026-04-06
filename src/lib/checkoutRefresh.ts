@@ -3,6 +3,14 @@ export interface CheckoutRefreshDependencies {
   loadControllerSnapshot: (options: { ref?: string; includeCommits?: boolean }) => Promise<boolean>;
 }
 
+export interface GraphPreservingCheckoutRefreshDependencies {
+  loadBranches: () => Promise<unknown>;
+  loadWorkingTreeStatus: () => Promise<void>;
+  loadPullStatus: () => Promise<void>;
+  loadBranchPullRequests: () => Promise<void>;
+  syncFingerprint: () => Promise<void>;
+}
+
 export async function refreshAfterCheckout(
   dependencies: CheckoutRefreshDependencies,
   options: {
@@ -27,4 +35,17 @@ export async function refreshAfterCheckout(
     .catch(() => undefined);
 
   return true;
+}
+
+export async function refreshAfterCheckoutPreservingGraph(
+  dependencies: GraphPreservingCheckoutRefreshDependencies,
+): Promise<void> {
+  void dependencies.loadBranchPullRequests().catch(() => undefined);
+  void dependencies.syncFingerprint().catch(() => undefined);
+
+  await Promise.all([
+    dependencies.loadBranches(),
+    dependencies.loadWorkingTreeStatus(),
+    dependencies.loadPullStatus(),
+  ]);
 }

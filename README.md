@@ -70,6 +70,7 @@ Codex の thread ごとに `tasks/threads/<threadId>/todo.md` を持たせたい
 主要コマンド:
 
 ```bash
+bun run codex:tasks:bootstrap
 bun run codex:tasks:list
 bun run codex:tasks:attach-latest
 bun run codex:tasks:attach -- --thread-id thr_123
@@ -79,7 +80,9 @@ bun run codex:tasks:watch -- --interval 15
 
 運用:
 
+- repo を開いた直後に `bun run codex:tasks:bootstrap` を実行すると、active thread の task folder 作成・archive 状態の同期・background watcher 起動をまとめて行える
 - 新しい Codex thread を作ったら `bun run codex:tasks:attach-latest` で `tasks/threads/<threadId>/todo.md` を作成する
+- `sync` / `watch` は既存 folder の移動だけでなく、local にまだない active thread の `tasks/threads/<threadId>/` も自動作成する
 - `attach` / `attach-latest` は repo 専用の background watcher も起動し、以後は Codex app 側の archive / unarchive を local task folder へ自動反映する
 - どの thread を紐付けるか明示したい場合は `bun run codex:tasks:list` で id を確認してから `attach` する
 - thread をアーカイブした後は watcher が対応する folder を `tasks/archived/<threadId>/` へ移し、手動確認したい場合だけ `bun run codex:tasks:sync` を使う
@@ -89,6 +92,7 @@ bun run codex:tasks:watch -- --interval 15
 注意:
 
 - watcher は Codex app-server の thread lifecycle 通知を使って即時同期し、取りこぼしに備えて interval ごとの `thread/list` 再同期も併用する
+- `.vscode/tasks.json` では `codex:tasks:bootstrap` を `runOn: folderOpen` で登録できる。VS Code では初回だけ automatic task の許可が必要
 - `tasks/` は `.gitignore` 済みなので、thread task folder はローカル運用専用です
 
 ## 注意

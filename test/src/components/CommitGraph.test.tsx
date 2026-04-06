@@ -502,9 +502,11 @@ function extractWipRowMarkup(html: string): string {
 }
 
 function extractLaneLineSignatures(markup: string): string[] {
-  return [...markup.matchAll(/class="[^"]*lane-line[^"]*"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"[^>]*x2="([^"]+)"[^>]*y2="([^"]+)"/g)].map(
-    (match) => `${match[1]}:${match[2]}:${match[3]}:${match[4]}`,
-  );
+  return [
+    ...markup.matchAll(
+      /class="[^"]*lane-line[^"]*"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"[^>]*x2="([^"]+)"[^>]*y2="([^"]+)"/g,
+    ),
+  ].map((match) => `${match[1]}:${match[2]}:${match[3]}:${match[4]}`);
 }
 
 describe("CommitGraph", () => {
@@ -530,6 +532,20 @@ describe("CommitGraph", () => {
       }),
     ).toBe(
       `M ${laneX(1)} 16 L ${laneX(1)} 44 Q ${laneX(1)} 48, ${laneX(1) - 4} 48 L ${laneX(0) + 3.8} 48`,
+    );
+  });
+
+  test("builds reverse branch-off paths for origin-to-head pulses", () => {
+    expect(
+      buildPrimaryParentCurvePath({
+        sourceLaneIndex: 1,
+        targetLaneIndex: 0,
+        targetY: 48,
+        targetJoinX: laneX(0) + 3.8,
+        reverse: true,
+      }),
+    ).toBe(
+      `M ${laneX(0) + 3.8} 48 L ${laneX(1) - 4} 48 Q ${laneX(1)} 48, ${laneX(1)} 44 L ${laneX(1)} 16`,
     );
   });
 

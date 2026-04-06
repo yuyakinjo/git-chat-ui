@@ -93,6 +93,7 @@ export function shouldSyncThreadTasksForNotification(
 
 export function hasThreadTaskDirectoryChanges(result: SyncThreadTaskDirectoriesResult): boolean {
   return (
+    result.createdActive.length > 0 ||
     result.movedToArchive.length > 0 ||
     result.orphanedToArchive.length > 0 ||
     result.restoredToActive.length > 0 ||
@@ -108,6 +109,7 @@ export function formatThreadTaskSyncSummary(
   return [
     `active root: ${paths.activeRoot}`,
     `archived root: ${paths.archivedRoot}`,
+    `created active: ${formatList(result.createdActive)}`,
     `moved to archive: ${formatList(result.movedToArchive)}`,
     `orphaned to archive: ${formatList(result.orphanedToArchive)}`,
     `restored to active: ${formatList(result.restoredToActive)}`,

@@ -160,4 +160,5 @@ describe("createConfigRouter", () => {
       commitGraphStyle: "japaneseExpress",
     });
   });
+
 });

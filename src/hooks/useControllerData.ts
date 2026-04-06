@@ -14,7 +14,10 @@ import {
   writeCommitMessageDraftToStorage,
   type CommitMessageDraftInput,
 } from "../lib/commitMessageDrafts";
-import { refreshAfterCheckout as runCheckoutRefresh } from "../lib/checkoutRefresh";
+import {
+  refreshAfterCheckout as runCheckoutRefresh,
+  refreshAfterCheckoutPreservingGraph as runGraphPreservingCheckoutRefresh,
+} from "../lib/checkoutRefresh";
 import { isHeadDecoration } from "../lib/controllerViewUtils";
 import { describeGitError } from "../lib/errors";
 import { withPromiseTimeout } from "../lib/promiseTimeout";
@@ -431,19 +434,27 @@ export function useControllerData({
     [repoPath, reportError],
   );
 
-  const loadWorkingState = useCallback(async (): Promise<void> => {
+  const loadWorkingTreeStatus = useCallback(async (): Promise<void> => {
     try {
-      const [statusResponse, stashResponse] = await Promise.all([
-        api.getWorkingTreeStatus(repoPath),
-        api.getStashes(repoPath),
-      ]);
-
-      setWorkingStatus(statusResponse);
-      setStashes(stashResponse.stashes);
+      const response = await api.getWorkingTreeStatus(repoPath);
+      setWorkingStatus(response);
     } catch (error) {
       reportError(error, "ワークツリー状態の取得に失敗しました。");
     }
   }, [repoPath, reportError]);
+
+  const loadStashes = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.getStashes(repoPath);
+      setStashes(response.stashes);
+    } catch (error) {
+      reportError(error, "stash 一覧の取得に失敗しました。");
+    }
+  }, [repoPath, reportError]);
+
+  const loadWorkingState = useCallback(async (): Promise<void> => {
+    await Promise.all([loadWorkingTreeStatus(), loadStashes()]);
+  }, [loadStashes, loadWorkingTreeStatus]);
 
   const loadConflictFile = useCallback(
     async (file: string, summary: ConflictSummary): Promise<void> => {
@@ -910,18 +921,16 @@ export function useControllerData({
 
       try {
         if (options.preserveGraph) {
-          await Promise.all([
-            loadBranches(),
-            loadWorkingState(),
-            loadPullStatus(),
-            loadBranchPullRequests(),
-          ]);
-          try {
-            const response = await api.getFingerprint(repoPath);
-            setFingerprint(response.fingerprint);
-          } catch {
-            // Fingerprint sync is best-effort; polling will recover if this fails.
-          }
+          await runGraphPreservingCheckoutRefresh({
+            loadBranches,
+            loadWorkingTreeStatus,
+            loadPullStatus,
+            loadBranchPullRequests,
+            syncFingerprint: async () => {
+              const response = await api.getFingerprint(repoPath);
+              setFingerprint(response.fingerprint);
+            },
+          });
           return;
         }
 
@@ -943,7 +952,7 @@ export function useControllerData({
       loadBranches,
       loadControllerSnapshot,
       loadPullStatus,
-      loadWorkingState,
+      loadWorkingTreeStatus,
       repoPath,
     ],
   );

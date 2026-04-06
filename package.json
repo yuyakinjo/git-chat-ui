@@ -12,6 +12,7 @@
     "codex:tasks:attach": "bun server/codexThreadTasks.ts attach",
     "codex:tasks:attach-latest": "bun server/codexThreadTasks.ts attach-latest",
     "codex:tasks:archive": "bun server/codexThreadTasks.ts archive",
+    "codex:tasks:bootstrap": "bun server/codexThreadTasks.ts bootstrap",
     "codex:tasks:sync": "bun server/codexThreadTasks.ts sync",
     "codex:tasks:watch": "bun server/codexThreadTasks.ts watch",
     "tauri:dev": "bunx tauri dev",

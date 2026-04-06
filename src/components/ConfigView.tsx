@@ -789,6 +789,7 @@ export function ConfigView({
                     {MAX_REPOSITORY_SCAN_DEPTH}）。
                   </p>
                 </div>
+
               </div>
 
               <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">

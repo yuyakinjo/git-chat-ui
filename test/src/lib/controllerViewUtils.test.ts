@@ -4,6 +4,7 @@ import type { BranchResponse } from "../../../src/types";
 
 import {
   buildControllerPanelToggleCommandSpecs,
+  resolveBranchSelectionCommitLoadOptions,
   resolveDefaultBranch,
 } from "../../../src/lib/controllerViewUtils";
 
@@ -74,5 +75,77 @@ describe("buildControllerPanelToggleCommandSpecs", () => {
     expect(specs[1]?.description).toBe("Currently hidden. Show the Git Operations panel.");
     expect(specs[2]?.keywords).toContain("layout");
     expect(specs[2]?.keywords).toContain("commit detail");
+  });
+});
+
+describe("resolveBranchSelectionCommitLoadOptions", () => {
+  test("keeps the current graph ref when selecting another branch", () => {
+    const branches: BranchResponse = {
+      current: "main",
+      local: [
+        {
+          name: "main",
+          fullRef: "refs/heads/main",
+          type: "local",
+          commit: "main-tip",
+        },
+        {
+          name: "feature/refactor",
+          fullRef: "refs/heads/feature/refactor",
+          type: "local",
+          commit: "feature-tip",
+        },
+      ],
+      remote: [],
+    };
+
+    expect(
+      resolveBranchSelectionCommitLoadOptions(branches.local[1]!, {
+        activeLogRef: "refs/heads/main",
+        activeCompareRefs: [
+          "refs/heads/feature/refactor",
+          "refs/heads/main",
+          "refs/heads/feature/refactor",
+        ],
+        branches,
+      }),
+    ).toEqual({
+      ref: "refs/heads/main",
+      compareRefs: ["refs/heads/feature/refactor"],
+      focusCommitSha: "feature-tip",
+    });
+  });
+
+  test("falls back to the clicked branch ref when no current graph ref is available", () => {
+    const branches: BranchResponse = {
+      current: "main",
+      local: [
+        {
+          name: "main",
+          fullRef: "refs/heads/main",
+          type: "local",
+          commit: "main-tip",
+        },
+        {
+          name: "feature/refactor",
+          fullRef: "refs/heads/feature/refactor",
+          type: "local",
+          commit: "feature-tip",
+        },
+      ],
+      remote: [],
+    };
+
+    expect(
+      resolveBranchSelectionCommitLoadOptions(branches.local[1]!, {
+        activeLogRef: " ",
+        activeCompareRefs: [],
+        branches,
+      }),
+    ).toEqual({
+      ref: "refs/heads/feature/refactor",
+      compareRefs: ["refs/heads/main"],
+      focusCommitSha: "feature-tip",
+    });
   });
 });

@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 const globalsCss = await Bun.file(
   new URL("../../../src/styles/globals.css", import.meta.url),
 ).text();
+const themeCss = await Bun.file(
+  new URL("../../../src/styles/theme.css", import.meta.url),
+).text();
 
 function getSection(startMarker: string, endMarker: string): string {
   const start = globalsCss.indexOf(startMarker);
@@ -16,16 +19,19 @@ function getSection(startMarker: string, endMarker: string): string {
 
 describe("globals.css", () => {
   test("defines four app themes with dedicated paper and graphite variants", () => {
-    expect(globalsCss).toContain('body[data-theme="paper-light"] {');
-    expect(globalsCss).toContain('body[data-theme="default-dark"] {');
-    expect(globalsCss).toContain('body[data-theme="graphite-dark"] {');
-    expect(globalsCss).toContain('body[data-theme-mode="light"] {');
-    expect(globalsCss).toContain('body[data-theme-mode="dark"] {');
-    expect(globalsCss).toContain("--color-canvas: 246 241 232;");
-    expect(globalsCss).toContain("--color-accent: 16 102 192;");
-    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 8% -28%");
-    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 10% -30%");
-    expect(globalsCss).toContain("--surface-bg: radial-gradient(circle at 12% -22%");
+    expect(globalsCss).toContain('@import "./theme.css";');
+    expect(themeCss).toContain("@theme {");
+    expect(themeCss).toContain(":root {");
+    expect(themeCss).toContain('body[data-theme="paper-light"] {');
+    expect(themeCss).toContain('body[data-theme="default-dark"] {');
+    expect(themeCss).toContain('body[data-theme="graphite-dark"] {');
+    expect(themeCss).toContain('body[data-theme-mode="light"] {');
+    expect(themeCss).toContain('body[data-theme-mode="dark"] {');
+    expect(themeCss).toContain("--color-canvas: 246 241 232;");
+    expect(themeCss).toContain("--color-accent: 16 102 192;");
+    expect(themeCss).toContain("--surface-bg: radial-gradient(circle at 8% -28%");
+    expect(themeCss).toContain("--surface-bg: radial-gradient(circle at 10% -30%");
+    expect(themeCss).toContain("--surface-bg: radial-gradient(circle at 12% -22%");
   });
 
   test("app shell keeps the header-to-panel gap aligned with panel spacing", () => {
@@ -458,8 +464,8 @@ describe("globals.css", () => {
   test("diff viewer defaults to a light palette and scopes dark styling to explicit dark-mode overrides", () => {
     const diffSection = getSection(".diff-workbench {", ".diff-empty-state,");
 
-    expect(globalsCss).toContain("--diff-surface: #f7faff;");
-    expect(globalsCss).toContain("--diff-text: #11233f;");
+    expect(themeCss).toContain("--diff-surface: #f7faff;");
+    expect(themeCss).toContain("--diff-text: #11233f;");
     expect(diffSection).toContain("rgb(var(--theme-elevated-rgb) / 0.96)");
     expect(diffSection).toContain("rgb(var(--theme-elevated-strong-rgb) / 0.88)");
     expect(diffSection).toContain("background: rgb(var(--theme-elevated-rgb) / 0.72);");

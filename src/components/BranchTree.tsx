@@ -70,7 +70,7 @@ interface BranchTreeProps {
   onRequestPullBranch: (branch: Branch) => void;
 }
 
-const SINGLE_CLICK_DELAY_MS = 400;
+const SINGLE_CLICK_DELAY_MS = 0;
 const DRAG_THRESHOLD_PX = 6;
 
 function isRemoteHeadAlias(branch: Branch): boolean {
@@ -398,7 +398,7 @@ export function BranchTree({
   }, [contextMenu]);
 
   const handleBranchPointerDown = (
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLDivElement>,
     branch: Branch,
   ): void => {
     if (busy) {
@@ -628,14 +628,14 @@ export function BranchTree({
               data-branch-drop-name={isLocalBranch ? leaf.branch.name : undefined}
               style={{ paddingLeft: `${depth * 12 + 28}px` }}
               className={`list-item branch-list-item w-full text-left ${isCurrent ? "active" : ""} ${isLocalBranch ? "is-draggable" : ""} ${isDropCandidate ? "is-drop-candidate" : ""} ${isDropTarget ? "is-drop-target is-split-preview" : ""} ${isDragSource ? "is-drag-source" : ""}`}
+              onClick={() => handleBranchClick(leaf.branch)}
+              onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
+              onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
               onContextMenu={(event) => handleBranchContextMenu(event, leaf.branch)}
             >
               <button
                 type="button"
                 className="branch-list-item__trigger"
-                onClick={() => handleBranchClick(leaf.branch)}
-                onDoubleClick={() => handleBranchDoubleClick(leaf.branch)}
-                onPointerDown={(event) => handleBranchPointerDown(event, leaf.branch)}
               >
                 {isDropTarget && draggedBranchName ? (
                   <div className="branch-drop-split">

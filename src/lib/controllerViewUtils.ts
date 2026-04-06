@@ -5,6 +5,24 @@ import {
 } from "./controllerPanelOrder";
 import type { Branch, BranchResponse } from "../types";
 
+function normalizeCompareRefs(targetRef: string, compareRefs: string[]): string[] {
+  const normalizedTarget = targetRef.trim();
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const compareRef of compareRefs) {
+    const candidate = compareRef.trim();
+    if (!candidate || candidate === normalizedTarget || seen.has(candidate)) {
+      continue;
+    }
+
+    seen.add(candidate);
+    normalized.push(candidate);
+  }
+
+  return normalized;
+}
+
 function getRemoteBranchShortName(branchName: string): string {
   const parts = branchName.trim().split("/").filter(Boolean);
   if (parts.length <= 1) {
@@ -71,6 +89,35 @@ export function resolveCompareRefs(targetRef: string, branches: BranchResponse |
   const ordered = defaultRef ? [defaultRef, ...refs.filter((ref) => ref !== defaultRef)] : refs;
   const deduped = [...new Set(ordered)];
   return deduped.filter((ref) => ref && ref !== targetRef);
+}
+
+export function resolveBranchSelectionCommitLoadOptions(
+  branch: Branch,
+  options: {
+    activeLogRef: string;
+    activeCompareRefs: string[];
+    branches: BranchResponse | null;
+  },
+): {
+  ref: string;
+  compareRefs: string[];
+  focusCommitSha: string;
+} {
+  const activeLogRef = options.activeLogRef.trim();
+  if (activeLogRef) {
+    return {
+      ref: activeLogRef,
+      compareRefs: normalizeCompareRefs(activeLogRef, options.activeCompareRefs),
+      focusCommitSha: branch.commit,
+    };
+  }
+
+  const branchRefForLog = branch.fullRef || branch.name;
+  return {
+    ref: branchRefForLog,
+    compareRefs: resolveCompareRefs(branchRefForLog, options.branches),
+    focusCommitSha: branch.commit,
+  };
 }
 
 export function isHeadDecoration(decoration: string): boolean {

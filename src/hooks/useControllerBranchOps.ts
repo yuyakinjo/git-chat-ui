@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 import { api } from "../lib/api";
 import { getBranchDeleteDisabledReason, getBranchDeleteTargetName } from "../lib/branchDelete";
-import { resolveCompareRefs } from "../lib/controllerViewUtils";
+import { resolveBranchSelectionCommitLoadOptions } from "../lib/controllerViewUtils";
 import { type UiError } from "../lib/errors";
 import {
   canCheckoutBranchWithoutWorkingTreeChange,
@@ -158,15 +158,17 @@ export function useControllerBranchOps({
   const handleSelectBranch = (branch: Branch): void => {
     setSelectedBranchForHover(branch);
     setPendingScrollCommitSha(branch.commit);
-    const branchRefForLog = branch.fullRef || branch.name;
-    const compareRefs = resolveCompareRefs(branchRefForLog, data.branches);
-    data.setActiveLogRef(branchRefForLog);
+    const loadOptions = resolveBranchSelectionCommitLoadOptions(branch, {
+      activeLogRef: data.activeLogRef,
+      activeCompareRefs: data.activeCompareRefs,
+      branches: data.branches,
+    });
     void data.loadCommits({
       append: false,
       offset: 0,
-      ref: branchRefForLog,
-      compareRefs,
-      focusCommitSha: branch.commit,
+      ref: loadOptions.ref,
+      compareRefs: loadOptions.compareRefs,
+      focusCommitSha: loadOptions.focusCommitSha,
     });
   };
 

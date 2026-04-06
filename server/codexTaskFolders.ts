@@ -32,6 +32,7 @@ export interface EnsureThreadTaskDirectoryResult {
 }
 
 export interface SyncThreadTaskDirectoriesResult {
+  createdActive: string[];
   movedToArchive: string[];
   orphanedToArchive: string[];
   restoredToActive: string[];
@@ -108,6 +109,7 @@ export async function syncThreadTaskDirectories(
   const activeDirs = await listDirectoryNames(paths.activeRoot);
   const archivedDirs = await listDirectoryNames(paths.archivedRoot);
   const result: SyncThreadTaskDirectoriesResult = {
+    createdActive: [],
     movedToArchive: [],
     orphanedToArchive: [],
     restoredToActive: [],
@@ -183,6 +185,16 @@ export async function syncThreadTaskDirectories(
     }
 
     result.unknownArchived.push(threadId);
+  }
+
+  const knownLocalThreadIds = new Set([...activeDirs, ...archivedDirs]);
+  for (const [threadId, activeThread] of activeById) {
+    if (knownLocalThreadIds.has(threadId)) {
+      continue;
+    }
+
+    await ensureThreadTaskDirectory(options.repoRoot, activeThread);
+    result.createdActive.push(threadId);
   }
 
   return result;
