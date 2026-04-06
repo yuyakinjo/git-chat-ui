@@ -30,7 +30,7 @@ export async function getCommits(options: {
   const logArgs = [
     "log",
     "--decorate=short",
-    "--topo-order",
+    "--date-order",
     "--date=iso-strict",
     `--skip=${options.offset}`,
     `-n`,

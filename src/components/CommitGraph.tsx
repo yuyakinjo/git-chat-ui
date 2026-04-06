@@ -1015,6 +1015,11 @@ export function CommitGraph({
                           return null;
                         }
 
+                        // マージカーブが接続を担うため、マージターゲットレーンの stub 線をスキップ
+                        if (!hasIncoming && row.mergeTargetLaneIndices.includes(laneIndex)) {
+                          return null;
+                        }
+
                         const y1 = hasIncoming ? -LINE_OVERDRAW : ROW_HEIGHT / 2 + strokeWidth / 2;
                         const y2 = hasOutgoing
                           ? ROW_HEIGHT + LINE_OVERDRAW
@@ -1069,10 +1074,13 @@ export function CommitGraph({
                         return (
                           <path
                             key={`${commit.sha}-merge-${targetLaneIndex}`}
-                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT}`}
+                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT + LINE_OVERDRAW}`}
                             stroke={resolveLaneStroke(index, targetLaneIndex)}
                             strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
                             opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           />
                         );
                       })}

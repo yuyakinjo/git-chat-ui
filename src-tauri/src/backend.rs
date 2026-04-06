@@ -5636,7 +5636,7 @@ pub fn get_commits(
     let mut args = vec![
         "log".to_string(),
         "--decorate=short".to_string(),
-        "--topo-order".to_string(),
+        "--date-order".to_string(),
         "--date=iso-strict".to_string(),
         format!("--skip={offset}"),
         "-n".to_string(),
