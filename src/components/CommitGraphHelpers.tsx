@@ -9,6 +9,10 @@ import type { CommitGraphStyle, CommitListItem } from "../types";
 export const LANE_GAP = 27;
 export const LANE_PADDING = 10;
 export const ROW_HEIGHT = 32;
+/** commit-row の border: 1px solid transparent による上下合計 2px */
+export const COMMIT_ROW_BORDER_TOTAL = 2;
+/** 隣接 graphCell 間の実距離 (ROW_HEIGHT + border) — 行をまたぐ Y 座標計算に使用 */
+export const ROW_STEP = ROW_HEIGHT + COMMIT_ROW_BORDER_TOTAL;
 export const LINE_OVERDRAW = 1;
 export const WIP_NODE_SIZE = 18;
 export const WIP_NODE_CENTER = WIP_NODE_SIZE / 2;

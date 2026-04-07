@@ -36,6 +36,7 @@ import {
   refLabelIcon,
   refLabelIconClass,
   ROW_HEIGHT,
+  ROW_STEP,
   resolveCommitGraphStyleMetrics,
   WipNode,
   type CommitRefLabel,
@@ -938,7 +939,7 @@ export function CommitGraph({
             isPrimaryBranchSourceRow &&
             row.primaryParentRowIndex !== null &&
             row.primaryParentRowIndex > index
-              ? (row.primaryParentRowIndex - index) * ROW_HEIGHT + ROW_HEIGHT / 2
+              ? (row.primaryParentRowIndex - index) * ROW_STEP + ROW_HEIGHT / 2
               : null;
           const sharedStemLaneIndices = sharedStemLaneIndicesByRow.get(index) ?? [];
           const graphSvgHeight = Math.max(
