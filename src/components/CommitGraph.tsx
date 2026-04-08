@@ -1,7 +1,6 @@
 import { animate, stagger } from "animejs";
 import { Check } from "lucide-react";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -17,7 +16,7 @@ import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows } from "../lib/commitGraphLayout";
 import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
-import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem } from "../types";
+import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem, StashEntry } from "../types";
 import {
   buildCommitRefBadges,
   buildPrimaryParentCurvePath,
@@ -38,6 +37,8 @@ import {
   ROW_HEIGHT,
   ROW_STEP,
   resolveCommitGraphStyleMetrics,
+  STASH_LANE_COLOR,
+  StashNode,
   WipNode,
   type CommitRefLabel,
 } from "./CommitGraphHelpers";
@@ -68,6 +69,8 @@ interface CommitGraphProps {
   onJumpToCommit?: ((sha: string) => Promise<boolean>) | null;
   headerAccessory?: JSX.Element | null;
   branchContext?: BranchResponse | null;
+  stashes?: StashEntry[];
+  onSelectStash?: (stash: StashEntry) => void;
 }
 
 export function resolveCommitEnterAnimationTargets<T>(
@@ -158,6 +161,8 @@ export function CommitGraph({
   onJumpToCommit = null,
   headerAccessory,
   branchContext = null,
+  stashes = [],
+  onSelectStash,
 }: CommitGraphProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refsResizeCleanupRef = useRef<(() => void) | null>(null);
@@ -181,7 +186,6 @@ export function CommitGraph({
   const [shaJumpValue, setShaJumpValue] = useState("");
   const [shaJumpPending, setShaJumpPending] = useState(false);
 
-  const visibleCommits = useMemo(() => commits, [commits]);
   const currentLocalBranch = useMemo(
     () => branchContext?.local.find((branch) => branch.name === branchContext.current) ?? null,
     [branchContext],
@@ -197,6 +201,63 @@ export function CommitGraph({
   const laneLayout = useMemo(
     () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
     [commits, reservedLaneHeadSha],
+  );
+  // -- Unified timeline: interleave commits and stashes by date (newest-first) --
+  type TimelineCommitEntry = { type: "commit"; commit: CommitListItem; commitIndex: number };
+  type TimelineStashEntry = { type: "stash"; stash: StashEntry };
+  type TimelineEntry = TimelineCommitEntry | TimelineStashEntry;
+
+  const shaToCommitIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < commits.length; i++) {
+      map.set(commits[i].sha, i);
+    }
+    return map;
+  }, [commits]);
+
+  const timeline: TimelineEntry[] = useMemo(() => {
+    const commitEntries: (TimelineEntry & { _ts: number })[] = commits.map((commit, i) => ({
+      type: "commit" as const,
+      commit,
+      commitIndex: i,
+      _ts: new Date(commit.date).getTime(),
+    }));
+    const stashEntries: (TimelineEntry & { _ts: number })[] = stashes.map((stash) => ({
+      type: "stash" as const,
+      stash,
+      _ts: new Date(stash.date).getTime(),
+    }));
+    return [...commitEntries, ...stashEntries]
+      .sort((a, b) => b._ts - a._ts)
+      .map(({ _ts: _, ...entry }) => entry as TimelineEntry);
+  }, [commits, stashes]);
+
+  const commitIndexToTimelineIndex = useMemo(() => {
+    const map = new Map<number, number>();
+    for (let t = 0; t < timeline.length; t++) {
+      const entry = timeline[t];
+      if (entry.type === "commit") {
+        map.set(entry.commitIndex, t);
+      }
+    }
+    return map;
+  }, [timeline]);
+
+  /** Count non-commit (stash) rows that sit between two commits in the timeline. */
+  const stashRowsBetweenCommits = useCallback(
+    (fromCommitIndex: number, toCommitIndex: number): number => {
+      const fromTl = commitIndexToTimelineIndex.get(fromCommitIndex);
+      const toTl = commitIndexToTimelineIndex.get(toCommitIndex);
+      if (fromTl == null || toTl == null) return 0;
+      let count = 0;
+      const lo = Math.min(fromTl, toTl);
+      const hi = Math.max(fromTl, toTl);
+      for (let i = lo + 1; i < hi; i++) {
+        if (timeline[i].type === "stash") count++;
+      }
+      return count;
+    },
+    [commitIndexToTimelineIndex, timeline],
   );
   const defaultBranchAnchorLaneIndices = useMemo(
     () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
@@ -345,7 +406,7 @@ export function CommitGraph({
       return;
     }
 
-    const nextVisibleCommitCount = visibleCommits.length;
+    const nextVisibleCommitCount = timeline.length;
     const animationTargets = resolveCommitEnterAnimationTargets(
       Array.from(rootRef.current.querySelectorAll('[data-animate="commit-enter"]')),
       previousVisibleCommitCountRef.current,
@@ -363,7 +424,7 @@ export function CommitGraph({
       duration: 250,
       easing: "linear",
     });
-  }, [visibleCommits.length]);
+  }, [timeline.length]);
 
   useEffect(() => {
     if (!isShaJumpOpen) {
@@ -412,7 +473,7 @@ export function CommitGraph({
       behavior: "smooth",
     });
     onScrollToCommitHandled(scrollToCommitSha);
-  }, [onScrollToCommitHandled, scrollToCommitSha, visibleCommits.length]);
+  }, [onScrollToCommitHandled, scrollToCommitSha, timeline.length]);
 
   const isDetailedMode = mode === "detailed";
   const laneDisplayOffsets = useMemo(
@@ -471,7 +532,7 @@ export function CommitGraph({
 
     const anchorHeadSha = (reservedLaneHeadSha ?? "").trim();
     const anchorRowIndex = anchorHeadSha
-      ? visibleCommits.findIndex((commit) => commit.sha.trim() === anchorHeadSha)
+      ? commits.findIndex((commit) => commit.sha.trim() === anchorHeadSha)
       : -1;
     const anchorLaneIndex =
       anchorRowIndex >= 0 ? (laneLayout.rows[anchorRowIndex]?.laneIndex ?? 0) : 0;
@@ -481,15 +542,15 @@ export function CommitGraph({
       rowIndex: 0,
       laneIndex: anchorLaneIndex,
     };
-  }, [hasWipRow, laneLayout.rows, reservedLaneHeadSha, visibleCommits]);
+  }, [hasWipRow, laneLayout.rows, reservedLaneHeadSha, commits]);
   const reservedHeadRowIndex = useMemo(() => {
     const headSha = reservedLaneHeadSha.trim();
     if (!headSha) {
       return -1;
     }
 
-    return visibleCommits.findIndex((commit) => commit.sha.trim() === headSha);
-  }, [reservedLaneHeadSha, visibleCommits]);
+    return commits.findIndex((commit) => commit.sha.trim() === headSha);
+  }, [reservedLaneHeadSha, commits]);
   const resolveLaneStroke = useCallback(
     (rowIndex: number, laneIndex: number) =>
       laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0, graphStyle),
@@ -869,7 +930,258 @@ export function CommitGraph({
 
         {hasWipRow ? renderWipRow() : null}
 
-        {visibleCommits.map((commit, index) => {
+        {timeline.map((timelineEntry, timelineIndex) => {
+          // --- Stash row (standalone, at its chronological position) ---
+          if (timelineEntry.type === "stash") {
+            const stash = timelineEntry.stash;
+            const parentCommitIndex = shaToCommitIndex.get(stash.parentSha?.trim() ?? "");
+            const parentRow =
+              parentCommitIndex != null ? (laneLayout.rows[parentCommitIndex] ?? null) : null;
+            const stashParentLaneIndex = parentRow?.laneIndex ?? 0;
+            // Stash node sits on the parent commit's lane so we don't allocate an extra
+            // graph column (which read as a stray coloured vertical "spur" beside the icon).
+            const stashLaneIndex = stashParentLaneIndex;
+            const stashNodeSize = graphStyleMetrics.stashNodeSize;
+            const stashNodeCenter = stashNodeSize / 2;
+            const stashIconTopY = ROW_HEIGHT / 2 - stashNodeCenter;
+            const stashIconBottomY = ROW_HEIGHT / 2 + stashNodeCenter;
+            const parentLaneX = resolveLaneX(stashParentLaneIndex);
+            const stashLaneX = resolveLaneX(stashLaneIndex);
+            const parentLaneStroke =
+              parentCommitIndex != null
+                ? resolveLaneStroke(parentCommitIndex, stashParentLaneIndex)
+                : STASH_LANE_COLOR;
+
+            // Determine which lanes are actually active at this timeline position.
+            // Use the nearest following commit's incomingLaneIndices (lanes arriving
+            // from above) — these are the lanes that truly pass through this row.
+            let nearestFollowingCommitIndex: number | null = null;
+            for (let ti = timelineIndex + 1; ti < timeline.length; ti++) {
+              const e = timeline[ti];
+              if (e.type === "commit") {
+                nearestFollowingCommitIndex = e.commitIndex;
+                break;
+              }
+            }
+            let nearestPrecedingCommitIndex: number | null = null;
+            for (let ti = timelineIndex - 1; ti >= 0; ti--) {
+              const e = timeline[ti];
+              if (e.type === "commit") {
+                nearestPrecedingCommitIndex = e.commitIndex;
+                break;
+              }
+            }
+            const followingRow =
+              nearestFollowingCommitIndex != null
+                ? (laneLayout.rows[nearestFollowingCommitIndex] ?? null)
+                : null;
+            const precedingRow =
+              nearestPrecedingCommitIndex != null
+                ? (laneLayout.rows[nearestPrecedingCommitIndex] ?? null)
+                : null;
+            // Active lanes that pass through this stash row.
+            // Priority: preceding commit's outgoingLaneIndices → following commit's
+            // incomingLaneIndices → WIP lane → empty.
+            // Note: `??` doesn't trigger on empty arrays so we check `.length`.
+            // Passthrough lanes: stash shares the parent lane, so no separate stash
+            // column needs to be excluded from this list.
+            // When no neighbouring commit provides lanes and there is no WIP row,
+            // fall back to the parent lane index (same as original behaviour).
+            const passthroughLanes: number[] = (() => {
+              const fromPreceding = precedingRow?.outgoingLaneIndices;
+              if (fromPreceding?.length) return fromPreceding;
+              const fromFollowing = followingRow?.incomingLaneIndices;
+              if (fromFollowing?.length) return fromFollowing;
+              // Stash is above all commits – only the WIP lane passes through.
+              if (hasWipRow) return [wipAnchor.laneIndex];
+              return [stashParentLaneIndex];
+            })();
+            // Resolve stroke color from the nearest commit context
+            const laneStrokeRefIndex =
+              nearestPrecedingCommitIndex ?? nearestFollowingCommitIndex ?? 0;
+
+            // Calculate Y distance from this stash row down to its parent commit row.
+            // The SVG extends downward so the dashed stash line reaches the parent.
+            const parentTimelineIdx =
+              parentCommitIndex != null
+                ? commitIndexToTimelineIndex.get(parentCommitIndex) ?? null
+                : null;
+            const stashToParentRowCount =
+              parentTimelineIdx != null ? parentTimelineIdx - timelineIndex : 1;
+            const stashToParentY = stashToParentRowCount * ROW_STEP;
+            const stashSvgHeight = Math.max(
+              ROW_HEIGHT + LINE_OVERDRAW * 2,
+              stashToParentY + ROW_HEIGHT / 2 + LINE_OVERDRAW,
+            );
+            // Without a WIP row above, nothing should visually connect into the stash row
+            // from the header. Starting lane stems at the stash icon top avoids stray
+            // coloured segments (other branches' incoming lanes) above the icon.
+            const stashSolidLineY1 = hasWipRow ? -LINE_OVERDRAW : stashIconTopY;
+            const stashSvgTopPx = hasWipRow ? -LINE_OVERDRAW : 0;
+            const stashViewBoxY = hasWipRow ? -LINE_OVERDRAW : 0;
+
+            return (
+              <div
+                key={stash.id}
+                className="stash-row commit-row"
+                style={{ gridTemplateColumns }}
+                data-animate="commit-enter"
+                onClick={() => onSelectStash?.(stash)}
+                title={`${stash.id}: ${stash.message}`}
+              >
+                {isDetailedMode ? (
+                  <div
+                    className="relative h-8"
+                    style={{ width: `${graphColumnWidth}px` }}
+                  >
+                    <svg
+                      className="absolute left-0"
+                      width={graphColumnWidth}
+                      height={stashSvgHeight}
+                      style={{ top: `${stashSvgTopPx}px` }}
+                      viewBox={`0 ${stashViewBoxY} ${graphColumnWidth} ${stashSvgHeight}`}
+                      fill="none"
+                      overflow="visible"
+                    >
+                      {/* 1. Solid passthrough lines. On the stash column, only the segment
+                          above the icon uses branch colour; below the icon the dashed stash
+                          connector is the only stroke (solid here would show through dash gaps). */}
+                      {passthroughLanes.map((laneIdx) => {
+                        const lx = resolveLaneX(laneIdx);
+                        const stroke = resolveLaneStroke(laneStrokeRefIndex, laneIdx);
+                        const common = {
+                          strokeWidth: graphStyleMetrics.detailedLineWidth,
+                          opacity: graphStyleMetrics.detailedLineOpacity,
+                          strokeLinecap: "round" as const,
+                        };
+                        if (laneIdx === stashParentLaneIndex) {
+                          if (stashSolidLineY1 >= stashIconTopY - 0.001) {
+                            return null;
+                          }
+
+                          return (
+                            <line
+                              key={`stash-pass-${stash.id}-${laneIdx}`}
+                              x1={lx}
+                              y1={stashSolidLineY1}
+                              x2={lx}
+                              y2={stashIconTopY}
+                              stroke={stroke}
+                              {...common}
+                            />
+                          );
+                        }
+
+                        return (
+                          <line
+                            key={`stash-pass-${stash.id}-${laneIdx}`}
+                            x1={lx}
+                            y1={stashSolidLineY1}
+                            x2={lx}
+                            y2={ROW_HEIGHT + LINE_OVERDRAW}
+                            stroke={stroke}
+                            {...common}
+                          />
+                        );
+                      })}
+                      {/* parent lane: only when not already drawn by passthrough (upper band only) */}
+                      {!passthroughLanes.includes(stashParentLaneIndex) &&
+                      stashSolidLineY1 < stashIconTopY - 0.001 ? (
+                        <line
+                          x1={parentLaneX}
+                          y1={stashSolidLineY1}
+                          x2={parentLaneX}
+                          y2={stashIconTopY}
+                          stroke={parentLaneStroke}
+                          strokeWidth={graphStyleMetrics.detailedLineWidth}
+                          opacity={graphStyleMetrics.detailedLineOpacity}
+                          strokeLinecap="round"
+                        />
+                      ) : null}
+                      {/* 2. Dashed stash connector: from icon bottom (reads as leaving the node) */}
+                      <path
+                        d={[
+                          `M ${stashLaneX} ${stashIconBottomY}`,
+                          `L ${stashLaneX} ${stashToParentY + ROW_HEIGHT / 2}`,
+                        ].join(" ")}
+                        stroke={STASH_LANE_COLOR}
+                        strokeWidth={graphStyleMetrics.detailedLineWidth}
+                        opacity={0.7}
+                        strokeDasharray="3 2.5"
+                        fill="none"
+                        strokeLinecap="butt"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <StashNode
+                      className="absolute block"
+                      style={{
+                        left: `${stashLaneX - stashNodeCenter}px`,
+                        top: `${ROW_HEIGHT / 2 - stashNodeCenter}px`,
+                      }}
+                      size={stashNodeSize}
+                      strokeWidth={graphStyleMetrics.stashNodeStrokeWidth}
+                      variant={graphStyle}
+                    />
+                  </div>
+                ) : (
+                  <div className="relative flex h-8 items-center justify-center">
+                    <div
+                      className="absolute"
+                      style={{
+                        width: `${graphStyleMetrics.compactLineWidth}px`,
+                        top: 0,
+                        height: `${ROW_HEIGHT}px`,
+                        background: parentLaneStroke,
+                        opacity: graphStyleMetrics.detailedLineOpacity,
+                      }}
+                    />
+                    <StashNode
+                      size={stashNodeSize}
+                      strokeWidth={graphStyleMetrics.stashNodeStrokeWidth}
+                      variant={graphStyle}
+                    />
+                  </div>
+                )}
+                <div className="overflow-hidden whitespace-nowrap text-xs" />
+                {!isCompactLayout ? (
+                  <div className="stash-row__meta truncate text-xs">
+                    {formatRelativeDate(stash.date)}
+                  </div>
+                ) : null}
+                <div className="stash-row__primary truncate text-sm">
+                  {stash.message}
+                </div>
+                <div className="stash-row__meta truncate text-xs">
+                  {stash.files.length > 0 ? `${stash.files.length} files` : "—"}
+                </div>
+                {!isCompactLayout ? (
+                  <div className="stash-row__meta commit-id-column truncate text-xs">
+                    {stash.sha ? (
+                      <button
+                        type="button"
+                        className="cursor-pointer truncate hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void copyTextToClipboard(stash.sha);
+                          onNotify("SHA をコピーしました");
+                        }}
+                        title={`${stash.sha} をコピー`}
+                      >
+                        {shortSha(stash.sha)}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+
+          // --- Commit row ---
+          const commit = timelineEntry.commit;
+          const index = timelineEntry.commitIndex;
           const isHighlighted = highlightedCommitSha === commit.sha;
           const isActive = activeCommitSha === commit.sha;
           const isCheckedOutCommit = checkedOutCommitSha === commit.sha;
@@ -899,7 +1211,7 @@ export function CommitGraph({
             row.primaryParentLaneIndex !== null && row.primaryParentLaneIndex !== row.laneIndex;
           const primaryParentCommit =
             row.primaryParentRowIndex !== null
-              ? (visibleCommits[row.primaryParentRowIndex] ?? null)
+              ? (commits[row.primaryParentRowIndex] ?? null)
               : null;
           const primaryParentAvatarSrc = primaryParentCommit
             ? commitAuthorAvatars[primaryParentCommit.sha]
@@ -935,11 +1247,18 @@ export function CommitGraph({
                   );
                 })()
               : null;
+          const interveningStashRows =
+            isPrimaryBranchSourceRow &&
+            row.primaryParentRowIndex !== null &&
+            row.primaryParentRowIndex > index
+              ? stashRowsBetweenCommits(index, row.primaryParentRowIndex)
+              : 0;
           const primaryParentTargetY =
             isPrimaryBranchSourceRow &&
             row.primaryParentRowIndex !== null &&
             row.primaryParentRowIndex > index
-              ? (row.primaryParentRowIndex - index) * ROW_STEP + ROW_HEIGHT / 2
+              ? (row.primaryParentRowIndex - index + interveningStashRows) * ROW_STEP +
+                ROW_HEIGHT / 2
               : null;
           const sharedStemLaneIndices = sharedStemLaneIndicesByRow.get(index) ?? [];
           const graphSvgHeight = Math.max(
@@ -958,8 +1277,8 @@ export function CommitGraph({
             .join(" ");
 
           return (
-            <Fragment key={commit.sha}>
               <div
+                key={commit.sha}
                 className={`commit-row ${isActive || isHighlighted ? "active" : ""}`}
                 style={{ gridTemplateColumns }}
                 data-animate="commit-enter"
@@ -1009,7 +1328,7 @@ export function CommitGraph({
                           !(isPrimaryBranchSourceRow && laneIndex === row.laneIndex);
                         const hasOutgoing =
                           hasOutgoingRaw &&
-                          !(index === visibleCommits.length - 1 && !hasMore) &&
+                          !(index === commits.length - 1 && !hasMore) &&
                           !isTopRowSiblingPassthroughLane;
 
                         if (!hasIncoming && !hasOutgoing) {
@@ -1104,6 +1423,8 @@ export function CommitGraph({
                           strokeLinejoin="round"
                         />
                       ) : null}
+
+                      {/* (stash rows are now rendered at their chronological position in the timeline) */}
                     </svg>
 
                     <span
@@ -1258,11 +1579,10 @@ export function CommitGraph({
                   </div>
                 ) : null}
               </div>
-            </Fragment>
           );
         })}
 
-        {!loading && visibleCommits.length === 0 ? (
+        {!loading && commits.length === 0 ? (
           <div className="p-4 text-sm text-ink-subtle">コミットが見つかりません。</div>
         ) : null}
 

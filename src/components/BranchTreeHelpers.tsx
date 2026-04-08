@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 
-import { formatFileCountLabel } from "../lib/format";
+import { formatFileCountLabel, formatRelativeDate } from "../lib/format";
 import type { Branch, StashEntry } from "../types";
 
 export interface TreeNode {
@@ -87,9 +87,9 @@ export function getStashPrimaryLabel(stash: StashEntry): string {
 
 export function getStashMetaLabel(stash: StashEntry): string {
   const parts = [formatFileCountLabel(stash.files.length)];
-  const relativeDate = stash.relativeDate.trim();
-  if (relativeDate) {
-    parts.push(relativeDate);
+  const date = stash.date.trim();
+  if (date) {
+    parts.push(formatRelativeDate(date));
   }
 
   return parts.join(" • ");

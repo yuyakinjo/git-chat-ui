@@ -41,7 +41,9 @@ const status: WorkingTreeStatus = {
 const stashes: StashEntry[] = [
   {
     id: "stash@{0}",
-    relativeDate: "2 minutes ago",
+    sha: "stash0sha",
+    parentSha: "abc1234",
+    date: "2026-04-07T10:00:00+09:00",
     message: "WIP on layout",
     files: ["src/styles/globals.css"],
   },

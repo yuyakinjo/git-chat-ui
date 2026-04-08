@@ -1,4 +1,4 @@
-import { Cloud, HardDrive, Tag, type LucideIcon } from "lucide-react";
+import { Archive, Cloud, HardDrive, Tag, type LucideIcon } from "lucide-react";
 import type { CSSProperties, JSX } from "react";
 
 import type { LaneRow } from "../lib/commitGraphLayout";
@@ -18,6 +18,8 @@ export const WIP_NODE_SIZE = 18;
 export const WIP_NODE_CENTER = WIP_NODE_SIZE / 2;
 export const WIP_NODE_RING_RADIUS = 7;
 export const WIP_NODE_LINE_CLEARANCE = WIP_NODE_RING_RADIUS + 1;
+export const STASH_NODE_SIZE = 16;
+export const STASH_LANE_COLOR = "#5b9bd5";
 export const REF_COLUMN_MIN_WIDTH = 140;
 export const REF_COLUMN_MAX_WIDTH = 900;
 export const REF_COLUMN_DEFAULT_WIDTH = 230;
@@ -68,6 +70,8 @@ export interface CommitGraphStyleMetrics {
   wipNodeRingRadius: number;
   wipNodeStrokeWidth: number;
   wipNodeLineClearance: number;
+  stashNodeSize: number;
+  stashNodeStrokeWidth: number;
 }
 
 const STANDARD_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
@@ -85,6 +89,8 @@ const STANDARD_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
   wipNodeRingRadius: WIP_NODE_RING_RADIUS,
   wipNodeStrokeWidth: 1.8,
   wipNodeLineClearance: WIP_NODE_LINE_CLEARANCE,
+  stashNodeSize: STASH_NODE_SIZE,
+  stashNodeStrokeWidth: 1.6,
 };
 
 const JAPANESE_EXPRESS_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
@@ -102,6 +108,8 @@ const JAPANESE_EXPRESS_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
   wipNodeRingRadius: 8,
   wipNodeStrokeWidth: 2.4,
   wipNodeLineClearance: 10,
+  stashNodeSize: 20,
+  stashNodeStrokeWidth: 2.0,
 };
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -582,6 +590,35 @@ export function WipNode({
           strokeLinecap="round"
         />
       </svg>
+    </span>
+  );
+}
+
+export function StashNode({
+  className = "",
+  style,
+  size = STASH_NODE_SIZE,
+  strokeWidth: _strokeWidth = 1.6,
+  variant = "standard",
+}: {
+  className?: string;
+  style?: CSSProperties;
+  size?: number;
+  strokeWidth?: number;
+  variant?: CommitGraphStyle;
+}): JSX.Element {
+  const iconSize = Math.round(size * 0.6);
+  return (
+    <span
+      className={`stash-node ${variant === "japaneseExpress" ? "stash-node--japanese-express" : ""} ${className}`.trim()}
+      style={{
+        ...style,
+        width: `${size}px`,
+        height: `${size}px`,
+      }}
+      aria-hidden="true"
+    >
+      <Archive size={iconSize} strokeWidth={2} />
     </span>
   );
 }

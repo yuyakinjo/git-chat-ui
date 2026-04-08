@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "rea
 import { api } from "../lib/api";
 import type { AppThemeId } from "../lib/appTheme";
 import { hasInlineDiffForPath, parseUnifiedDiff } from "../lib/diff";
-import { formatFileCountLabel } from "../lib/format";
+import { formatFileCountLabel, formatRelativeDate } from "../lib/format";
 import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from "../types";
 import { SplitDiffViewer } from "./SplitDiffViewer";
 
@@ -164,7 +164,7 @@ export function StashDiffOverlay({
             <div className="truncate text-base font-semibold text-ink">{title}</div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
               <span className="badge bg-black/5! text-ink-soft!">{stash.id}</span>
-              {stash.relativeDate ? <span>{stash.relativeDate}</span> : null}
+              {stash.date ? <span>{formatRelativeDate(stash.date)}</span> : null}
               <span>{fileCountLabel}</span>
               {detail?.isDiffTruncated ? (
                 <span className="badge diff-overlay__meta-badge">Truncated</span>

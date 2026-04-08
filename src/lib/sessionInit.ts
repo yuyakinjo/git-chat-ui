@@ -7,10 +7,11 @@ import {
   type PersistedAppSession,
 } from "./appTabs";
 import { normalizeAppTheme } from "./appTheme";
-import type { AiGenerationConfig, AppConfig } from "../types";
+import type { AiGenerationConfig, AppConfig, RepositoryAssistantUserProfile } from "../types";
 
 const APP_SESSION_STORAGE_KEY = "git-chat-ui.app-session";
 const APP_THEME_STORAGE_KEY = "git-chat-ui.app-theme";
+const ASSISTANT_USER_PROFILES_STORAGE_KEY = "git-chat-ui.assistant-user-profiles";
 
 export { APP_SESSION_STORAGE_KEY, APP_THEME_STORAGE_KEY };
 
@@ -73,4 +74,64 @@ export function pickAiGenerationConfig(config: AppConfig): AiGenerationConfig {
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
   };
+}
+
+function isRepositoryAssistantUserProfile(
+  value: unknown,
+): value is RepositoryAssistantUserProfile {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    (typeof candidate.login === "string" || candidate.login === null) &&
+    (typeof candidate.avatarUrl === "string" || candidate.avatarUrl === null)
+  );
+}
+
+export function loadPersistedAssistantUserProfiles(): Record<
+  string,
+  RepositoryAssistantUserProfile
+> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_USER_PROFILES_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) {
+      return {};
+    }
+
+    const result: Record<string, RepositoryAssistantUserProfile> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (isRepositoryAssistantUserProfile(value)) {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export function persistAssistantUserProfiles(
+  profiles: Record<string, RepositoryAssistantUserProfile>,
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ASSISTANT_USER_PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+  } catch {
+    // Ignore storage failures.
+  }
 }

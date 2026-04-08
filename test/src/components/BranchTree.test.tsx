@@ -62,13 +62,17 @@ const branchesWithRemoteHeadAlias: BranchResponse = {
 const stashes: StashEntry[] = [
   {
     id: "stash@{0}",
-    relativeDate: "2 minutes ago",
+    sha: "stash0sha",
+    parentSha: "abc1234",
+    date: "2026-04-07T10:00:00+09:00",
     message: "WIP on develop",
     files: ["src/components/BranchTree.tsx"],
   },
   {
     id: "stash@{1}",
-    relativeDate: "5 minutes ago",
+    sha: "stash1sha",
+    parentSha: "def5678",
+    date: "2026-04-07T09:55:00+09:00",
     message: "Auto stash before cherry pick",
     files: ["src/components/ControllerView.tsx"],
   },
@@ -193,8 +197,8 @@ describe("BranchTree", () => {
     expect(html).toContain("Branch List");
     expect(html).toContain("main");
     expect(html).toContain("Stashes");
-    expect(html).toContain("1 file • 2 minutes ago");
-    expect(html).toContain("1 file • 5 minutes ago");
+    expect(html).toContain("1 file • 2026/04/07 @");
+    expect(html).toContain("1 file • 2026/04/07 @");
     expect(html).toContain("WIP on develop");
     expect(html).toContain("Auto stash before cherry pick");
     expect(html).not.toContain("stash@{0}");

@@ -244,7 +244,9 @@ export type ConflictOperationResult =
 
 export interface StashEntry {
   id: string;
-  relativeDate: string;
+  sha: string;
+  parentSha: string;
+  date: string;
   message: string;
   files: string[];
 }

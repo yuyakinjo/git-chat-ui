@@ -38,7 +38,9 @@ const workingTreeStatus = {
 const stashes = [
   {
     id: "stash@{0}",
-    relativeDate: "2 minutes ago",
+    sha: "def5678",
+    parentSha: "abc1234",
+    date: "2026-04-07T10:00:00+09:00",
     message: "WIP on main",
     files: ["README.md"],
   },

@@ -638,7 +638,9 @@ pub struct StashDiffFileDetail {
 #[serde(rename_all = "camelCase")]
 pub struct StashEntry {
     pub id: String,
-    pub relative_date: String,
+    pub sha: String,
+    pub parent_sha: String,
+    pub date: String,
     pub message: String,
     pub files: Vec<String>,
 }
@@ -6804,21 +6806,30 @@ pub fn get_stash_diff_file_detail(
 pub fn get_stashes(repo_path: String) -> Result<StashesResponse, String> {
     ensure_repo_path(&repo_path)?;
 
-    let output = run_git(&["stash", "list", "--format=%gd%x1f%cr%x1f%gs"], &repo_path)?;
+    let output = run_git(&["stash", "list", "--format=%gd%x1f%H%x1f%cI%x1f%gs%x1f%P"], &repo_path)?;
 
     let mut stashes: Vec<StashEntry> = output
         .lines()
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| {
             let parts: Vec<&str> = line.split('\u{001f}').collect();
-            if parts.len() != 3 {
+            if parts.len() < 4 {
                 return None;
             }
 
+            let parents: Vec<&str> = parts
+                .get(4)
+                .map(|p| p.split_whitespace().collect())
+                .unwrap_or_default();
+            let parent_sha = parents.first().unwrap_or(&"").to_string();
+            let index_sha = parents.get(1).unwrap_or(&"").to_string();
+
             Some(StashEntry {
                 id: parts[0].to_string(),
-                relative_date: parts[1].to_string(),
-                message: parts[2].to_string(),
+                sha: if index_sha.is_empty() { parts[1].to_string() } else { index_sha },
+                parent_sha,
+                date: parts[2].to_string(),
+                message: parts[3].to_string(),
                 files: Vec::new(),
             })
         })

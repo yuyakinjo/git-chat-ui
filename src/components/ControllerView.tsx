@@ -1168,6 +1168,10 @@ export function ControllerView({
       onNotify={onNotify}
       onJumpToCommit={handleJumpToCommit}
       branchContext={data.branches}
+      stashes={data.stashes}
+      onSelectStash={(stash) => {
+        void data.loadStashDiffDetail(stash);
+      }}
     />
   );
 

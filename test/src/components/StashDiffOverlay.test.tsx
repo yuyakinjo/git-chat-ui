@@ -7,7 +7,9 @@ import { StashDiffOverlay } from "../../../src/components/StashDiffOverlay";
 
 const stash: StashEntry = {
   id: "stash@{1}",
-  relativeDate: "12 minutes ago",
+  sha: "stash1sha",
+  parentSha: "abc1234",
+  date: "2026-04-07T09:48:00+09:00",
   message: "WIP on main: adjust stash interactions",
   files: ["src/components/BranchTree.tsx", "src/components/ControllerView.tsx"],
 };

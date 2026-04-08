@@ -56,6 +56,8 @@ import {
   APP_THEME_STORAGE_KEY,
   getInitialLaunchState,
   getInitialPersistedAppSession,
+  loadPersistedAssistantUserProfiles,
+  persistAssistantUserProfiles,
   pickAiGenerationConfig,
 } from "./lib/sessionInit";
 import {
@@ -231,7 +233,7 @@ export default function App(): JSX.Element {
     useState<string | null>(null);
   const [repositoryAssistantUserProfiles, setRepositoryAssistantUserProfiles] = useState<
     Record<string, RepositoryAssistantUserProfile>
-  >({});
+  >(loadPersistedAssistantUserProfiles);
   const [assistantRefreshRequestIds, setAssistantRefreshRequestIds] = useState<
     Record<string, number>
   >({});
@@ -519,11 +521,12 @@ export default function App(): JSX.Element {
   }, [githubButtonRepository]);
 
   useEffect(() => {
-    if (
-      !isRepositoryAssistantOpen ||
-      !activeRepositoryPath ||
-      activeRepositoryAssistantUserProfile
-    ) {
+    if (!isRepositoryAssistantOpen || !activeRepositoryPath) {
+      return;
+    }
+
+    // Skip fetch entirely if profile is already cached (from localStorage or prior fetch).
+    if (activeRepositoryAssistantUserProfile) {
       return;
     }
 
@@ -536,14 +539,10 @@ export default function App(): JSX.Element {
           return;
         }
 
-        setRepositoryAssistantUserProfiles((current) =>
-          current[activeRepositoryPath]
-            ? current
-            : {
-                ...current,
-                [activeRepositoryPath]: profile,
-              },
-        );
+        setRepositoryAssistantUserProfiles((current) => ({
+          ...current,
+          [activeRepositoryPath]: profile,
+        }));
       } catch {
         // Keep the fallback avatar when the GitHub profile cannot be resolved.
       }
@@ -721,21 +720,31 @@ export default function App(): JSX.Element {
       return;
     }
 
-    try {
-      window.localStorage.setItem(
-        APP_SESSION_STORAGE_KEY,
-        JSON.stringify(
-          serializeAppSession(openRepositories, activeTabId, appTheme, {
-            isRepositoryAssistantOpen,
-            repositoryAssistantConversations: createPersistedRepositoryAssistantConversations(
-              repositoryAssistantConversations,
-            ),
-          }),
-        ),
-      );
-    } catch {
-      // Ignore storage failures and keep the in-memory session.
+    const persist = (): void => {
+      try {
+        window.localStorage.setItem(
+          APP_SESSION_STORAGE_KEY,
+          JSON.stringify(
+            serializeAppSession(openRepositories, activeTabId, appTheme, {
+              isRepositoryAssistantOpen,
+              repositoryAssistantConversations: createPersistedRepositoryAssistantConversations(
+                repositoryAssistantConversations,
+              ),
+            }),
+          ),
+        );
+      } catch {
+        // Ignore storage failures and keep the in-memory session.
+      }
+    };
+
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(persist, { timeout: 500 });
+      return () => cancelIdleCallback(handle);
     }
+
+    const timer = setTimeout(persist, 0);
+    return () => clearTimeout(timer);
   }, [
     activeTabId,
     appTheme,
@@ -744,6 +753,22 @@ export default function App(): JSX.Element {
     openRepositories,
     repositoryAssistantConversations,
   ]);
+
+  useEffect(() => {
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(
+        () => persistAssistantUserProfiles(repositoryAssistantUserProfiles),
+        { timeout: 500 },
+      );
+      return () => cancelIdleCallback(handle);
+    }
+
+    const timer = setTimeout(
+      () => persistAssistantUserProfiles(repositoryAssistantUserProfiles),
+      0,
+    );
+    return () => clearTimeout(timer);
+  }, [repositoryAssistantUserProfiles]);
 
   const handleSelectRepository = (repository: Repository): void => {
     const isNewRepositoryTab = !openRepositories.some(

@@ -236,16 +236,19 @@ async function createReplacementStashCommit(options: {
 export async function getStashes(repoPath: string): Promise<StashEntry[]> {
   await ensureRepoPath(repoPath);
 
-  const output = await runGit(["stash", "list", "--format=%gd%x1f%cr%x1f%gs"], repoPath);
+  const output = await runGit(["stash", "list", "--format=%gd%x1f%H%x1f%cI%x1f%gs%x1f%P"], repoPath);
 
   const stashes = output
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => {
-      const [id, relativeDate, message] = line.split("\x1f");
+      const [id, sha, date, message, parents] = line.split("\x1f");
+      const parentList = parents ? parents.split(" ") : [];
       return {
         id,
-        relativeDate,
+        sha: parentList[1] ?? sha ?? "",
+        parentSha: parentList[0] ?? "",
+        date: date ?? "",
         message,
         files: [] as string[],
       };
