@@ -49,30 +49,33 @@ describe("buildLaneRows", () => {
     expect(layout.rows[1].primaryParentLaneIndex).toBe(0);
   });
 
-  test("reserves the checked out lane when its head first appears below sibling branches", () => {
+  test("pins the default branch's first-parent chain to lane 0 across the graph", () => {
     const layout = buildLaneRows(
       [
-        { sha: "main-tip", parentShas: ["base"] },
         { sha: "feature-tip", parentShas: ["base"] },
+        { sha: "main-tip", parentShas: ["base"] },
         { sha: "base", parentShas: [] },
       ],
-      { reservedHeadSha: "feature-tip" },
+      { defaultBranchHeadSha: "main-tip" },
     );
 
+    // feature-tip is a derived branch (lane 1); main-tip/base own lane 0.
     expect(layout.maxLanes).toBe(2);
     expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 0, 0]);
+    // feature-tip elbows down to the default lane at its primary parent.
+    expect(layout.rows[0].primaryParentLaneIndex).toBe(0);
+    // main-tip stays on its own lane without an elbow.
     expect(layout.rows[1].primaryParentLaneIndex).toBeNull();
-    expect(layout.rows[2].incomingLaneIndices).toEqual([0, 1]);
   });
 
-  test("tracks the parent row for a branch that splits from the reserved checked out lane", () => {
+  test("tracks the parent row for a branch that splits from the default lane", () => {
     const layout = buildLaneRows(
       [
         { sha: "feature-tip", parentShas: ["feature-seed"] },
         { sha: "feature-seed", parentShas: ["main-base"] },
         { sha: "main-base", parentShas: [] },
       ],
-      { reservedHeadSha: "main-base" },
+      { defaultBranchHeadSha: "main-base" },
     );
 
     expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 1, 0]);
@@ -80,7 +83,7 @@ describe("buildLaneRows", () => {
     expect(layout.rows[1].primaryParentRowIndex).toBe(2);
   });
 
-  test("reuses closed lanes for later sibling branches after earlier branches split back to main", () => {
+  test("pins sibling branches to lane 1 and reuses it across branches that both merge back to the default lane", () => {
     const layout = buildLaneRows(
       [
         { sha: "branch-a-2", parentShas: ["branch-a-1"] },
@@ -89,13 +92,14 @@ describe("buildLaneRows", () => {
         { sha: "branch-b-1", parentShas: ["main-base"] },
         { sha: "main-base", parentShas: [] },
       ],
-      { reservedHeadSha: "main-base" },
+      { defaultBranchHeadSha: "main-base" },
     );
 
     expect(layout.maxLanes).toBe(2);
     expect(layout.rows.map((row) => row.laneIndex)).toEqual([1, 1, 1, 1, 0]);
-    expect(layout.rows[1].outgoingLaneIndices).toEqual([0]);
-    expect(layout.rows[3].outgoingLaneIndices).toEqual([0]);
+    // Both `-1` rows elbow down to the default lane.
+    expect(layout.rows[1].primaryParentLaneIndex).toBe(0);
+    expect(layout.rows[3].primaryParentLaneIndex).toBe(0);
   });
 
   test("does not create phantom lanes for primary parents outside the visible commit list", () => {
@@ -145,14 +149,14 @@ describe("buildLaneRows", () => {
     expect(forkRow.laneIndex).toBe(devLane);
   });
 
-  test("provides empty convergingLaneIndices when branches merge via primaryParentLaneIndex", () => {
+  test("routes sibling branches' primary parents to lane 0 when the default head appears last", () => {
     const layout = buildLaneRows(
       [
         { sha: "main-tip", parentShas: ["base"] },
         { sha: "feature-tip", parentShas: ["base"] },
         { sha: "base", parentShas: [] },
       ],
-      { reservedHeadSha: "base" },
+      { defaultBranchHeadSha: "base" },
     );
 
     expect(layout.rows[2].convergingLaneIndices).toEqual([]);
@@ -172,10 +176,6 @@ describe("buildLaneRows", () => {
   });
 
   test("pins commits sharing the same branchTag to one lane across repeated merges", () => {
-    // m2 and m1 are merge commits on "main"; f2, f1 belong to "feature" and
-    // were each merged into main. Without branchTag hints, the two merges
-    // would park f2 and f1 on different lanes. With tags, both feature
-    // commits land on the same reserved lane.
     const layout = buildLaneRows([
       { sha: "m2", parentShas: ["m1", "f2"], branchTag: "main" },
       { sha: "f2", parentShas: ["f1"], branchTag: "feature" },
@@ -185,19 +185,15 @@ describe("buildLaneRows", () => {
     ]);
 
     const laneByIndex = layout.rows.map((row) => row.laneIndex);
-    // main commits stay on lane 0
-    expect(laneByIndex[0]).toBe(0); // m2
-    expect(laneByIndex[2]).toBe(0); // m1
-    expect(laneByIndex[4]).toBe(0); // m0
-    // feature commits share the same lane (reserved by tag)
+    expect(laneByIndex[0]).toBe(0);
+    expect(laneByIndex[2]).toBe(0);
+    expect(laneByIndex[4]).toBe(0);
     expect(laneByIndex[1]).toBe(laneByIndex[3]);
     expect(laneByIndex[1]).not.toBe(0);
     expect(layout.maxLanes).toBe(2);
   });
 
   test("falls back to default lane allocation when branchTag is absent", () => {
-    // Regression: the new reservation logic must not affect commits that
-    // have no branchTag — they should behave like the legacy algorithm.
     const layout = buildLaneRows([
       { sha: "merge", parentShas: ["left", "right"] },
       { sha: "left", parentShas: ["base"] },
@@ -207,5 +203,92 @@ describe("buildLaneRows", () => {
 
     expect(layout.rows[0].mergeTargetLaneIndices).toEqual([1]);
     expect(layout.maxLanes).toBeGreaterThanOrEqual(2);
+  });
+
+  test("reserves lane 0 even when the default branch head is outside the visible commit list", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "feature-3", parentShas: ["feature-2"] },
+        { sha: "feature-2", parentShas: ["feature-1"] },
+        { sha: "feature-1", parentShas: [] },
+      ],
+      { defaultBranchHeadSha: "main-off-screen" },
+    );
+
+    // Every visible commit is on a derived branch, so lane 0 is kept empty.
+    expect(layout.rows.every((row) => row.laneIndex >= 1)).toBe(true);
+    // Every row flags lane 0 as reserved-but-empty.
+    expect(layout.rows.every((row) => row.defaultLaneReservedButEmpty)).toBe(true);
+    expect(layout.maxLanes).toBeGreaterThanOrEqual(2);
+  });
+
+  test("uses reservedBranchOrder to stabilise derived lane order", () => {
+    // featureB appears first in the commit list, but `featureA` is reserved
+    // earlier — featureA should claim lane 1 once it appears, and featureB
+    // stays on its own (later) lane.
+    const layout = buildLaneRows(
+      [
+        { sha: "b-2", parentShas: ["b-1"], branchTag: "featureB" },
+        { sha: "a-2", parentShas: ["a-1"], branchTag: "featureA" },
+        { sha: "b-1", parentShas: ["root"], branchTag: "featureB" },
+        { sha: "a-1", parentShas: ["root"], branchTag: "featureA" },
+        { sha: "root", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "root",
+        reservedBranchOrder: ["featureA", "featureB"],
+      },
+    );
+
+    const laneByIndex = layout.rows.map((row) => row.laneIndex);
+    // row 4 is the default branch.
+    expect(laneByIndex[4]).toBe(0);
+    // featureA commits (rows 1, 3) share lane 1 (reserved ahead of featureB).
+    expect(laneByIndex[1]).toBe(1);
+    expect(laneByIndex[3]).toBe(1);
+    // featureB commits (rows 0, 2) share lane 2.
+    expect(laneByIndex[0]).toBe(2);
+    expect(laneByIndex[2]).toBe(2);
+  });
+
+  test("does not absorb derived-branch commits into lane 0 when the default chain passes through them", () => {
+    // Scenario: `main` was fast-forward merged to `feature-tip`, so
+    // `main`'s first-parent chain technically passes through every feature
+    // commit. Without a guard, those commits would be pinned to lane 0 and
+    // the derived (feature) lane line would break mid-graph. With the guard,
+    // the walk stops at the first commit already claimed by `feature`.
+    const layout = buildLaneRows(
+      [
+        { sha: "feature-2", parentShas: ["feature-1"], branchTag: "feature" },
+        { sha: "feature-1", parentShas: ["main-base"], branchTag: "feature" },
+        { sha: "main-base", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "feature-2",
+        defaultBranchName: "main",
+        reservedBranchOrder: ["feature"],
+      },
+    );
+
+    // feature commits must stay on lane 1 (their branch tag's reserved lane),
+    // not be swallowed by lane 0.
+    expect(layout.rows[0].laneIndex).toBe(1);
+    expect(layout.rows[1].laneIndex).toBe(1);
+    expect(layout.rows[2].laneIndex).toBe(0);
+  });
+
+  test("flags default-chain rows as NOT reservedButEmpty", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "feature-tip", parentShas: ["base"] },
+        { sha: "main-tip", parentShas: ["base"] },
+        { sha: "base", parentShas: [] },
+      ],
+      { defaultBranchHeadSha: "main-tip" },
+    );
+
+    expect(layout.rows[0].defaultLaneReservedButEmpty).toBe(true); // feature-tip
+    expect(layout.rows[1].defaultLaneReservedButEmpty).toBe(false); // main-tip on lane 0
+    expect(layout.rows[2].defaultLaneReservedButEmpty).toBe(false); // base on lane 0
   });
 });

@@ -1367,6 +1367,46 @@ button.app-tab {
   transform: rotate(180deg);
 }
 
+.config-view__token-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.config-view__token-field .input {
+  padding-right: 44px;
+}
+
+.config-view__token-reveal {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+  border-radius: 8px;
+  transform: translateY(-50%);
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.config-view__token-reveal:hover {
+  color: var(--text-primary);
+  background: rgb(var(--color-accent) / 0.08);
+}
+
+.config-view__token-reveal:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.4);
+}
+
 .command-palette {
   position: fixed;
   inset: 0;

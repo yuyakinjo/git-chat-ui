@@ -72,6 +72,8 @@ export interface CommitGraphStyleMetrics {
   wipNodeLineClearance: number;
   stashNodeSize: number;
   stashNodeStrokeWidth: number;
+  /** Corner radius used for unified branch/merge elbow curves. */
+  elbowCornerRadius: number;
 }
 
 const STANDARD_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
@@ -91,6 +93,7 @@ const STANDARD_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
   wipNodeLineClearance: WIP_NODE_LINE_CLEARANCE,
   stashNodeSize: STASH_NODE_SIZE,
   stashNodeStrokeWidth: 1.6,
+  elbowCornerRadius: 10,
 };
 
 const JAPANESE_EXPRESS_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
@@ -110,6 +113,7 @@ const JAPANESE_EXPRESS_GRAPH_STYLE_METRICS: CommitGraphStyleMetrics = {
   wipNodeLineClearance: 10,
   stashNodeSize: 20,
   stashNodeStrokeWidth: 2.0,
+  elbowCornerRadius: 14,
 };
 
 // ── Types ──────────────────────────────────────────────────────────────

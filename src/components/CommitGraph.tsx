@@ -24,7 +24,6 @@ import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem,
 import {
   buildCommitRefBadges,
   buildPrimaryParentCurvePath,
-  buildDefaultBranchAnchorLaneIndices,
   clampColumnWidth,
   getLaneDisplayOffset,
   laneColor,
@@ -201,25 +200,37 @@ export function CommitGraph({
     [branchContext],
   );
   const graphStyleMetrics = useMemo(() => resolveCommitGraphStyleMetrics(graphStyle), [graphStyle]);
+  const commitDateBySha = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const commit of commits) {
+      const parsed = new Date(commit.date).getTime();
+      map.set(commit.sha, Number.isFinite(parsed) ? parsed : -Infinity);
+    }
+    return map;
+  }, [commits]);
   const branchTipsForColoring = useMemo<BranchTip[]>(() => {
     if (!branchContext) {
       return [];
     }
     const currentName = branchContext.current.trim();
     const registeredShortNames = new Set<string>();
-    const localSorted = [...branchContext.local].sort((a, b) => {
+    const tipDate = (sha: string): number => commitDateBySha.get(sha) ?? -Infinity;
+    const compareByPriority = <T extends { name: string; commit: string }>(a: T, b: T): number => {
       if (a.name === currentName && b.name !== currentName) return -1;
       if (b.name === currentName && a.name !== currentName) return 1;
-      if (a.isRemoteDefault && !b.isRemoteDefault) return -1;
-      if (b.isRemoteDefault && !a.isRemoteDefault) return 1;
-      return 0;
-    });
+      const da = tipDate(a.commit);
+      const db = tipDate(b.commit);
+      if (da !== db) return db - da;
+      return a.name.localeCompare(b.name);
+    };
+    const localSorted = [...branchContext.local].sort(compareByPriority);
     const tips: BranchTip[] = [];
     for (const branch of localSorted) {
       tips.push({ name: branch.name, sha: branch.commit });
       registeredShortNames.add(branch.name);
     }
-    for (const branch of branchContext.remote) {
+    const remoteSorted = [...branchContext.remote].sort(compareByPriority);
+    for (const branch of remoteSorted) {
       const slashIndex = branch.name.indexOf("/");
       if (slashIndex <= 0) {
         continue;
@@ -232,7 +243,16 @@ export function CommitGraph({
       registeredShortNames.add(shortName);
     }
     return tips;
-  }, [branchContext]);
+  }, [branchContext, commitDateBySha]);
+  const defaultBranchName = useMemo(
+    () => resolveDefaultBranch(branchContext)?.name ?? null,
+    [branchContext],
+  );
+  const reservedBranchOrder = useMemo(() => {
+    return branchTipsForColoring
+      .filter((tip) => tip.name !== defaultBranchName)
+      .map((tip) => tip.name);
+  }, [branchTipsForColoring, defaultBranchName]);
   const branchColoring = useMemo(
     () =>
       buildCommitBranchColoring({
@@ -250,8 +270,12 @@ export function CommitGraph({
       parentShas: commit.parentShas,
       branchTag: branchColoring.get(commit.sha.trim()) ?? null,
     }));
-    return buildLaneRows(laneCommits);
-  }, [branchColoring, commits]);
+    return buildLaneRows(laneCommits, {
+      defaultBranchHeadSha,
+      defaultBranchName,
+      reservedBranchOrder,
+    });
+  }, [branchColoring, commits, defaultBranchHeadSha, defaultBranchName, reservedBranchOrder]);
   // -- Unified timeline: interleave commits and stashes by date (newest-first) --
   type TimelineCommitEntry = { type: "commit"; commit: CommitListItem; commitIndex: number };
   type TimelineStashEntry = { type: "stash"; stash: StashEntry };
@@ -308,10 +332,6 @@ export function CommitGraph({
       return count;
     },
     [commitIndexToTimelineIndex, timeline],
-  );
-  const defaultBranchAnchorLaneIndices = useMemo(
-    () => buildDefaultBranchAnchorLaneIndices(commits, laneLayout.rows, defaultBranchHeadSha),
-    [commits, defaultBranchHeadSha, laneLayout.rows],
   );
   const sharedStemLaneIndicesByRow = useMemo(() => {
     const byRow = new Map<number, number[]>();
@@ -594,9 +614,9 @@ export function CommitGraph({
     };
   }, [hasWipRow, laneLayout.rows, checkedOutCommitSha, commits]);
   const resolveLaneStroke = useCallback(
-    (rowIndex: number, laneIndex: number) =>
-      laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0, graphStyle),
-    [defaultBranchAnchorLaneIndices, graphStyle],
+    (_rowIndex: number, laneIndex: number) =>
+      laneColor(laneIndex, 0, graphStyle),
+    [graphStyle],
   );
   const resolveLaneStrokeWidth = useCallback(
     (_rowIndex: number, _laneIndex: number, _commitLaneIndex: number | null) =>
@@ -1445,23 +1465,24 @@ export function CommitGraph({
                         );
                       })}
 
-                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => {
-                        const sourceX = resolveLaneX(row.laneIndex);
-                        const targetX = resolveLaneX(targetLaneIndex);
-                        const midY = ROW_HEIGHT / 2;
-                        return (
-                          <path
-                            key={`${commit.sha}-merge-${targetLaneIndex}`}
-                            d={`M ${sourceX} ${midY} C ${sourceX} ${midY + 6}, ${targetX} ${ROW_HEIGHT - 8}, ${targetX} ${ROW_HEIGHT + LINE_OVERDRAW}`}
-                            stroke={resolveLaneStroke(index, targetLaneIndex)}
-                            strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
-                            opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        );
-                      })}
+                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => (
+                        <path
+                          key={`${commit.sha}-merge-${targetLaneIndex}`}
+                          d={buildPrimaryParentCurvePath({
+                            sourceLaneIndex: row.laneIndex,
+                            targetLaneIndex,
+                            targetY: ROW_HEIGHT + LINE_OVERDRAW,
+                            resolveLaneX,
+                            cornerRadius: graphStyleMetrics.elbowCornerRadius,
+                          })}
+                          stroke={resolveLaneStroke(index, targetLaneIndex)}
+                          strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
+                          opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
 
                       {row.primaryParentLaneIndex !== null &&
                       row.primaryParentLaneIndex !== row.laneIndex ? (
@@ -1472,6 +1493,7 @@ export function CommitGraph({
                             targetY: primaryParentTargetY ?? ROW_HEIGHT,
                             resolveLaneX,
                             targetJoinX: primaryParentJoinX ?? undefined,
+                            cornerRadius: graphStyleMetrics.elbowCornerRadius,
                           })}
                           stroke={rowLaneStroke}
                           strokeWidth={resolveLaneStrokeWidth(index, row.laneIndex, row.laneIndex)}

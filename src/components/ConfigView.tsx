@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, ChevronDown, LoaderCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 import { api } from "../lib/api";
@@ -15,6 +15,7 @@ import type {
   CommitGraphMode,
   CommitGraphStyle,
   DiffViewerMode,
+  OpenAiModelsResponse,
   TokenValidationResult,
 } from "../types";
 
@@ -98,17 +99,28 @@ export function resolveSelectedAiProvider(
 function useTokenValidation(
   token: string,
   validateToken: (token: string) => Promise<TokenValidationResult>,
+  trustedToken: string = "",
 ): TokenValidationState {
-  const [validationState, setValidationState] = useState<TokenValidationState>("idle");
+  const normalizedToken = token.trim();
+  const normalizedTrusted = trustedToken.trim();
+  const isTrusted = normalizedToken.length > 0 && normalizedToken === normalizedTrusted;
+
+  const [validationState, setValidationState] = useState<TokenValidationState>(() =>
+    isTrusted ? "valid" : "idle",
+  );
   const validationRequestIdRef = useRef(0);
 
   useEffect(() => {
-    const normalizedToken = token.trim();
     validationRequestIdRef.current += 1;
     const requestId = validationRequestIdRef.current;
 
     if (!normalizedToken) {
       setValidationState("idle");
+      return;
+    }
+
+    if (isTrusted) {
+      setValidationState("valid");
       return;
     }
 
@@ -138,9 +150,92 @@ function useTokenValidation(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [token, validateToken]);
+  }, [isTrusted, normalizedToken, validateToken]);
 
   return validationState;
+}
+
+interface OpenAiTokenAndModelsState {
+  validation: TokenValidationState;
+  models: string[];
+  loading: boolean;
+  error: string | null;
+}
+
+function useOpenAiTokenAndModels(
+  token: string,
+  trustedToken: string,
+  fetchModels: (token: string) => Promise<OpenAiModelsResponse>,
+): OpenAiTokenAndModelsState {
+  const normalizedToken = token.trim();
+  const normalizedTrusted = trustedToken.trim();
+  const isTrusted = normalizedToken.length > 0 && normalizedToken === normalizedTrusted;
+
+  const [state, setState] = useState<OpenAiTokenAndModelsState>(() => ({
+    validation: isTrusted ? "valid" : "idle",
+    models: [],
+    loading: normalizedToken.length > 0,
+    error: null,
+  }));
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+
+    if (!normalizedToken) {
+      setState({ validation: "idle", models: [], loading: false, error: null });
+      return;
+    }
+
+    setState({
+      validation: isTrusted ? "valid" : "checking",
+      models: [],
+      loading: true,
+      error: null,
+    });
+
+    let cancelled = false;
+    const debounceMs = isTrusted ? 0 : 350;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetchModels(normalizedToken);
+          if (cancelled || requestIdRef.current !== requestId) {
+            return;
+          }
+
+          setState({
+            validation: "valid",
+            models: response.models,
+            loading: false,
+            error: null,
+          });
+        } catch (error) {
+          if (cancelled || requestIdRef.current !== requestId) {
+            return;
+          }
+
+          setState({
+            validation: "invalid",
+            models: [],
+            loading: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "OpenAI モデル一覧を取得できませんでした。",
+          });
+        }
+      })();
+    }, debounceMs);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [fetchModels, isTrusted, normalizedToken]);
+
+  return state;
 }
 
 export function TokenValidationIndicator({
@@ -230,19 +325,23 @@ export function ConfigView({
   );
   const [loading, setLoading] = useState(config === null);
   const [saving, setSaving] = useState(false);
-  const [openAiModels, setOpenAiModels] = useState<string[]>([]);
-  const [loadingOpenAiModels, setLoadingOpenAiModels] = useState(false);
-  const [openAiModelsError, setOpenAiModelsError] = useState<string | null>(null);
+  const [isOpenAiTokenRevealed, setIsOpenAiTokenRevealed] = useState(false);
+  const [isClaudeCodeTokenRevealed, setIsClaudeCodeTokenRevealed] = useState(false);
   const [openAiModelFilter, setOpenAiModelFilter] = useState("");
   const [isOpenAiModelFilterDirty, setIsOpenAiModelFilterDirty] = useState(false);
   const [isOpenAiModelComboboxOpen, setIsOpenAiModelComboboxOpen] = useState(false);
   const [activeOpenAiModelIndex, setActiveOpenAiModelIndex] = useState(-1);
-  const openAiTokenValidation = useTokenValidation(openAiToken, api.validateOpenAiToken);
+  const {
+    validation: openAiTokenValidation,
+    models: openAiModels,
+    loading: loadingOpenAiModels,
+    error: openAiModelsError,
+  } = useOpenAiTokenAndModels(openAiToken, config?.openAiToken ?? "", api.getOpenAiModels);
   const claudeCodeTokenValidation = useTokenValidation(
     claudeCodeToken,
     api.validateClaudeCodeToken,
+    config?.claudeCodeToken ?? "",
   );
-  const openAiModelsRequestIdRef = useRef(0);
   const commitTitlePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const openAiModelComboboxRef = useRef<HTMLDivElement | null>(null);
   const openAiModelInputRef = useRef<HTMLInputElement | null>(null);
@@ -452,55 +551,6 @@ export function ConfigView({
       resolveSelectedAiProvider(current, openAiToken, claudeCodeToken),
     );
   }, [claudeCodeToken, openAiToken]);
-
-  useEffect(() => {
-    const normalizedToken = openAiToken.trim();
-    openAiModelsRequestIdRef.current += 1;
-    const requestId = openAiModelsRequestIdRef.current;
-
-    if (!normalizedToken || openAiTokenValidation !== "valid") {
-      setLoadingOpenAiModels(false);
-      setOpenAiModels([]);
-      setOpenAiModelsError(null);
-      setOpenAiModelFilter("");
-      setIsOpenAiModelFilterDirty(false);
-      setIsOpenAiModelComboboxOpen(false);
-      setActiveOpenAiModelIndex(-1);
-      return;
-    }
-
-    let active = true;
-    setLoadingOpenAiModels(true);
-    setOpenAiModelsError(null);
-
-    void (async () => {
-      try {
-        const response = await api.getOpenAiModels(normalizedToken);
-        if (!active || openAiModelsRequestIdRef.current !== requestId) {
-          return;
-        }
-
-        setOpenAiModels(response.models);
-      } catch (error) {
-        if (!active || openAiModelsRequestIdRef.current !== requestId) {
-          return;
-        }
-
-        setOpenAiModels([]);
-        setOpenAiModelsError(
-          error instanceof Error ? error.message : "OpenAI モデル一覧を取得できませんでした。",
-        );
-      } finally {
-        if (active && openAiModelsRequestIdRef.current === requestId) {
-          setLoadingOpenAiModels(false);
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [openAiToken, openAiTokenValidation]);
 
   useEffect(() => {
     if (loading) {
@@ -840,13 +890,34 @@ export function ConfigView({
                       </label>
                     </div>
                   </div>
-                  <div>
+                  <div className="config-view__token-field">
                     <input
                       className="input"
+                      type={isOpenAiTokenRevealed ? "text" : "password"}
+                      autoComplete="off"
+                      spellCheck={false}
                       placeholder="sk-..."
                       value={openAiToken}
                       onChange={(event) => setOpenAiToken(event.target.value)}
                     />
+                    <button
+                      type="button"
+                      className="config-view__token-reveal"
+                      aria-label={
+                        isOpenAiTokenRevealed
+                          ? "OpenAI token を非表示にする"
+                          : "OpenAI token を表示する"
+                      }
+                      aria-pressed={isOpenAiTokenRevealed}
+                      title={isOpenAiTokenRevealed ? "非表示にする" : "表示する"}
+                      onClick={() => setIsOpenAiTokenRevealed((current) => !current)}
+                    >
+                      {isOpenAiTokenRevealed ? (
+                        <EyeOff size={16} aria-hidden="true" />
+                      ) : (
+                        <Eye size={16} aria-hidden="true" />
+                      )}
+                    </button>
                   </div>
                   <div className="mt-3">
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
@@ -983,13 +1054,34 @@ export function ConfigView({
                       </label>
                     </div>
                   </div>
-                  <div>
+                  <div className="config-view__token-field">
                     <input
                       className="input"
+                      type={isClaudeCodeTokenRevealed ? "text" : "password"}
+                      autoComplete="off"
+                      spellCheck={false}
                       placeholder="cc-... / sk-ant-..."
                       value={claudeCodeToken}
                       onChange={(event) => setClaudeCodeToken(event.target.value)}
                     />
+                    <button
+                      type="button"
+                      className="config-view__token-reveal"
+                      aria-label={
+                        isClaudeCodeTokenRevealed
+                          ? "Claude Code token を非表示にする"
+                          : "Claude Code token を表示する"
+                      }
+                      aria-pressed={isClaudeCodeTokenRevealed}
+                      title={isClaudeCodeTokenRevealed ? "非表示にする" : "表示する"}
+                      onClick={() => setIsClaudeCodeTokenRevealed((current) => !current)}
+                    >
+                      {isClaudeCodeTokenRevealed ? (
+                        <EyeOff size={16} aria-hidden="true" />
+                      ) : (
+                        <Eye size={16} aria-hidden="true" />
+                      )}
+                    </button>
                   </div>
                 </div>
 
