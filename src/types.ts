@@ -28,6 +28,7 @@ export type {
   AppConfig,
   CommitGraphMode,
   CommitGraphStyle,
+  DiffViewerMode,
   WindowState,
 } from "../shared/config.js";
 

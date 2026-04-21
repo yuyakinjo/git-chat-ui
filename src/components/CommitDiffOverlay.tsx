@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "rea
 import { api } from "../lib/api";
 import type { AppThemeId } from "../lib/appTheme";
 import { hasInlineDiffForPath, parseUnifiedDiff } from "../lib/diff";
-import type { CommitDetail, CommitFileDiffDetail } from "../types";
+import type { CommitDetail, CommitFileDiffDetail, DiffViewerMode } from "../types";
 import { CopyableShaButton } from "./CopyableShaButton";
-import { SplitDiffViewer } from "./SplitDiffViewer";
+import { DiffViewer } from "./DiffViewer";
 
 interface CommitDiffOverlayProps {
   repoPath: string;
   appThemeId?: AppThemeId | null;
+  diffViewerMode?: DiffViewerMode;
   detail: CommitDetail;
   filePath: string;
   onClose: () => void;
@@ -20,6 +21,7 @@ interface CommitDiffOverlayProps {
 export function CommitDiffOverlay({
   repoPath,
   appThemeId = null,
+  diffViewerMode = "builtin",
   detail,
   filePath,
   onClose,
@@ -165,7 +167,8 @@ export function CommitDiffOverlay({
         </div>
 
         <div className="min-h-0 flex-1">
-          <SplitDiffViewer
+          <DiffViewer
+            mode={diffViewerMode}
             diff={commitDiffViewerDiff}
             appThemeId={appThemeId}
             files={detail.files}

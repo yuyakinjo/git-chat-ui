@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { normalizeOpenAiReasoningEffort, resolveCommitTitlePrompt } from "../shared/ai.js";
 import { DEFAULT_APP_CONFIG } from "../shared/config.js";
 import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssistant.js";
-import type { AppConfig, CommitGraphMode, CommitGraphStyle } from "./types.js";
+import type { AppConfig, CommitGraphMode, CommitGraphStyle, DiffViewerMode } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +36,14 @@ function normalizeCommitGraphStyle(value: unknown): CommitGraphStyle {
   }
 
   return DEFAULT_CONFIG.commitGraphStyle;
+}
+
+function normalizeDiffViewerMode(value: unknown): DiffViewerMode {
+  if (value === "builtin" || value === "pierre") {
+    return value;
+  }
+
+  return DEFAULT_CONFIG.diffViewerMode;
 }
 
 function normalizeRepositoryScanDepth(value: unknown): number {
@@ -149,6 +157,7 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     commitGraphStyle: normalizeCommitGraphStyle(value.commitGraphStyle),
+    diffViewerMode: normalizeDiffViewerMode(value.diffViewerMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
     repositoryAssistantPolicies: normalizeRepositoryAssistantPolicies(
       value.repositoryAssistantPolicies,

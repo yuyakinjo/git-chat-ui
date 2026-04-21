@@ -12,8 +12,12 @@ import {
 
 import { useContainerWidth } from "../hooks/useContainerWidth";
 import { copyTextToClipboard } from "../lib/clipboard";
+import {
+  buildCommitBranchColoring,
+  type BranchTip,
+} from "../lib/commitGraphBranchColoring";
 import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
-import { buildLaneRows } from "../lib/commitGraphLayout";
+import { buildLaneRows, type CommitForLane } from "../lib/commitGraphLayout";
 import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
 import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem, StashEntry } from "../types";
@@ -197,11 +201,57 @@ export function CommitGraph({
     [branchContext],
   );
   const graphStyleMetrics = useMemo(() => resolveCommitGraphStyleMetrics(graphStyle), [graphStyle]);
-  const reservedLaneHeadSha = defaultBranchHeadSha?.trim() ?? "";
-  const laneLayout = useMemo(
-    () => buildLaneRows(commits, { reservedHeadSha: reservedLaneHeadSha }),
-    [commits, reservedLaneHeadSha],
+  const branchTipsForColoring = useMemo<BranchTip[]>(() => {
+    if (!branchContext) {
+      return [];
+    }
+    const currentName = branchContext.current.trim();
+    const registeredShortNames = new Set<string>();
+    const localSorted = [...branchContext.local].sort((a, b) => {
+      if (a.name === currentName && b.name !== currentName) return -1;
+      if (b.name === currentName && a.name !== currentName) return 1;
+      if (a.isRemoteDefault && !b.isRemoteDefault) return -1;
+      if (b.isRemoteDefault && !a.isRemoteDefault) return 1;
+      return 0;
+    });
+    const tips: BranchTip[] = [];
+    for (const branch of localSorted) {
+      tips.push({ name: branch.name, sha: branch.commit });
+      registeredShortNames.add(branch.name);
+    }
+    for (const branch of branchContext.remote) {
+      const slashIndex = branch.name.indexOf("/");
+      if (slashIndex <= 0) {
+        continue;
+      }
+      const shortName = branch.name.slice(slashIndex + 1);
+      if (!shortName || shortName === "HEAD" || registeredShortNames.has(shortName)) {
+        continue;
+      }
+      tips.push({ name: branch.name, sha: branch.commit });
+      registeredShortNames.add(shortName);
+    }
+    return tips;
+  }, [branchContext]);
+  const branchColoring = useMemo(
+    () =>
+      buildCommitBranchColoring({
+        commits: commits.map((commit) => ({
+          sha: commit.sha,
+          parentShas: commit.parentShas,
+        })),
+        branchTips: branchTipsForColoring,
+      }),
+    [commits, branchTipsForColoring],
   );
+  const laneLayout = useMemo(() => {
+    const laneCommits: CommitForLane[] = commits.map((commit) => ({
+      sha: commit.sha,
+      parentShas: commit.parentShas,
+      branchTag: branchColoring.get(commit.sha.trim()) ?? null,
+    }));
+    return buildLaneRows(laneCommits);
+  }, [branchColoring, commits]);
   // -- Unified timeline: interleave commits and stashes by date (newest-first) --
   type TimelineCommitEntry = { type: "commit"; commit: CommitListItem; commitIndex: number };
   type TimelineStashEntry = { type: "stash"; stash: StashEntry };
@@ -530,7 +580,7 @@ export function CommitGraph({
       };
     }
 
-    const anchorHeadSha = (reservedLaneHeadSha ?? "").trim();
+    const anchorHeadSha = (checkedOutCommitSha ?? "").trim();
     const anchorRowIndex = anchorHeadSha
       ? commits.findIndex((commit) => commit.sha.trim() === anchorHeadSha)
       : -1;
@@ -542,15 +592,7 @@ export function CommitGraph({
       rowIndex: 0,
       laneIndex: anchorLaneIndex,
     };
-  }, [hasWipRow, laneLayout.rows, reservedLaneHeadSha, commits]);
-  const reservedHeadRowIndex = useMemo(() => {
-    const headSha = reservedLaneHeadSha.trim();
-    if (!headSha) {
-      return -1;
-    }
-
-    return commits.findIndex((commit) => commit.sha.trim() === headSha);
-  }, [reservedLaneHeadSha, commits]);
+  }, [hasWipRow, laneLayout.rows, checkedOutCommitSha, commits]);
   const resolveLaneStroke = useCallback(
     (rowIndex: number, laneIndex: number) =>
       laneColor(laneIndex, defaultBranchAnchorLaneIndices[rowIndex] ?? 0, graphStyle),
@@ -1205,6 +1247,7 @@ export function CommitGraph({
             primaryParentLaneIndex: null,
             primaryParentRowIndex: null,
             mergeTargetLaneIndices: [],
+            convergingLaneIndices: [],
           };
           const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
           const isPrimaryBranchSourceRow =
@@ -1302,25 +1345,10 @@ export function CommitGraph({
                       overflow="hidden"
                     >
                       {row.activeLaneIndices.map((laneIndex) => {
-                        const isReservedCheckedOutPlaceholderLane =
-                          !hasWipRow &&
-                          reservedHeadRowIndex > 0 &&
-                          index < reservedHeadRowIndex &&
-                          laneIndex === 0 &&
-                          laneIndex !== row.laneIndex;
-                        const isReservedHeadEntryLane =
-                          reservedHeadRowIndex > 0 &&
-                          index === reservedHeadRowIndex &&
-                          laneIndex === row.laneIndex;
-                        if (isReservedCheckedOutPlaceholderLane) {
-                          return null;
-                        }
-
                         const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
                         const hasIncoming =
-                          ((index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                            (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex)) &&
-                          !isReservedHeadEntryLane;
+                          (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
+                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex);
                         const isTopRowSiblingPassthroughLane =
                           index === 0 && laneIndex !== row.laneIndex && !hasIncoming;
                         const hasOutgoingRaw =
@@ -1382,6 +1410,36 @@ export function CommitGraph({
                             stroke={resolveLaneStroke(index, laneIndex)}
                             strokeWidth={resolveLaneStrokeWidth(index, laneIndex, row.laneIndex)}
                             opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
+                            strokeLinecap="round"
+                          />
+                        );
+                      })}
+
+                      {row.convergingLaneIndices.map((convergingLaneIdx) => {
+                        const laneXValue = resolveLaneX(convergingLaneIdx);
+                        const joinDirection =
+                          Math.sign(laneXValue - resolveLaneX(row.laneIndex)) || 1;
+                        const joinX =
+                          nodeHorizontalOverlap !== null
+                            ? resolveLaneX(row.laneIndex) - joinDirection * nodeHorizontalOverlap
+                            : resolveLaneX(row.laneIndex) +
+                              joinDirection * (nodeSize / 2 - nodeJoinInset);
+
+                        return (
+                          <line
+                            className="commit-graph__lane-line"
+                            key={`${commit.sha}-converge-${convergingLaneIdx}`}
+                            x1={laneXValue}
+                            y1={ROW_HEIGHT / 2}
+                            x2={joinX}
+                            y2={ROW_HEIGHT / 2}
+                            stroke={resolveLaneStroke(index, convergingLaneIdx)}
+                            strokeWidth={resolveLaneStrokeWidth(
+                              index,
+                              convergingLaneIdx,
+                              row.laneIndex,
+                            )}
+                            opacity={resolveLaneOpacity(index, convergingLaneIdx, row.laneIndex)}
                             strokeLinecap="round"
                           />
                         );

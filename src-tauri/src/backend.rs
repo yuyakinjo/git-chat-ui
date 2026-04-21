@@ -245,6 +245,19 @@ impl Default for CommitGraphStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum DiffViewerMode {
+    Builtin,
+    Pierre,
+}
+
+impl Default for DiffViewerMode {
+    fn default() -> Self {
+        Self::Builtin
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum AiProvider {
     OpenAi,
     ClaudeCode,
@@ -308,6 +321,7 @@ pub struct AppConfig {
     pub commit_title_prompt: String,
     pub commit_graph_mode: CommitGraphMode,
     pub commit_graph_style: CommitGraphStyle,
+    pub diff_viewer_mode: DiffViewerMode,
     pub repository_scan_depth: usize,
     pub repository_assistant_policies: RepositoryAssistantPolicies,
     pub recently_used: Vec<RecentRepository>,
@@ -337,6 +351,7 @@ impl Default for AppConfig {
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_mode: CommitGraphMode::Detailed,
             commit_graph_style: CommitGraphStyle::Standard,
+            diff_viewer_mode: DiffViewerMode::Builtin,
             repository_scan_depth: 4,
             repository_assistant_policies: HashMap::new(),
             recently_used: Vec::new(),
@@ -821,6 +836,7 @@ pub struct SaveConfigInput {
     pub commit_title_prompt: Option<String>,
     pub commit_graph_mode: Option<CommitGraphMode>,
     pub commit_graph_style: Option<CommitGraphStyle>,
+    pub diff_viewer_mode: Option<DiffViewerMode>,
     pub repository_scan_depth: Option<usize>,
 }
 
@@ -1559,6 +1575,11 @@ fn normalize_config_value(value: Value) -> AppConfig {
         Some("japaneseExpress") => CommitGraphStyle::JapaneseExpress,
         _ => default.commit_graph_style,
     };
+    let diff_viewer_mode = match value.get("diffViewerMode").and_then(Value::as_str) {
+        Some("builtin") => DiffViewerMode::Builtin,
+        Some("pierre") => DiffViewerMode::Pierre,
+        _ => default.diff_viewer_mode,
+    };
 
     let repository_scan_depth = match value.get("repositoryScanDepth") {
         Some(Value::Number(number)) => {
@@ -1584,6 +1605,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         commit_title_prompt,
         commit_graph_mode,
         commit_graph_style,
+        diff_viewer_mode,
         repository_scan_depth,
         repository_assistant_policies,
         recently_used,
@@ -1641,6 +1663,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_mode: config.commit_graph_mode,
         commit_graph_style: config.commit_graph_style,
+        diff_viewer_mode: config.diff_viewer_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         repository_assistant_policies: normalize_repository_assistant_policies(
             &config.repository_assistant_policies,
@@ -2700,27 +2723,30 @@ fn build_automatic_controller_snapshot_compare_refs(
     branches: &BranchResponse,
 ) -> Vec<String> {
     let default_ref = resolve_controller_snapshot_default_branch_ref(branches);
-    let refs = branches
+    let branch_ref = |branch: &Branch| -> String {
+        if branch.full_ref.trim().is_empty() {
+            branch.name.clone()
+        } else {
+            branch.full_ref.clone()
+        }
+    };
+    let all_refs: Vec<String> = branches
         .local
         .iter()
-        .map(|branch| {
-            if branch.full_ref.trim().is_empty() {
-                branch.name.clone()
-            } else {
-                branch.full_ref.clone()
-            }
-        })
-        .collect::<Vec<String>>();
+        .chain(branches.remote.iter())
+        .map(branch_ref)
+        .collect();
     let mut ordered = Vec::new();
 
     if let Some(default_ref) = default_ref {
         ordered.push(default_ref.clone());
         ordered.extend(
-            refs.into_iter()
+            all_refs
+                .into_iter()
                 .filter(|reference| reference != &default_ref),
         );
     } else {
-        ordered.extend(refs);
+        ordered.extend(all_refs);
     }
 
     let mut deduped = Vec::new();
@@ -7464,6 +7490,7 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
         commit_graph_style: input
             .commit_graph_style
             .unwrap_or(current.commit_graph_style),
+        diff_viewer_mode: input.diff_viewer_mode.unwrap_or(current.diff_viewer_mode),
         repository_scan_depth: normalize_repository_scan_depth(
             input
                 .repository_scan_depth
@@ -7505,6 +7532,7 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
             .unwrap_or(current.commit_title_prompt),
         commit_graph_mode: current.commit_graph_mode,
         commit_graph_style: current.commit_graph_style,
+        diff_viewer_mode: current.diff_viewer_mode,
         repository_scan_depth: current.repository_scan_depth,
         repository_assistant_policies: current.repository_assistant_policies,
         recently_used: current.recently_used,

@@ -1667,6 +1667,7 @@ export function ControllerView({
         <CommitDiffOverlay
           repoPath={repoPath}
           appThemeId={appThemeId}
+          diffViewerMode={appConfig?.diffViewerMode}
           detail={selectedCommitDetail}
           filePath={data.focusedCommitDiffFile}
           onClose={() => data.setFocusedCommitDiffFile(null)}
@@ -1677,6 +1678,7 @@ export function ControllerView({
       {data.focusedWorkingTreeDiff ? (
         <WorkingTreeDiffOverlay
           appThemeId={appThemeId}
+          diffViewerMode={appConfig?.diffViewerMode}
           detail={data.workingTreeDiffDetail}
           loading={data.loadingWorkingTreeDiffDetail}
           filePath={data.focusedWorkingTreeDiff.file}
@@ -1689,6 +1691,7 @@ export function ControllerView({
         <StashDiffOverlay
           repoPath={repoPath}
           appThemeId={appThemeId}
+          diffViewerMode={appConfig?.diffViewerMode}
           stash={data.focusedStash}
           detail={data.stashDiffDetail}
           loading={data.loadingStashDiffDetail}
@@ -1700,6 +1703,7 @@ export function ControllerView({
         <BranchDiffOverlay
           repoPath={repoPath}
           appThemeId={appThemeId}
+          diffViewerMode={appConfig?.diffViewerMode}
           detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
           loading={data.loadingBranchDiffDetail}
           baseBranchName={data.branchDiffBaseLabel}

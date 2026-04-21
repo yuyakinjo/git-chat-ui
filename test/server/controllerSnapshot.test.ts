@@ -130,7 +130,10 @@ describe("createControllerSnapshotLoader", () => {
 
     expect(snapshot.commits).toBeNull();
     expect(snapshot.logRef).toBe("refs/heads/main");
-    expect(snapshot.compareRefs).toEqual(["refs/heads/feature/cache"]);
+    expect(snapshot.compareRefs).toEqual([
+      "refs/heads/feature/cache",
+      "refs/remotes/origin/main",
+    ]);
     expect(dependencies.getCommits).not.toHaveBeenCalled();
   });
 });

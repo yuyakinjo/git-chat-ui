@@ -93,8 +93,10 @@ function buildAutomaticCompareRefs(
   branches: ControllerSnapshot["branches"],
 ): string[] {
   const defaultRef = resolveDefaultBranchRef(branches);
-  const refs = branches.local.map((branch) => branch.fullRef || branch.name);
-  const ordered = defaultRef ? [defaultRef, ...refs.filter((ref) => ref !== defaultRef)] : refs;
+  const localRefs = branches.local.map((branch) => branch.fullRef || branch.name);
+  const remoteRefs = branches.remote.map((branch) => branch.fullRef || branch.name);
+  const allRefs = [...localRefs, ...remoteRefs];
+  const ordered = defaultRef ? [defaultRef, ...allRefs.filter((ref) => ref !== defaultRef)] : allRefs;
   const deduped = [...new Set(ordered)];
 
   return deduped.filter((ref) => ref && ref !== logRef);

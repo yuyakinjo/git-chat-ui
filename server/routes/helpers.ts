@@ -30,6 +30,14 @@ export function parseCommitGraphStyle(value: unknown): AppConfig["commitGraphSty
   return null;
 }
 
+export function parseDiffViewerMode(value: unknown): AppConfig["diffViewerMode"] | null {
+  if (value === "builtin" || value === "pierre") {
+    return value;
+  }
+
+  return null;
+}
+
 export function parseSelectedAiProvider(value: unknown): AppConfig["selectedAiProvider"] | null {
   if (value === "openAi" || value === "claudeCode") {
     return value;

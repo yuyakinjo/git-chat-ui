@@ -14,6 +14,7 @@ import type {
   AppConfig,
   CommitGraphMode,
   CommitGraphStyle,
+  DiffViewerMode,
   TokenValidationResult,
 } from "../types";
 
@@ -55,6 +56,7 @@ function applyConfigToState(config: AppConfig): {
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
+  diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
 } {
   return {
@@ -65,6 +67,7 @@ function applyConfigToState(config: AppConfig): {
     commitTitlePrompt: config.commitTitlePrompt,
     commitGraphMode: config.commitGraphMode,
     commitGraphStyle: config.commitGraphStyle,
+    diffViewerMode: config.diffViewerMode,
     repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
   };
 }
@@ -218,6 +221,9 @@ export function ConfigView({
   );
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>(
     initialConfigState?.commitGraphStyle ?? "standard",
+  );
+  const [diffViewerMode, setDiffViewerMode] = useState<DiffViewerMode>(
+    initialConfigState?.diffViewerMode ?? "builtin",
   );
   const [repositoryScanDepth, setRepositoryScanDepth] = useState(
     initialConfigState?.repositoryScanDepth ?? 4,
@@ -385,6 +391,7 @@ export function ConfigView({
     setCommitTitlePrompt(next.commitTitlePrompt);
     setCommitGraphMode(next.commitGraphMode);
     setCommitGraphStyle(next.commitGraphStyle);
+    setDiffViewerMode(next.diffViewerMode);
     setRepositoryScanDepth(next.repositoryScanDepth);
     setLoading(false);
   }, [config]);
@@ -421,6 +428,7 @@ export function ConfigView({
         setCommitTitlePrompt(next.commitTitlePrompt);
         setCommitGraphMode(next.commitGraphMode);
         setCommitGraphStyle(next.commitGraphStyle);
+        setDiffViewerMode(next.diffViewerMode);
         setRepositoryScanDepth(next.repositoryScanDepth);
         onConfigSaved(loadedConfig);
       } catch (error) {
@@ -684,6 +692,7 @@ export function ConfigView({
         commitTitlePrompt,
         commitGraphMode,
         commitGraphStyle,
+        diffViewerMode,
         repositoryScanDepth: normalizedDepth,
       });
 
@@ -707,6 +716,7 @@ export function ConfigView({
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitGraphMode(nextConfig.commitGraphMode);
       setCommitGraphStyle(nextConfig.commitGraphStyle);
+      setDiffViewerMode(nextConfig.diffViewerMode);
 
       onNotify("Config を保存しました。");
     } catch (error) {
@@ -763,6 +773,20 @@ export function ConfigView({
                   >
                     <option value="standard">Standard</option>
                     <option value="japaneseExpress">Japanese Express</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Diff Viewer
+                  </label>
+                  <select
+                    className="input input-select"
+                    value={diffViewerMode}
+                    onChange={(event) => setDiffViewerMode(event.target.value as DiffViewerMode)}
+                  >
+                    <option value="builtin">Built-in (既定)</option>
+                    <option value="pierre">@pierre/diffs</option>
                   </select>
                 </div>
 

@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "rea
 import { api } from "../lib/api";
 import type { AppThemeId } from "../lib/appTheme";
 import { hasInlineDiffForPath, parseUnifiedDiff } from "../lib/diff";
-import type { BranchDiffDetail, BranchDiffFileDetail } from "../types";
+import type { BranchDiffDetail, BranchDiffFileDetail, DiffViewerMode } from "../types";
 import { CopyableShaButton } from "./CopyableShaButton";
-import { SplitDiffViewer } from "./SplitDiffViewer";
+import { DiffViewer } from "./DiffViewer";
 
 interface BranchDiffOverlayProps {
   repoPath: string;
   appThemeId?: AppThemeId | null;
+  diffViewerMode?: DiffViewerMode;
   detail: BranchDiffDetail | null;
   loading: boolean;
   baseBranchName: string | null;
@@ -22,6 +23,7 @@ interface BranchDiffOverlayProps {
 export function BranchDiffOverlay({
   repoPath,
   appThemeId = null,
+  diffViewerMode = "builtin",
   detail,
   loading,
   baseBranchName,
@@ -202,7 +204,8 @@ export function BranchDiffOverlay({
 
         {detail ? (
           <div className="min-h-0 flex-1">
-            <SplitDiffViewer
+            <DiffViewer
+              mode={diffViewerMode}
               diff={branchDiffViewerDiff}
               appThemeId={appThemeId}
               files={detail.files}

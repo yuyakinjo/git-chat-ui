@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type JSX,
+  type ReactNode,
 } from "react";
 
 import {
@@ -54,6 +55,22 @@ interface SplitDiffViewerProps {
   activeFileError?: string | null;
   activeFileLoadingMessage?: string;
   onActiveFileChange?: (filePath: string | null) => void;
+  renderFileBody?: (args: SplitDiffRenderFileBodyArgs) => ReactNode;
+}
+
+export interface SplitDiffRenderFileBodyArgs {
+  diff: string;
+  activeFile: {
+    key: string;
+    kind: ParsedDiffFile["kind"] | "changed";
+    oldPath: string | null;
+    newPath: string | null;
+    displayPath: string;
+    previousPath: string | null;
+    hunks: ParsedDiffFile["hunks"];
+  };
+  isDiffTruncated: boolean;
+  appThemeId: AppThemeId | null;
 }
 
 type DiffDisplayMode = "split" | "after-only";
@@ -439,6 +456,7 @@ export function SplitDiffViewer({
   activeFileError = null,
   activeFileLoadingMessage = "Loading diff...",
   onActiveFileChange,
+  renderFileBody,
 }: SplitDiffViewerProps): JSX.Element {
   const parsedFiles = useMemo(() => parseUnifiedDiff(diff), [diff]);
   const files = useMemo(() => buildDisplayFiles(parsedFiles, fileStats), [fileStats, parsedFiles]);
@@ -626,6 +644,13 @@ export function SplitDiffViewer({
                 <div className="diff-empty-state">{activeFileError}</div>
               ) : activeFile.hunks.length === 0 ? (
                 <div className="diff-empty-state">Text diff unavailable for this file.</div>
+              ) : renderFileBody ? (
+                renderFileBody({
+                  diff,
+                  activeFile,
+                  isDiffTruncated,
+                  appThemeId,
+                })
               ) : (
                 activeFile.hunks.map((hunk) => (
                   <section key={`${activeFile.key}:${hunk.header}`} className="diff-hunk">

@@ -22,6 +22,7 @@ const config: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   commitGraphStyle: "standard",
+  diffViewerMode: "builtin",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],
@@ -184,10 +185,12 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(2);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(3);
     expect(html).toContain("Commit Graph Style");
     expect(html).toContain(">Standard</option>");
     expect(html).toContain(">Japanese Express</option>");
+    expect(html).toContain("Diff Viewer");
+    expect(html).toContain(">@pierre/diffs</option>");
   });
 
   test("renders an OpenAI model combobox control", () => {

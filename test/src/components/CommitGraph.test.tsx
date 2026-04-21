@@ -202,6 +202,14 @@ const continuedDefaultBranchContext: BranchResponse = {
 
 const checkedOutMainBranchingCommits: CommitListItem[] = [
   {
+    sha: "main-tip",
+    parentShas: ["main-base"],
+    author: "kinjo",
+    date: "2026-03-31T12:00:00.000Z",
+    subject: "chore: main tip",
+    decoration: "(HEAD -> main, origin/main, origin/HEAD)",
+  },
+  {
     sha: "feature-tip",
     parentShas: ["feature-seed"],
     author: "kinjo",
@@ -223,7 +231,7 @@ const checkedOutMainBranchingCommits: CommitListItem[] = [
     author: "kinjo",
     date: "2026-03-28T12:00:00.000Z",
     subject: "chore: main base",
-    decoration: "(HEAD -> main, origin/main, origin/HEAD)",
+    decoration: "",
   },
 ];
 
@@ -234,7 +242,7 @@ const checkedOutMainBranchContext: BranchResponse = {
       name: "main",
       fullRef: "refs/heads/main",
       type: "local",
-      commit: "main-base",
+      commit: "main-tip",
     },
   ],
   remote: [
@@ -242,7 +250,7 @@ const checkedOutMainBranchContext: BranchResponse = {
       name: "origin/main",
       fullRef: "refs/remotes/origin/main",
       type: "remote",
-      commit: "main-base",
+      commit: "main-tip",
       isRemoteDefault: true,
     },
   ],
@@ -379,6 +387,14 @@ function buildStackedCheckedOutBranchContext(currentBranchName: string): BranchR
 
 const rightBranchOffCommits: CommitListItem[] = [
   {
+    sha: "main-tip",
+    parentShas: ["main-base"],
+    author: "kinjo",
+    date: "2026-04-01T12:00:00.000Z",
+    subject: "chore: main tip",
+    decoration: "(HEAD -> main, origin/main, origin/HEAD)",
+  },
+  {
     sha: "left-tip",
     parentShas: ["left-seed"],
     author: "kinjo",
@@ -421,6 +437,14 @@ const rightBranchOffCommits: CommitListItem[] = [
 ];
 
 const stackedBranchOffCommits: CommitListItem[] = [
+  {
+    sha: "main-tip",
+    parentShas: ["main-base"],
+    author: "kinjo",
+    date: "2026-04-01T12:00:00.000Z",
+    subject: "chore: main tip",
+    decoration: "(HEAD -> main, origin/main, origin/HEAD)",
+  },
   {
     sha: "c-tip",
     parentShas: ["c-seed"],
@@ -916,7 +940,7 @@ describe("CommitGraph", () => {
 
     expect(html.indexOf("// WIP")).toBeLessThan(html.indexOf("chore: main tip"));
     expect(html.indexOf("// WIP")).toBeLessThan(html.indexOf("feat: current branch tip"));
-    expect(wipConnectorMatch?.[1]).toBe(String(laneX(0)));
+    expect(wipConnectorMatch?.[1]).toBe(String(laneX(1)));
     expect(mainRowHtml).toMatch(new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"`));
     expect(mainRowHtml).not.toMatch(
       new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(1)}"`),
@@ -1065,7 +1089,7 @@ describe("CommitGraph", () => {
       ),
     );
     expect(featureSeedRowHtml).toContain(
-      `d="M ${laneX(1)} 16 L ${laneX(1)} 44 Q ${laneX(1)} 48, ${laneX(1) - 4} 48 L ${laneX(0) + 3.8} 48"`,
+      `d="M ${laneX(1)} 16 L ${laneX(1)} 46 Q ${laneX(1)} 50, ${laneX(1) - 4} 50 L ${laneX(0) + 3.8} 50"`,
     );
     expect(featureSeedRowHtml).toMatch(new RegExp(`stroke="${RIGHT_BRANCH_LANE_COLORS[0]}"`));
   });
@@ -1362,21 +1386,23 @@ describe("CommitGraph", () => {
 
     expect(featureCheckedWipRowHtml).toMatch(
       new RegExp(
-        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"`,
+        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${featureLaneX}"[^>]*x2="${featureLaneX}"`,
       ),
     );
     expect(featureCheckedWipRowHtml).not.toMatch(
       /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray=/,
     );
-    expect(featureCheckedWipRowHtml).not.toContain(`x1="${featureLaneX}"`);
-    expect(extractLaneLineSignatures(featureCheckedWipRowHtml)).toEqual(
-      extractLaneLineSignatures(mainCheckedWipRowHtml),
+    expect(featureCheckedWipRowHtml).not.toContain(`x1="${mainLaneX}"`);
+    expect(mainCheckedWipRowHtml).toMatch(
+      new RegExp(
+        `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${mainLaneX}"[^>]*x2="${mainLaneX}"`,
+      ),
     );
     expect(extractLaneLineSignatures(featureCheckedTipRowHtml)).toEqual(
       extractLaneLineSignatures(mainCheckedTipRowHtml),
     );
     expect(featureCheckedWipRowHtml).toMatch(
-      new RegExp(`class="wip-node[^"]*"[^>]*style="[^"]*color:${DEFAULT_BRANCH_LANE_COLOR}`),
+      new RegExp(`class="wip-node[^"]*"[^>]*style="[^"]*color:${RIGHT_BRANCH_LANE_COLORS[0]}`),
     );
   });
 
@@ -1506,7 +1532,7 @@ describe("CommitGraph", () => {
     const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(featureSeedRowHtml).toContain(
-      `d="M ${featureLaneX} 16 L ${featureLaneX} 44 Q ${featureLaneX} 48, ${featureLaneX - 4} 48 L ${expectedJoinX} 48"`,
+      `d="M ${featureLaneX} 16 L ${featureLaneX} 46 Q ${featureLaneX} 50, ${featureLaneX - 4} 50 L ${expectedJoinX} 50"`,
     );
     expect(mainBaseRowHtml).toContain(
       `class="commit-graph__lane-line" x1="${featureLaneX}" y1="16" x2="${expectedStemJoinX}" y2="16"`,
@@ -1570,7 +1596,7 @@ describe("CommitGraph", () => {
     const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(rightSeedRowHtml).toContain(
-      `d="M ${rightLaneX} 16 L ${rightLaneX} 76 Q ${rightLaneX} 80, ${rightLaneX - 4} 80 L ${expectedRightJoinX} 80"`,
+      `d="M ${rightLaneX} 16 L ${rightLaneX} 80 Q ${rightLaneX} 84, ${rightLaneX - 4} 84 L ${expectedRightJoinX} 84"`,
     );
     expect(mainBaseRowHtml).toContain(
       `class="commit-graph__lane-line" x1="${rightLaneX}" y1="16" x2="${expectedRightStemJoinX}" y2="16"`,
@@ -1655,13 +1681,13 @@ describe("CommitGraph", () => {
     const mainBaseRowHtml = extractCommitRowMarkup(html, "main-base");
 
     expect(cSeedRowHtml).toContain(
-      `d="M ${laneOneX} 16 L ${laneOneX} 44 Q ${laneOneX} 48, ${laneOneX + 4} 48 L ${expectedCSeedJoinX} 48"`,
+      `d="M ${laneOneX} 16 L ${laneOneX} 46 Q ${laneOneX} 50, ${laneOneX + 4} 50 L ${expectedCSeedJoinX} 50"`,
     );
     expect(bSeedRowHtml).toContain(
-      `d="M ${laneTwoX} 16 L ${laneTwoX} 44 Q ${laneTwoX} 48, ${laneTwoX + 4} 48 L ${expectedBSeedJoinX} 48"`,
+      `d="M ${laneTwoX} 16 L ${laneTwoX} 46 Q ${laneTwoX} 50, ${laneTwoX + 4} 50 L ${expectedBSeedJoinX} 50"`,
     );
     expect(aSeedRowHtml).toContain(
-      `d="M ${laneThreeX} 16 L ${laneThreeX} 44 Q ${laneThreeX} 48, ${laneThreeX - 4} 48 L ${expectedMainJoinX} 48"`,
+      `d="M ${laneThreeX} 16 L ${laneThreeX} 46 Q ${laneThreeX} 50, ${laneThreeX - 4} 50 L ${expectedMainJoinX} 50"`,
     );
     expect(bSeedRowHtml).toContain(
       `class="commit-graph__lane-line" x1="${laneOneX}" y1="16" x2="${expectedCSeedJoinX}" y2="16"`,

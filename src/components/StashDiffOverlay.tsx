@@ -5,12 +5,13 @@ import { api } from "../lib/api";
 import type { AppThemeId } from "../lib/appTheme";
 import { hasInlineDiffForPath, parseUnifiedDiff } from "../lib/diff";
 import { formatFileCountLabel, formatRelativeDate } from "../lib/format";
-import type { StashDiffDetail, StashDiffFileDetail, StashEntry } from "../types";
-import { SplitDiffViewer } from "./SplitDiffViewer";
+import type { DiffViewerMode, StashDiffDetail, StashDiffFileDetail, StashEntry } from "../types";
+import { DiffViewer } from "./DiffViewer";
 
 interface StashDiffOverlayProps {
   repoPath: string;
   appThemeId?: AppThemeId | null;
+  diffViewerMode?: DiffViewerMode;
   stash: StashEntry;
   detail: StashDiffDetail | null;
   loading: boolean;
@@ -20,6 +21,7 @@ interface StashDiffOverlayProps {
 export function StashDiffOverlay({
   repoPath,
   appThemeId = null,
+  diffViewerMode = "builtin",
   stash,
   detail,
   loading,
@@ -193,7 +195,8 @@ export function StashDiffOverlay({
 
         {detail ? (
           <div className="min-h-0 flex-1">
-            <SplitDiffViewer
+            <DiffViewer
+              mode={diffViewerMode}
               diff={stashDiffViewerDiff}
               appThemeId={appThemeId}
               files={detail.files}

@@ -4,6 +4,7 @@ import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
 export type CommitGraphMode = "simple" | "detailed";
 export type CommitGraphStyle = "standard" | "japaneseExpress";
+export type DiffViewerMode = "builtin" | "pierre";
 
 export interface WindowState {
   x: number;
@@ -23,6 +24,7 @@ export interface AppConfig {
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
+  diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
   repositoryAssistantPolicies: RepositoryAssistantPolicies;
   recentlyUsed: Array<{
@@ -47,6 +49,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   commitGraphStyle: "standard",
+  diffViewerMode: "builtin",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],
