@@ -41,7 +41,7 @@ interface SplitDiffFileStat {
   kind?: SplitDiffFileKind;
 }
 
-interface SplitDiffViewerProps {
+export interface SplitDiffViewerProps {
   diff: string;
   appThemeId?: AppThemeId | null;
   files?: SplitDiffFileStat[];

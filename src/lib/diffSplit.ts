@@ -6,8 +6,6 @@ export interface SplitDiffFilePatch {
   patch: string;
 }
 
-const DIFF_GIT_HEADER_LINE = /^diff --git /m;
-
 export function splitUnifiedDiffByFile(diff: string): SplitDiffFilePatch[] {
   if (!diff.trim()) {
     return [];
@@ -35,18 +33,8 @@ export function findSingleFilePatch(
   diff: string,
   file: Pick<ParsedDiffFile, "displayPath" | "newPath" | "oldPath">,
 ): string | null {
-  if (!DIFF_GIT_HEADER_LINE.test(diff)) {
-    return null;
-  }
-
-  const chunks = splitUnifiedDiffByFile(diff);
-  for (const chunk of chunks) {
-    if (
-      matchesParsedDiffFilePath(file, chunk.headerPath) ||
-      file.displayPath === chunk.headerPath ||
-      file.newPath === chunk.headerPath ||
-      file.oldPath === chunk.headerPath
-    ) {
+  for (const chunk of splitUnifiedDiffByFile(diff)) {
+    if (matchesParsedDiffFilePath(file, chunk.headerPath)) {
       return chunk.patch;
     }
   }
