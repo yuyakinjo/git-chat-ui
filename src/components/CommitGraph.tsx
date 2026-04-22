@@ -333,31 +333,25 @@ export function CommitGraph({
     },
     [commitIndexToTimelineIndex, timeline],
   );
-  const sharedStemLaneIndicesByRow = useMemo(() => {
-    const byRow = new Map<number, number[]>();
-    if (graphStyle !== "japaneseExpress") {
-      return byRow;
-    }
-
-    laneLayout.rows.forEach((row) => {
+  // 上の行の primary parent curve が担う合流先 lane を row 毎にまとめる。
+  // ここに含まれる lane は converging 水平線を描くと curve と重なり二股に見えるためスキップする。
+  const convergingLanesCoveredByPrimaryCurveByRow = useMemo(() => {
+    const byRow = new Map<number, Set<number>>();
+    laneLayout.rows.forEach((row, rowIndex) => {
       if (
         row.primaryParentLaneIndex === null ||
         row.primaryParentLaneIndex === row.laneIndex ||
-        row.primaryParentRowIndex === null
+        row.primaryParentRowIndex === null ||
+        row.primaryParentRowIndex <= rowIndex
       ) {
         return;
       }
-
-      const lanes = byRow.get(row.primaryParentRowIndex) ?? [];
-      if (!lanes.includes(row.laneIndex)) {
-        lanes.push(row.laneIndex);
-        lanes.sort((left, right) => left - right);
-      }
+      const lanes = byRow.get(row.primaryParentRowIndex) ?? new Set<number>();
+      lanes.add(row.laneIndex);
       byRow.set(row.primaryParentRowIndex, lanes);
     });
-
     return byRow;
-  }, [graphStyle, laneLayout.rows]);
+  }, [laneLayout.rows]);
   const commitRefScopeContext = useMemo(
     () =>
       branchContext
@@ -1323,7 +1317,6 @@ export function CommitGraph({
               ? (row.primaryParentRowIndex - index + interveningStashRows) * ROW_STEP +
                 ROW_HEIGHT / 2
               : null;
-          const sharedStemLaneIndices = sharedStemLaneIndicesByRow.get(index) ?? [];
           const graphSvgHeight = Math.max(
             ROW_HEIGHT + LINE_OVERDRAW * 2,
             primaryParentTargetY !== null ? primaryParentTargetY + LINE_OVERDRAW * 2 : 0,
@@ -1383,8 +1376,13 @@ export function CommitGraph({
                           return null;
                         }
 
-                        // マージカーブが接続を担うため、マージターゲットレーンの stub 線をスキップ
-                        if (!hasIncoming && row.mergeTargetLaneIndices.includes(laneIndex)) {
+                        // マージカーブまたは primary parent カーブが接続を担うため stub 線をスキップ
+                        if (
+                          !hasIncoming &&
+                          (row.mergeTargetLaneIndices.includes(laneIndex) ||
+                            (row.primaryParentLaneIndex === laneIndex &&
+                              row.primaryParentLaneIndex !== row.laneIndex))
+                        ) {
                           return null;
                         }
 
@@ -1409,80 +1407,62 @@ export function CommitGraph({
                         );
                       })}
 
-                      {sharedStemLaneIndices.map((laneIndex) => {
-                        const laneXValue = resolveLaneX(laneIndex);
-                        const joinDirection =
-                          Math.sign(laneXValue - resolveLaneX(row.laneIndex)) || 1;
-                        const joinX =
-                          nodeHorizontalOverlap !== null
-                            ? resolveLaneX(row.laneIndex) - joinDirection * nodeHorizontalOverlap
-                            : resolveLaneX(row.laneIndex) +
-                              joinDirection * (nodeSize / 2 - nodeJoinInset);
+                      {row.convergingLaneIndices
+                        .filter((convergingLaneIdx) => {
+                          const covered =
+                            convergingLanesCoveredByPrimaryCurveByRow.get(index);
+                          return !(covered && covered.has(convergingLaneIdx));
+                        })
+                        .map((convergingLaneIdx) => {
+                          const laneXValue = resolveLaneX(convergingLaneIdx);
+                          const joinDirection =
+                            Math.sign(laneXValue - resolveLaneX(row.laneIndex)) || 1;
+                          const joinX =
+                            nodeHorizontalOverlap !== null
+                              ? resolveLaneX(row.laneIndex) - joinDirection * nodeHorizontalOverlap
+                              : resolveLaneX(row.laneIndex) +
+                                joinDirection * (nodeSize / 2 - nodeJoinInset);
 
-                        return (
-                          <line
-                            className="commit-graph__lane-line"
-                            key={`${commit.sha}-stem-${laneIndex}`}
-                            x1={laneXValue}
-                            y1={ROW_HEIGHT / 2}
-                            x2={joinX}
-                            y2={ROW_HEIGHT / 2}
-                            stroke={resolveLaneStroke(index, laneIndex)}
-                            strokeWidth={resolveLaneStrokeWidth(index, laneIndex, row.laneIndex)}
-                            opacity={resolveLaneOpacity(index, laneIndex, row.laneIndex)}
+                          return (
+                            <line
+                              className="commit-graph__lane-line"
+                              key={`${commit.sha}-converge-${convergingLaneIdx}`}
+                              x1={laneXValue}
+                              y1={ROW_HEIGHT / 2}
+                              x2={joinX}
+                              y2={ROW_HEIGHT / 2}
+                              stroke={resolveLaneStroke(index, convergingLaneIdx)}
+                              strokeWidth={resolveLaneStrokeWidth(
+                                index,
+                                convergingLaneIdx,
+                                row.laneIndex,
+                              )}
+                              opacity={resolveLaneOpacity(index, convergingLaneIdx, row.laneIndex)}
+                              strokeLinecap="round"
+                            />
+                          );
+                        })}
+
+                      {row.mergeTargetLaneIndices
+                        .filter((targetLaneIndex) => targetLaneIndex !== row.primaryParentLaneIndex)
+                        .map((targetLaneIndex) => (
+                          <path
+                            key={`${commit.sha}-merge-${targetLaneIndex}`}
+                            d={buildPrimaryParentCurvePath({
+                              sourceLaneIndex: row.laneIndex,
+                              targetLaneIndex,
+                              targetY: ROW_HEIGHT + LINE_OVERDRAW,
+                              resolveLaneX,
+                              cornerRadius: graphStyleMetrics.elbowCornerRadius,
+                            })}
+                            stroke={resolveLaneStroke(index, targetLaneIndex)}
+                            strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
+                            opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
+                            fill="none"
                             strokeLinecap="round"
+                            strokeLinejoin="round"
                           />
-                        );
-                      })}
-
-                      {row.convergingLaneIndices.map((convergingLaneIdx) => {
-                        const laneXValue = resolveLaneX(convergingLaneIdx);
-                        const joinDirection =
-                          Math.sign(laneXValue - resolveLaneX(row.laneIndex)) || 1;
-                        const joinX =
-                          nodeHorizontalOverlap !== null
-                            ? resolveLaneX(row.laneIndex) - joinDirection * nodeHorizontalOverlap
-                            : resolveLaneX(row.laneIndex) +
-                              joinDirection * (nodeSize / 2 - nodeJoinInset);
-
-                        return (
-                          <line
-                            className="commit-graph__lane-line"
-                            key={`${commit.sha}-converge-${convergingLaneIdx}`}
-                            x1={laneXValue}
-                            y1={ROW_HEIGHT / 2}
-                            x2={joinX}
-                            y2={ROW_HEIGHT / 2}
-                            stroke={resolveLaneStroke(index, convergingLaneIdx)}
-                            strokeWidth={resolveLaneStrokeWidth(
-                              index,
-                              convergingLaneIdx,
-                              row.laneIndex,
-                            )}
-                            opacity={resolveLaneOpacity(index, convergingLaneIdx, row.laneIndex)}
-                            strokeLinecap="round"
-                          />
-                        );
-                      })}
-
-                      {row.mergeTargetLaneIndices.map((targetLaneIndex) => (
-                        <path
-                          key={`${commit.sha}-merge-${targetLaneIndex}`}
-                          d={buildPrimaryParentCurvePath({
-                            sourceLaneIndex: row.laneIndex,
-                            targetLaneIndex,
-                            targetY: ROW_HEIGHT + LINE_OVERDRAW,
-                            resolveLaneX,
-                            cornerRadius: graphStyleMetrics.elbowCornerRadius,
-                          })}
-                          stroke={resolveLaneStroke(index, targetLaneIndex)}
-                          strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}
-                          opacity={resolveLaneOpacity(index, targetLaneIndex, null)}
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      ))}
+                        ))}
 
                       {row.primaryParentLaneIndex !== null &&
                       row.primaryParentLaneIndex !== row.laneIndex ? (

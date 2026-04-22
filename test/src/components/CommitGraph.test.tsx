@@ -1519,7 +1519,7 @@ describe("CommitGraph", () => {
     expect(featureSeedRowHtml).toContain(
       `d="M ${featureLaneX} 16 L ${featureLaneX} 36 Q ${featureLaneX} 50, ${featureLaneX - 14} 50 L ${expectedJoinX} 50"`,
     );
-    expect(mainBaseRowHtml).toContain(
+    expect(mainBaseRowHtml).not.toContain(
       `class="commit-graph__lane-line" x1="${featureLaneX}" y1="16" x2="${expectedStemJoinX}" y2="16"`,
     );
     expect(mainBaseRowHtml).toContain('src="data:image/png;base64,avatar-parent"');
@@ -1583,7 +1583,7 @@ describe("CommitGraph", () => {
     expect(rightSeedRowHtml).toContain(
       `d="M ${rightLaneX} 16 L ${rightLaneX} 70 Q ${rightLaneX} 84, ${rightLaneX - 14} 84 L ${expectedRightJoinX} 84"`,
     );
-    expect(mainBaseRowHtml).toContain(
+    expect(mainBaseRowHtml).not.toContain(
       `class="commit-graph__lane-line" x1="${rightLaneX}" y1="16" x2="${expectedRightStemJoinX}" y2="16"`,
     );
   });
@@ -1674,13 +1674,13 @@ describe("CommitGraph", () => {
     expect(aSeedRowHtml).toContain(
       `d="M ${laneThreeX} 16 L ${laneThreeX} 36 Q ${laneThreeX} 50, ${laneThreeX - 14} 50 L ${expectedMainJoinX} 50"`,
     );
-    expect(bSeedRowHtml).toContain(
+    expect(bSeedRowHtml).not.toContain(
       `class="commit-graph__lane-line" x1="${laneOneX}" y1="16" x2="${expectedCSeedJoinX}" y2="16"`,
     );
-    expect(aSeedRowHtml).toContain(
+    expect(aSeedRowHtml).not.toContain(
       `class="commit-graph__lane-line" x1="${laneTwoX}" y1="16" x2="${expectedBSeedJoinX}" y2="16"`,
     );
-    expect(mainBaseRowHtml).toContain(
+    expect(mainBaseRowHtml).not.toContain(
       `class="commit-graph__lane-line" x1="${laneThreeX}" y1="16" x2="${expectedMainStemJoinX}" y2="16"`,
     );
     expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
@@ -1760,8 +1760,8 @@ describe("CommitGraph", () => {
     );
     expect(wipRowHtml).not.toContain(`x1="${laneOneX}"`);
     expect(wipRowHtml).not.toContain(`x1="${laneTwoX}"`);
-    expect(aSeedRowHtml).toContain(`x1="${laneTwoX}" y1="16" x2="`);
-    expect(mainBaseRowHtml).toContain(`x1="${laneThreeX}" y1="16" x2="`);
+    expect(aSeedRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
+    expect(mainBaseRowHtml).not.toContain(`x1="${laneThreeX}" y1="16" x2="`);
     expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
     expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
   });
