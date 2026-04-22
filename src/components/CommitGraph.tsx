@@ -1317,9 +1317,18 @@ export function CommitGraph({
               ? (row.primaryParentRowIndex - index + interveningStashRows) * ROW_STEP +
                 ROW_HEIGHT / 2
               : null;
+          // マージ曲線も 1 行分下の中央まで延ばして垂直優勢な「↱」形に見せる
+          // (行内完結だと曲がり角が始点に寄り過ぎて「⤴」に見えるため)
+          const hasRenderedMergeTarget = row.mergeTargetLaneIndices.some(
+            (targetLaneIndex) => targetLaneIndex !== row.primaryParentLaneIndex,
+          );
+          const mergeTargetCurveY = hasRenderedMergeTarget
+            ? ROW_STEP + ROW_HEIGHT / 2
+            : null;
           const graphSvgHeight = Math.max(
             ROW_HEIGHT + LINE_OVERDRAW * 2,
             primaryParentTargetY !== null ? primaryParentTargetY + LINE_OVERDRAW * 2 : 0,
+            mergeTargetCurveY !== null ? mergeTargetCurveY + LINE_OVERDRAW * 2 : 0,
           );
           const rowLaneStroke = resolveLaneStroke(index, row.laneIndex);
           const nodeClassName = [
@@ -1386,6 +1395,15 @@ export function CommitGraph({
                           return null;
                         }
 
+                        // converging lane は下の合流カーブが接続を担うため縦線をスキップ
+                        if (
+                          laneIndex !== row.laneIndex &&
+                          !hasOutgoing &&
+                          row.convergingLaneIndices.includes(laneIndex)
+                        ) {
+                          return null;
+                        }
+
                         const y1 = hasIncoming ? -LINE_OVERDRAW : ROW_HEIGHT / 2 + strokeWidth / 2;
                         const y2 = hasOutgoing
                           ? ROW_HEIGHT + LINE_OVERDRAW
@@ -1424,13 +1442,18 @@ export function CommitGraph({
                                 joinDirection * (nodeSize / 2 - nodeJoinInset);
 
                           return (
-                            <line
+                            <path
                               className="commit-graph__lane-line"
                               key={`${commit.sha}-converge-${convergingLaneIdx}`}
-                              x1={laneXValue}
-                              y1={ROW_HEIGHT / 2}
-                              x2={joinX}
-                              y2={ROW_HEIGHT / 2}
+                              d={buildPrimaryParentCurvePath({
+                                sourceLaneIndex: convergingLaneIdx,
+                                targetLaneIndex: row.laneIndex,
+                                startY: -LINE_OVERDRAW,
+                                targetY: ROW_HEIGHT / 2,
+                                resolveLaneX,
+                                targetJoinX: joinX,
+                                cornerRadius: graphStyleMetrics.elbowCornerRadius,
+                              })}
                               stroke={resolveLaneStroke(index, convergingLaneIdx)}
                               strokeWidth={resolveLaneStrokeWidth(
                                 index,
@@ -1438,7 +1461,9 @@ export function CommitGraph({
                                 row.laneIndex,
                               )}
                               opacity={resolveLaneOpacity(index, convergingLaneIdx, row.laneIndex)}
+                              fill="none"
                               strokeLinecap="round"
+                              strokeLinejoin="round"
                             />
                           );
                         })}
@@ -1451,9 +1476,10 @@ export function CommitGraph({
                             d={buildPrimaryParentCurvePath({
                               sourceLaneIndex: row.laneIndex,
                               targetLaneIndex,
-                              targetY: ROW_HEIGHT + LINE_OVERDRAW,
+                              targetY: mergeTargetCurveY ?? ROW_HEIGHT + LINE_OVERDRAW,
                               resolveLaneX,
                               cornerRadius: graphStyleMetrics.elbowCornerRadius,
+                              elbowSide: "start",
                             })}
                             stroke={resolveLaneStroke(index, targetLaneIndex)}
                             strokeWidth={resolveLaneStrokeWidth(index, targetLaneIndex, null)}

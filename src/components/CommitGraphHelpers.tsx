@@ -261,6 +261,13 @@ export function buildPrimaryParentCurvePath(input: {
   targetJoinX?: number;
   cornerRadius?: number;
   reverse?: boolean;
+  /**
+   * 曲がり角の位置。
+   * - "end" (既定): source lane を垂直に降りて target Y 付近で水平に折れる合流型 (子視点: 垂直→水平)。
+   * - "start": source Y で水平に折れてから target lane を垂直に降りる分岐型 (子視点: 水平→垂直)。
+   *   親視点では垂直→水平 (「↱」) に見えるため merge/branch 曲線の見え方を揃えたいときに使う。
+   */
+  elbowSide?: "end" | "start";
 }): string {
   const startY = input.startY ?? ROW_HEIGHT / 2;
   const resolveX = input.resolveLaneX ?? ((laneIndex: number) => laneX(laneIndex));
@@ -301,6 +308,17 @@ export function buildPrimaryParentCurvePath(input: {
   }
 
   const turnEndX = sourceX + turnDirection * cornerRadius;
+
+  if (input.elbowSide === "start") {
+    // 子視点で「水平 → 垂直」(親視点では「垂直 → 水平 = ↱」)。
+    // target lane を垂直に降ろしたいので targetJoinX ではなく targetX で終端する。
+    const turnStartX = targetX - turnDirection * cornerRadius;
+    const elbowStartY = startY + cornerRadius;
+    if (input.reverse) {
+      return `M ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(elbowStartY)} Q ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(startY)}, ${roundSvgCoordinate(turnStartX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
+    }
+    return `M ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)} L ${roundSvgCoordinate(turnStartX)} ${roundSvgCoordinate(startY)} Q ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(startY)}, ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(elbowStartY)} L ${roundSvgCoordinate(targetX)} ${roundSvgCoordinate(input.targetY)}`;
+  }
 
   if (input.reverse) {
     return `M ${roundSvgCoordinate(targetJoinX)} ${roundSvgCoordinate(input.targetY)} L ${roundSvgCoordinate(turnEndX)} ${roundSvgCoordinate(input.targetY)} Q ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(input.targetY)}, ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(elbowY)} L ${roundSvgCoordinate(sourceX)} ${roundSvgCoordinate(startY)}`;
