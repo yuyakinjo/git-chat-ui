@@ -3,9 +3,7 @@ import { describe, expect, test } from "bun:test";
 const globalsCss = await Bun.file(
   new URL("../../../src/styles/globals.css", import.meta.url),
 ).text();
-const themeCss = await Bun.file(
-  new URL("../../../src/styles/theme.css", import.meta.url),
-).text();
+const themeCss = await Bun.file(new URL("../../../src/styles/theme.css", import.meta.url)).text();
 
 function getSection(startMarker: string, endMarker: string): string {
   const start = globalsCss.indexOf(startMarker);
@@ -76,12 +74,8 @@ describe("globals.css", () => {
     expect(themePickerSection).toContain(".app-theme-picker__divider {");
     expect(themePickerSection).toContain("border-top: 1px solid var(--surface-border);");
     expect(themePickerSection).toContain(".app-theme-picker__trigger:hover {");
-    expect(themePickerSection).toContain(
-      ".app-theme-picker__trigger:focus-visible,",
-    );
-    expect(themePickerSection).toContain(
-      ".app-theme-picker[open] .app-theme-picker__trigger {",
-    );
+    expect(themePickerSection).toContain(".app-theme-picker__trigger:focus-visible,");
+    expect(themePickerSection).toContain(".app-theme-picker[open] .app-theme-picker__trigger {");
     expect(themePickerSection).toContain(
       ".app-theme-picker__trigger:is(:hover, :focus-visible) .app-theme-picker__chrome,",
     );
@@ -367,6 +361,19 @@ describe("globals.css", () => {
     expect(inputSection).toContain("backdrop-filter: blur(18px) saturate(170%);");
     expect(inputSection).toContain(".config-view__combobox-option.is-selected {");
     expect(inputSection).toContain(".config-view__combobox-empty {");
+  });
+
+  test("merge animation preview stays compact and aligns with the select row", () => {
+    const inputSection = getSection(".input {", ".config-view__commit-title-prompt {");
+
+    expect(inputSection).toContain(".config-view__merge-animation-field {");
+    expect(inputSection).toContain("display: grid;");
+    expect(inputSection).toContain("grid-template-columns: minmax(0, 1fr) 72px;");
+    expect(inputSection).toContain("align-items: stretch;");
+    expect(inputSection).toContain(".config-view__merge-animation-preview {");
+    expect(inputSection).toContain("justify-content: center;");
+    expect(inputSection).toContain(".config-view__merge-animation-preview-node {");
+    expect(inputSection).not.toContain(".config-view__merge-animation-preview-graph {");
   });
 
   test("working tree context menu uses the same theme tokens as floating branch actions", () => {

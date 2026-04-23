@@ -197,6 +197,31 @@ describe("ConfigView", () => {
     expect(html).toContain(">@pierre/diffs</option>");
   });
 
+  test("renders a merge animation preview that reflects the selected animation", () => {
+    const html = renderToStaticMarkup(
+      <ConfigView
+        onNotify={() => {}}
+        config={{
+          ...config,
+          commitGraphStyle: "japaneseExpress",
+          commitMergeAnimation: "particle",
+        }}
+        onConfigSaved={() => {}}
+        onAiGenerationConfigChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain('class="config-view__merge-animation-field"');
+    expect(html).toContain('class="config-view__merge-animation-preview"');
+    expect(html).toContain('class="config-view__merge-animation-preview-node"');
+    expect(html).toContain(
+      'aria-label="Merge Node Animation preview: Particle (パーティクル集束)"',
+    );
+    expect(html).toContain("commit-node-merge-ring--particle");
+    expect(html).toContain("commit-node--japanese-express");
+    expect(html).not.toContain("config-view__merge-animation-preview-graph");
+  });
+
   test("renders an OpenAI model combobox control", () => {
     const html = renderToStaticMarkup(
       <ConfigView

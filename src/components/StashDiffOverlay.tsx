@@ -154,7 +154,7 @@ export function StashDiffOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs"
+      className="absolute inset-0 z-40"
       role="dialog"
       aria-modal="true"
       aria-label={`diffs in ${stash.id}`}

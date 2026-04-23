@@ -1407,6 +1407,48 @@ button.app-tab {
   box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.4);
 }
 
+.config-view__merge-animation-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.config-view__merge-animation-select {
+  min-width: 0;
+}
+
+.config-view__merge-animation-select > .input-select {
+  width: 100%;
+}
+
+.config-view__merge-animation-preview {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgb(var(--theme-border-rgb) / 0.14);
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgb(var(--theme-elevated-strong-rgb) / 0.94),
+    rgb(var(--theme-elevated-rgb) / 0.82)
+  );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.config-view__merge-animation-preview-node {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
 .command-palette {
   position: fixed;
   inset: 0;
@@ -3275,9 +3317,7 @@ body[data-theme-mode="dark"] .commit-graph__sha-jump-submit {
   }
   50% {
     transform: scale(1.18);
-    filter: drop-shadow(
-      0 0 6px var(--merge-pulse-color, rgba(59, 130, 246, 0.55))
-    );
+    filter: drop-shadow(0 0 6px var(--merge-pulse-color, rgba(59, 130, 246, 0.55)));
   }
 }
 
@@ -3532,12 +3572,12 @@ body[data-theme-mode="dark"] .commit-graph__sha-jump-submit {
     calc(var(--merge-particle-radius, 14px) * -1) 0 0 currentColor,
     0 var(--merge-particle-radius, 14px) 0 currentColor,
     0 calc(var(--merge-particle-radius, 14px) * -1) 0 currentColor,
-    calc(var(--merge-particle-radius, 14px) * 0.71)
-      calc(var(--merge-particle-radius, 14px) * 0.71) 0 currentColor,
-    calc(var(--merge-particle-radius, 14px) * -0.71)
-      calc(var(--merge-particle-radius, 14px) * 0.71) 0 currentColor,
-    calc(var(--merge-particle-radius, 14px) * 0.71)
-      calc(var(--merge-particle-radius, 14px) * -0.71) 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * 0.71) calc(var(--merge-particle-radius, 14px) * 0.71)
+      0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * -0.71) calc(var(--merge-particle-radius, 14px) * 0.71)
+      0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * 0.71) calc(var(--merge-particle-radius, 14px) * -0.71)
+      0 currentColor,
     calc(var(--merge-particle-radius, 14px) * -0.71)
       calc(var(--merge-particle-radius, 14px) * -0.71) 0 currentColor;
   animation: commit-node-merge-particle 2.4s ease-in infinite;

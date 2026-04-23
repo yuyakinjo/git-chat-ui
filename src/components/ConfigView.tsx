@@ -1,5 +1,14 @@
 import { AlertCircle, CheckCircle2, ChevronDown, Eye, EyeOff, LoaderCircle } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+  type KeyboardEvent,
+} from "react";
 
 import { api } from "../lib/api";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "../lib/commitTitlePrompt";
@@ -38,6 +47,25 @@ export type TokenValidationState = "idle" | "checking" | "valid" | "invalid";
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
 const COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX = 128;
+const MERGE_NODE_PREVIEW_SIZE_PX = 14;
+const MERGE_NODE_PREVIEW_COLOR = "var(--accent)";
+
+const MERGE_NODE_ANIMATION_OPTIONS: ReadonlyArray<{
+  value: CommitMergeAnimation;
+  label: string;
+}> = [
+  { value: "none", label: "None (オフ)" },
+  { value: "pulse", label: "Pulse (合流パルス)" },
+  { value: "ripple", label: "Ripple (リング波紋)" },
+  { value: "orbit", label: "Orbit (周回)" },
+  { value: "shimmer", label: "Shimmer (色シマー)" },
+  { value: "metaball", label: "Metaball (有機融合)" },
+  { value: "morph", label: "Morph (形状変化)" },
+  { value: "dissolve", label: "Dissolve (ディゾルブ)" },
+  { value: "particle", label: "Particle (パーティクル集束)" },
+];
+
+type MergeNodeRingAnimation = Exclude<CommitMergeAnimation, "none" | "pulse">;
 
 function normalizeDepth(value: number): number {
   if (!Number.isFinite(value)) {
@@ -224,9 +252,7 @@ function useOpenAiTokenAndModels(
             models: [],
             loading: false,
             error:
-              error instanceof Error
-                ? error.message
-                : "OpenAI モデル一覧を取得できませんでした。",
+              error instanceof Error ? error.message : "OpenAI モデル一覧を取得できませんでした。",
           });
         }
       })();
@@ -287,6 +313,67 @@ export function TokenValidationIndicator({
     >
       <AlertCircle size={16} strokeWidth={2.2} aria-hidden="true" />
     </span>
+  );
+}
+
+function resolveMergeNodeRingAnimation(
+  animation: CommitMergeAnimation,
+): MergeNodeRingAnimation | null {
+  if (animation === "none" || animation === "pulse") {
+    return null;
+  }
+
+  return animation;
+}
+
+function MergeNodeAnimationPreview({
+  animation,
+  graphStyle,
+}: {
+  animation: CommitMergeAnimation;
+  graphStyle: CommitGraphStyle;
+}): JSX.Element {
+  const mergeRingAnimation = resolveMergeNodeRingAnimation(animation);
+  const selectedAnimationLabel =
+    MERGE_NODE_ANIMATION_OPTIONS.find((option) => option.value === animation)?.label ?? animation;
+  const nodeClassName = [
+    "block commit-node",
+    graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
+    animation === "pulse" ? "commit-node-merge-pulse" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const nodeStyle = {
+    width: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
+    height: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
+    background: MERGE_NODE_PREVIEW_COLOR,
+    ["--merge-pulse-color" as string]: MERGE_NODE_PREVIEW_COLOR,
+  } as CSSProperties;
+  const ringStyle = {
+    width: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
+    height: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
+    ["--merge-pulse-color" as string]: MERGE_NODE_PREVIEW_COLOR,
+    ["--merge-particle-radius" as string]: `${Math.round(MERGE_NODE_PREVIEW_SIZE_PX * 1.2)}px`,
+  } as CSSProperties;
+
+  return (
+    <div
+      className="config-view__merge-animation-preview"
+      role="img"
+      aria-label={`Merge Node Animation preview: ${selectedAnimationLabel}`}
+      title={selectedAnimationLabel}
+    >
+      <span className="config-view__merge-animation-preview-node" aria-hidden="true">
+        {mergeRingAnimation ? (
+          <span
+            aria-hidden="true"
+            className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
+            style={ringStyle}
+          />
+        ) : null}
+        <span aria-hidden="true" className={nodeClassName} style={nodeStyle} />
+      </span>
+    </div>
   );
 }
 
@@ -839,23 +926,27 @@ export function ConfigView({
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                     Merge Node Animation
                   </label>
-                  <select
-                    className="input input-select"
-                    value={commitMergeAnimation}
-                    onChange={(event) =>
-                      setCommitMergeAnimation(event.target.value as CommitMergeAnimation)
-                    }
-                  >
-                    <option value="none">None (オフ)</option>
-                    <option value="pulse">Pulse (合流パルス)</option>
-                    <option value="ripple">Ripple (リング波紋)</option>
-                    <option value="orbit">Orbit (周回)</option>
-                    <option value="shimmer">Shimmer (色シマー)</option>
-                    <option value="metaball">Metaball (有機融合)</option>
-                    <option value="morph">Morph (形状変化)</option>
-                    <option value="dissolve">Dissolve (ディゾルブ)</option>
-                    <option value="particle">Particle (パーティクル集束)</option>
-                  </select>
+                  <div className="config-view__merge-animation-field">
+                    <div className="config-view__merge-animation-select">
+                      <select
+                        className="input input-select"
+                        value={commitMergeAnimation}
+                        onChange={(event) =>
+                          setCommitMergeAnimation(event.target.value as CommitMergeAnimation)
+                        }
+                      >
+                        {MERGE_NODE_ANIMATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <MergeNodeAnimationPreview
+                      animation={commitMergeAnimation}
+                      graphStyle={commitGraphStyle}
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -895,7 +986,6 @@ export function ConfigView({
                     {MAX_REPOSITORY_SCAN_DEPTH}）。
                   </p>
                 </div>
-
               </div>
 
               <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">

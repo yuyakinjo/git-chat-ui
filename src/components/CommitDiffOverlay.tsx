@@ -143,7 +143,7 @@ export function CommitDiffOverlay({
   }, []);
 
   return (
-    <div className="absolute inset-0 z-40 bg-slate-950/55 p-3 backdrop-blur-xs">
+    <div className="absolute inset-0 z-40">
       <section className="panel flex h-full min-h-0 flex-col overflow-hidden p-4 shadow-2xl">
         <div className="mb-3 flex items-start justify-between gap-4">
           <div className="min-w-0">

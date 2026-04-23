@@ -1481,14 +1481,31 @@ export function CommitGraph({
                     >
                       {row.activeLaneIndices.map((laneIndex) => {
                         const strokeWidth = resolveLaneStrokeWidth(index, laneIndex, row.laneIndex);
+                        // 前後行で同じ laneIndex に dot が乗っている場合は、
+                        // layout 側の incoming/outgoing に含まれていなくても
+                        // 視覚的な連続性を保つために縦線を強制する。
+                        // (elbow で lane が CLOSED された直後、同じ lane が
+                        // 再利用されるケースで縦線が途切れる問題への対応)
+                        const prevRowLaneIndex =
+                          index > 0 ? (laneLayout.rows[index - 1]?.laneIndex ?? null) : null;
+                        const nextRowLaneIndex =
+                          index < commits.length - 1
+                            ? (laneLayout.rows[index + 1]?.laneIndex ?? null)
+                            : null;
+                        const isPrevRowReusingLane =
+                          laneIndex === row.laneIndex && prevRowLaneIndex === laneIndex;
+                        const isNextRowReusingLane =
+                          laneIndex === row.laneIndex && nextRowLaneIndex === laneIndex;
                         const hasIncoming =
                           (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex);
+                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex) ||
+                          isPrevRowReusingLane;
                         const isTopRowSiblingPassthroughLane =
                           index === 0 && laneIndex !== row.laneIndex && !hasIncoming;
                         const hasOutgoingRaw =
-                          row.outgoingLaneIndices.includes(laneIndex) &&
-                          !(isPrimaryBranchSourceRow && laneIndex === row.laneIndex);
+                          (row.outgoingLaneIndices.includes(laneIndex) &&
+                            !(isPrimaryBranchSourceRow && laneIndex === row.laneIndex)) ||
+                          isNextRowReusingLane;
                         const hasOutgoing =
                           hasOutgoingRaw &&
                           !(index === commits.length - 1 && !hasMore) &&
