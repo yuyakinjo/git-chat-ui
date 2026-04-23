@@ -33,6 +33,7 @@ import type {
   CommitGraphMode,
   CommitGraphStyle,
   CommitListItem,
+  CommitMergeAnimation,
   ConflictFileDetail,
   ConflictResolutionSide,
   ConflictSummary,
@@ -144,6 +145,8 @@ export function useControllerData({
   );
   const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>("detailed");
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>("standard");
+  const [commitMergeAnimation, setCommitMergeAnimation] =
+    useState<CommitMergeAnimation>("none");
   const [inlineError, setInlineError] = useState<UiError | null>(null);
 
   const [fingerprint, setFingerprint] = useState<string>("");
@@ -1263,6 +1266,10 @@ export function useControllerData({
     setCommitGraphStyle(appConfig?.commitGraphStyle ?? "standard");
   }, [appConfig?.commitGraphStyle]);
 
+  useEffect(() => {
+    setCommitMergeAnimation(appConfig?.commitMergeAnimation ?? "none");
+  }, [appConfig?.commitMergeAnimation]);
+
   // Validate focused diff file exists
   useEffect(() => {
     if (!focusedCommitDiffFile) {
@@ -1373,6 +1380,7 @@ export function useControllerData({
 
     commitGraphMode,
     commitGraphStyle,
+    commitMergeAnimation,
     inlineError,
     setInlineError,
 

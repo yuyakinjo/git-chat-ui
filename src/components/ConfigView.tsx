@@ -14,6 +14,7 @@ import type {
   AppConfig,
   CommitGraphMode,
   CommitGraphStyle,
+  CommitMergeAnimation,
   DiffViewerMode,
   OpenAiModelsResponse,
   TokenValidationResult,
@@ -57,6 +58,7 @@ function applyConfigToState(config: AppConfig): {
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
+  commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
 } {
@@ -68,6 +70,7 @@ function applyConfigToState(config: AppConfig): {
     commitTitlePrompt: config.commitTitlePrompt,
     commitGraphMode: config.commitGraphMode,
     commitGraphStyle: config.commitGraphStyle,
+    commitMergeAnimation: config.commitMergeAnimation,
     diffViewerMode: config.diffViewerMode,
     repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
   };
@@ -317,6 +320,9 @@ export function ConfigView({
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>(
     initialConfigState?.commitGraphStyle ?? "standard",
   );
+  const [commitMergeAnimation, setCommitMergeAnimation] = useState<CommitMergeAnimation>(
+    initialConfigState?.commitMergeAnimation ?? "none",
+  );
   const [diffViewerMode, setDiffViewerMode] = useState<DiffViewerMode>(
     initialConfigState?.diffViewerMode ?? "builtin",
   );
@@ -490,6 +496,7 @@ export function ConfigView({
     setCommitTitlePrompt(next.commitTitlePrompt);
     setCommitGraphMode(next.commitGraphMode);
     setCommitGraphStyle(next.commitGraphStyle);
+    setCommitMergeAnimation(next.commitMergeAnimation);
     setDiffViewerMode(next.diffViewerMode);
     setRepositoryScanDepth(next.repositoryScanDepth);
     setLoading(false);
@@ -742,6 +749,7 @@ export function ConfigView({
         commitTitlePrompt,
         commitGraphMode,
         commitGraphStyle,
+        commitMergeAnimation,
         diffViewerMode,
         repositoryScanDepth: normalizedDepth,
       });
@@ -766,6 +774,7 @@ export function ConfigView({
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitGraphMode(nextConfig.commitGraphMode);
       setCommitGraphStyle(nextConfig.commitGraphStyle);
+      setCommitMergeAnimation(nextConfig.commitMergeAnimation);
       setDiffViewerMode(nextConfig.diffViewerMode);
 
       onNotify("Config を保存しました。");
@@ -823,6 +832,29 @@ export function ConfigView({
                   >
                     <option value="standard">Standard</option>
                     <option value="japaneseExpress">Japanese Express</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Merge Node Animation
+                  </label>
+                  <select
+                    className="input input-select"
+                    value={commitMergeAnimation}
+                    onChange={(event) =>
+                      setCommitMergeAnimation(event.target.value as CommitMergeAnimation)
+                    }
+                  >
+                    <option value="none">None (オフ)</option>
+                    <option value="pulse">Pulse (合流パルス)</option>
+                    <option value="ripple">Ripple (リング波紋)</option>
+                    <option value="orbit">Orbit (周回)</option>
+                    <option value="shimmer">Shimmer (色シマー)</option>
+                    <option value="metaball">Metaball (有機融合)</option>
+                    <option value="morph">Morph (形状変化)</option>
+                    <option value="dissolve">Dissolve (ディゾルブ)</option>
+                    <option value="particle">Particle (パーティクル集束)</option>
                   </select>
                 </div>
 

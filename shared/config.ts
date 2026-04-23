@@ -4,7 +4,29 @@ import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
 export type CommitGraphMode = "simple" | "detailed";
 export type CommitGraphStyle = "standard" | "japaneseExpress";
+export type CommitMergeAnimation =
+  | "none"
+  | "pulse"
+  | "ripple"
+  | "orbit"
+  | "shimmer"
+  | "metaball"
+  | "morph"
+  | "dissolve"
+  | "particle";
 export type DiffViewerMode = "builtin" | "pierre";
+
+export const COMMIT_MERGE_ANIMATIONS: readonly CommitMergeAnimation[] = [
+  "none",
+  "pulse",
+  "ripple",
+  "orbit",
+  "shimmer",
+  "metaball",
+  "morph",
+  "dissolve",
+  "particle",
+];
 
 export interface WindowState {
   x: number;
@@ -24,6 +46,7 @@ export interface AppConfig {
   commitTitlePrompt: string;
   commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
+  commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
   repositoryAssistantPolicies: RepositoryAssistantPolicies;
@@ -49,6 +72,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   commitGraphStyle: "standard",
+  commitMergeAnimation: "none",
   diffViewerMode: "builtin",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},

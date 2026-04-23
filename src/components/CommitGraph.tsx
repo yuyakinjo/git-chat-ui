@@ -20,7 +20,14 @@ import { resolveCommitGraphColumnLayout } from "../lib/commitGraphColumns";
 import { buildLaneRows, type CommitForLane } from "../lib/commitGraphLayout";
 import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
-import type { BranchResponse, CommitGraphMode, CommitGraphStyle, CommitListItem, StashEntry } from "../types";
+import type {
+  BranchResponse,
+  CommitGraphMode,
+  CommitGraphStyle,
+  CommitListItem,
+  CommitMergeAnimation,
+  StashEntry,
+} from "../types";
 import {
   buildCommitRefBadges,
   buildPrimaryParentCurvePath,
@@ -51,6 +58,7 @@ interface CommitGraphProps {
   commitAuthorAvatars?: Record<string, string>;
   mode: CommitGraphMode;
   graphStyle: CommitGraphStyle;
+  mergeAnimation?: CommitMergeAnimation;
   activeCommitSha: string | null;
   highlightedCommitSha: string | null;
   checkedOutCommitSha: string | null;
@@ -143,6 +151,7 @@ export function CommitGraph({
   commitAuthorAvatars = {},
   mode,
   graphStyle,
+  mergeAnimation = "none",
   activeCommitSha,
   highlightedCommitSha,
   checkedOutCommitSha,
@@ -248,11 +257,6 @@ export function CommitGraph({
     () => resolveDefaultBranch(branchContext)?.name ?? null,
     [branchContext],
   );
-  const reservedBranchOrder = useMemo(() => {
-    return branchTipsForColoring
-      .filter((tip) => tip.name !== defaultBranchName)
-      .map((tip) => tip.name);
-  }, [branchTipsForColoring, defaultBranchName]);
   const branchColoring = useMemo(
     () =>
       buildCommitBranchColoring({
@@ -273,9 +277,8 @@ export function CommitGraph({
     return buildLaneRows(laneCommits, {
       defaultBranchHeadSha,
       defaultBranchName,
-      reservedBranchOrder,
     });
-  }, [branchColoring, commits, defaultBranchHeadSha, defaultBranchName, reservedBranchOrder]);
+  }, [branchColoring, commits, defaultBranchHeadSha, defaultBranchName]);
   // -- Unified timeline: interleave commits and stashes by date (newest-first) --
   type TimelineCommitEntry = { type: "commit"; commit: CommitListItem; commitIndex: number };
   type TimelineStashEntry = { type: "stash"; stash: StashEntry };
@@ -316,6 +319,62 @@ export function CommitGraph({
     }
     return map;
   }, [timeline]);
+
+  // 各 stash は専用レーンに配置する。ブランチのレーン（過去に登場したものを
+  // 含む）とは視覚的に混ざらないよう、常にコミットグラフ全体の maxLanes より
+  // 右側へ配置する。stash 同士は詰めて並べる。
+  const stashLayout = useMemo(() => {
+    const laneByStashId = new Map<string, number>();
+    let extraStashLanes = 0;
+    const hasDefaultBranch = (defaultBranchHeadSha ?? "").trim() !== "";
+    const minStashLane = hasDefaultBranch ? 1 : 0;
+    const stashLaneFloor = Math.max(minStashLane, laneLayout.maxLanes);
+    // 同じコミット区間に並ぶ stash 同士でもレーンが被らないよう、
+    // preceding/following コミットのペアごとに割当済みレーンを記録する。
+    const assignedLanesByBoundary = new Map<string, Set<number>>();
+
+    for (let t = 0; t < timeline.length; t++) {
+      const entry = timeline[t];
+      if (entry.type !== "stash") continue;
+
+      let nearestPrecedingCommitIndex: number | null = null;
+      for (let ti = t - 1; ti >= 0; ti--) {
+        const e = timeline[ti];
+        if (e.type === "commit") {
+          nearestPrecedingCommitIndex = e.commitIndex;
+          break;
+        }
+      }
+      let nearestFollowingCommitIndex: number | null = null;
+      for (let ti = t + 1; ti < timeline.length; ti++) {
+        const e = timeline[ti];
+        if (e.type === "commit") {
+          nearestFollowingCommitIndex = e.commitIndex;
+          break;
+        }
+      }
+
+      const boundaryKey = `${nearestPrecedingCommitIndex ?? "_"}:${nearestFollowingCommitIndex ?? "_"}`;
+      const lanesTakenByNeighbourStashes =
+        assignedLanesByBoundary.get(boundaryKey) ?? new Set<number>();
+
+      let stashLaneIndex = stashLaneFloor;
+      while (lanesTakenByNeighbourStashes.has(stashLaneIndex)) {
+        stashLaneIndex += 1;
+      }
+
+      laneByStashId.set(entry.stash.id, stashLaneIndex);
+      lanesTakenByNeighbourStashes.add(stashLaneIndex);
+      assignedLanesByBoundary.set(boundaryKey, lanesTakenByNeighbourStashes);
+
+      const extra = Math.max(0, stashLaneIndex - laneLayout.maxLanes + 1);
+      if (extra > extraStashLanes) {
+        extraStashLanes = extra;
+      }
+    }
+
+    return { laneByStashId, extraStashLanes };
+  }, [timeline, laneLayout, defaultBranchHeadSha]);
 
   /** Count non-commit (stash) rows that sit between two commits in the timeline. */
   const stashRowsBetweenCommits = useCallback(
@@ -540,12 +599,16 @@ export function CommitGraph({
   }, [onScrollToCommitHandled, scrollToCommitSha, timeline.length]);
 
   const isDetailedMode = mode === "detailed";
+  const effectiveMaxLanes = Math.max(
+    laneLayout.maxLanes + stashLayout.extraStashLanes,
+    1,
+  );
   const laneDisplayOffsets = useMemo(
     () =>
-      Array.from({ length: Math.max(laneLayout.maxLanes, 1) }, (_, laneIndex) =>
+      Array.from({ length: effectiveMaxLanes }, (_, laneIndex) =>
         getLaneDisplayOffset(laneIndex, graphStyle),
       ),
-    [graphStyle, laneLayout.maxLanes],
+    [graphStyle, effectiveMaxLanes],
   );
   const minLaneDisplayOffset = useMemo(
     () => Math.min(0, ...laneDisplayOffsets),
@@ -994,9 +1057,11 @@ export function CommitGraph({
             const parentRow =
               parentCommitIndex != null ? (laneLayout.rows[parentCommitIndex] ?? null) : null;
             const stashParentLaneIndex = parentRow?.laneIndex ?? 0;
-            // Stash node sits on the parent commit's lane so we don't allocate an extra
-            // graph column (which read as a stray coloured vertical "spur" beside the icon).
-            const stashLaneIndex = stashParentLaneIndex;
+            // gitkraken のように stash を独立したレーンに描画する。
+            // レーン番号は事前計算済み（stashLayout）。見つからない場合は親レーンにフォールバック。
+            const stashLaneIndex =
+              stashLayout.laneByStashId.get(stash.id) ?? stashParentLaneIndex;
+            const stashIsOnOwnLane = stashLaneIndex !== stashParentLaneIndex;
             const stashNodeSize = graphStyleMetrics.stashNodeSize;
             const stashNodeCenter = stashNodeSize / 2;
             const stashIconTopY = ROW_HEIGHT / 2 - stashNodeCenter;
@@ -1099,20 +1164,34 @@ export function CommitGraph({
                       fill="none"
                       overflow="visible"
                     >
-                      {/* 1. Solid passthrough lines. On the stash column, only the segment
-                          above the icon uses branch colour; below the icon the dashed stash
-                          connector is the only stroke (solid here would show through dash gaps). */}
-                      {passthroughLanes.map((laneIdx) => {
-                        const lx = resolveLaneX(laneIdx);
-                        const stroke = resolveLaneStroke(laneStrokeRefIndex, laneIdx);
-                        const common = {
-                          strokeWidth: graphStyleMetrics.detailedLineWidth,
-                          opacity: graphStyleMetrics.detailedLineOpacity,
-                          strokeLinecap: "round" as const,
-                        };
-                        if (laneIdx === stashParentLaneIndex) {
-                          if (stashSolidLineY1 >= stashIconTopY - 0.001) {
-                            return null;
+                      {/* 1. Solid passthrough lines. Stash は独立レーンにあるので、
+                          通過コミットのレーンは上下とも実線で描画する。stashIsOnOwnLane=false
+                          （フォールバック）の場合のみ、旧挙動で親レーンは上部のみに留める。 */}
+                      {passthroughLanes
+                        .filter((laneIdx) => laneIdx !== stashLaneIndex)
+                        .map((laneIdx) => {
+                          const lx = resolveLaneX(laneIdx);
+                          const stroke = resolveLaneStroke(laneStrokeRefIndex, laneIdx);
+                          const common = {
+                            strokeWidth: graphStyleMetrics.detailedLineWidth,
+                            opacity: graphStyleMetrics.detailedLineOpacity,
+                            strokeLinecap: "round" as const,
+                          };
+                          if (!stashIsOnOwnLane && laneIdx === stashParentLaneIndex) {
+                            if (stashSolidLineY1 >= stashIconTopY - 0.001) {
+                              return null;
+                            }
+                            return (
+                              <line
+                                key={`stash-pass-${stash.id}-${laneIdx}`}
+                                x1={lx}
+                                y1={stashSolidLineY1}
+                                x2={lx}
+                                y2={stashIconTopY}
+                                stroke={stroke}
+                                {...common}
+                              />
+                            );
                           }
 
                           return (
@@ -1121,45 +1200,63 @@ export function CommitGraph({
                               x1={lx}
                               y1={stashSolidLineY1}
                               x2={lx}
-                              y2={stashIconTopY}
+                              y2={ROW_HEIGHT + LINE_OVERDRAW}
                               stroke={stroke}
                               {...common}
                             />
                           );
-                        }
-
-                        return (
+                        })}
+                      {/* 親レーンがpassthroughに含まれない場合のフォールバック描画。
+                          独立レーン時は上下全域、フォールバック（親と同一レーン）時は上部のみ。 */}
+                      {!passthroughLanes.includes(stashParentLaneIndex) ? (
+                        stashIsOnOwnLane ? (
                           <line
-                            key={`stash-pass-${stash.id}-${laneIdx}`}
-                            x1={lx}
+                            x1={parentLaneX}
                             y1={stashSolidLineY1}
-                            x2={lx}
+                            x2={parentLaneX}
                             y2={ROW_HEIGHT + LINE_OVERDRAW}
-                            stroke={stroke}
-                            {...common}
+                            stroke={parentLaneStroke}
+                            strokeWidth={graphStyleMetrics.detailedLineWidth}
+                            opacity={graphStyleMetrics.detailedLineOpacity}
+                            strokeLinecap="round"
                           />
-                        );
-                      })}
-                      {/* parent lane: only when not already drawn by passthrough (upper band only) */}
-                      {!passthroughLanes.includes(stashParentLaneIndex) &&
-                      stashSolidLineY1 < stashIconTopY - 0.001 ? (
-                        <line
-                          x1={parentLaneX}
-                          y1={stashSolidLineY1}
-                          x2={parentLaneX}
-                          y2={stashIconTopY}
-                          stroke={parentLaneStroke}
-                          strokeWidth={graphStyleMetrics.detailedLineWidth}
-                          opacity={graphStyleMetrics.detailedLineOpacity}
-                          strokeLinecap="round"
-                        />
+                        ) : stashSolidLineY1 < stashIconTopY - 0.001 ? (
+                          <line
+                            x1={parentLaneX}
+                            y1={stashSolidLineY1}
+                            x2={parentLaneX}
+                            y2={stashIconTopY}
+                            stroke={parentLaneStroke}
+                            strokeWidth={graphStyleMetrics.detailedLineWidth}
+                            opacity={graphStyleMetrics.detailedLineOpacity}
+                            strokeLinecap="round"
+                          />
+                        ) : null
                       ) : null}
-                      {/* 2. Dashed stash connector: from icon bottom (reads as leaving the node) */}
+                      {/* 2. Dashed stash connector: stashレーンから親レーンへ肘曲線で接続。
+                          従来挙動（親レーンと同一）は縦直線にフォールバック。 */}
                       <path
-                        d={[
-                          `M ${stashLaneX} ${stashIconBottomY}`,
-                          `L ${stashLaneX} ${stashToParentY + ROW_HEIGHT / 2}`,
-                        ].join(" ")}
+                        d={(() => {
+                          const parentY = stashToParentY + ROW_HEIGHT / 2;
+                          if (!stashIsOnOwnLane) {
+                            return `M ${stashLaneX} ${stashIconBottomY} L ${stashLaneX} ${parentY}`;
+                          }
+                          const dirX = parentLaneX < stashLaneX ? -1 : 1;
+                          const cornerR = Math.max(
+                            0,
+                            Math.min(
+                              graphStyleMetrics.elbowCornerRadius,
+                              Math.abs(stashLaneX - parentLaneX) / 2,
+                              (parentY - stashIconBottomY) / 2,
+                            ),
+                          );
+                          return [
+                            `M ${stashLaneX} ${stashIconBottomY}`,
+                            `L ${stashLaneX} ${parentY - cornerR}`,
+                            `Q ${stashLaneX} ${parentY} ${stashLaneX + dirX * cornerR} ${parentY}`,
+                            `L ${parentLaneX} ${parentY}`,
+                          ].join(" ");
+                        })()}
                         stroke={STASH_LANE_COLOR}
                         strokeWidth={graphStyleMetrics.detailedLineWidth}
                         opacity={0.7}
@@ -1331,12 +1428,28 @@ export function CommitGraph({
             mergeTargetCurveY !== null ? mergeTargetCurveY + LINE_OVERDRAW * 2 : 0,
           );
           const rowLaneStroke = resolveLaneStroke(index, row.laneIndex);
+          const isMergeCommit = commit.parentShas.length >= 2;
+          const activeMergeAnimation: CommitMergeAnimation = isMergeCommit
+            ? mergeAnimation
+            : "none";
+          const mergePulseApplied = activeMergeAnimation === "pulse";
+          const mergeRingAnimation =
+            activeMergeAnimation === "ripple" ||
+            activeMergeAnimation === "orbit" ||
+            activeMergeAnimation === "shimmer" ||
+            activeMergeAnimation === "metaball" ||
+            activeMergeAnimation === "morph" ||
+            activeMergeAnimation === "dissolve" ||
+            activeMergeAnimation === "particle"
+              ? activeMergeAnimation
+              : null;
           const nodeClassName = [
             "absolute block commit-node",
             avatarSrc ? "commit-node--avatar" : "",
             graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
             !avatarSrc && graphStyle === "standard" ? "border border-white/90 shadow-sm" : "",
             isCheckedOutCommit ? "commit-node-head-glow" : "",
+            mergePulseApplied ? "commit-node-merge-pulse" : "",
           ]
             .filter(Boolean)
             .join(" ");
@@ -1513,14 +1626,35 @@ export function CommitGraph({
                       {/* (stash rows are now rendered at their chronological position in the timeline) */}
                     </svg>
 
+                    {mergeRingAnimation ? (
+                      <span
+                        aria-hidden="true"
+                        className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
+                        style={{
+                          width: `${nodeSize}px`,
+                          height: `${nodeSize}px`,
+                          left: `${resolveLaneX(row.laneIndex) - nodeSize / 2}px`,
+                          top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
+                          ["--merge-pulse-color" as string]: rowLaneStroke,
+                          ["--merge-particle-radius" as string]: `${Math.round(
+                            nodeSize * 1.2,
+                          )}px`,
+                        }}
+                      />
+                    ) : null}
                     <span
                       className={nodeClassName}
-                      style={buildCommitNodeStyle(
-                        rowLaneStroke,
-                        nodeSize,
-                        row.laneIndex,
-                        avatarSrc,
-                      )}
+                      style={{
+                        ...buildCommitNodeStyle(
+                          rowLaneStroke,
+                          nodeSize,
+                          row.laneIndex,
+                          avatarSrc,
+                        ),
+                        ...(mergePulseApplied
+                          ? ({ "--merge-pulse-color": rowLaneStroke } as CSSProperties)
+                          : {}),
+                      }}
                     >
                       {avatarSrc ? (
                         <img
@@ -1547,21 +1681,41 @@ export function CommitGraph({
                             : "rgb(var(--color-accent) / 0.2)",
                       }}
                     />
+                    {mergeRingAnimation ? (
+                      <span
+                        aria-hidden="true"
+                        className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
+                        style={{
+                          width: `${nodeSize}px`,
+                          height: `${nodeSize}px`,
+                          ["--merge-pulse-color" as string]: rowLaneStroke,
+                          ["--merge-particle-radius" as string]: `${Math.round(
+                            nodeSize * 1.2,
+                          )}px`,
+                        }}
+                      />
+                    ) : null}
                     <span
                       className={[
                         "commit-node",
                         avatarSrc ? "commit-node--avatar" : "",
                         graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
                         isCheckedOutCommit ? "commit-node-head-glow" : "",
+                        mergePulseApplied ? "commit-node-merge-pulse" : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      style={buildCommitNodeStyle(
-                        rowLaneStroke,
-                        nodeSize,
-                        row.laneIndex,
-                        avatarSrc,
-                      )}
+                      style={{
+                        ...buildCommitNodeStyle(
+                          rowLaneStroke,
+                          nodeSize,
+                          row.laneIndex,
+                          avatarSrc,
+                        ),
+                        ...(mergePulseApplied
+                          ? ({ "--merge-pulse-color": rowLaneStroke } as CSSProperties)
+                          : {}),
+                      }}
                     >
                       {avatarSrc ? (
                         <img

@@ -24,13 +24,6 @@ export interface LaneLayoutOptions {
    * derived lane line would visually break.
    */
   defaultBranchName?: string | null;
-  /**
-   * Ordered list of branch tag names used to pre-assign lanes 1+ in a stable
-   * order. Tags that appear in the visible commits follow this priority when
-   * claiming lanes. Tags outside this list fall back to first-seen order at
-   * the rightmost empty lane.
-   */
-  reservedBranchOrder?: string[];
 }
 
 export interface LaneRow {
@@ -80,7 +73,6 @@ export function buildLaneRows(
 ): LaneLayout {
   const defaultHeadSha = normalizeSha(options.defaultBranchHeadSha);
   const defaultBranchName = options.defaultBranchName?.trim() ?? "";
-  const reservedBranchOrder = options.reservedBranchOrder ?? [];
   const hasDefaultBranch = defaultHeadSha !== "";
 
   const rowIndexBySha = new Map(
@@ -131,71 +123,17 @@ export function buildLaneRows(
     }
   }
 
-  // Pre-pass 2: pre-assign derived lanes (1+) using `reservedBranchOrder`
-  // filtered to tags that actually appear in the visible commits and that
-  // are NOT on the default chain.
-  const visibleTags = new Set<string>();
-  for (const commit of commits) {
-    const sha = normalizeSha(commit.sha);
-    if (defaultChainShas.has(sha)) {
-      continue;
-    }
-    const tag = branchTagBySha.get(sha);
-    if (tag) {
-      visibleTags.add(tag);
-    }
-  }
-  const reservedLanesByBranchTag = new Map<string, number>();
-  const firstDerivedLane = hasDefaultBranch ? 1 : 0;
-  let nextReservedLane = firstDerivedLane;
-  for (const name of reservedBranchOrder) {
-    if (!name || !visibleTags.has(name)) {
-      continue;
-    }
-    if (reservedLanesByBranchTag.has(name)) {
-      continue;
-    }
-    reservedLanesByBranchTag.set(name, nextReservedLane);
-    nextReservedLane += 1;
-  }
-
-  // Initialize activeLanes with slots for lane 0 (default reservation) and
-  // each pre-reserved derived lane. All start empty (null); rows will fill
-  // them as chains activate.
+  // Initialize activeLanes. Lane 0 is reserved for the default chain when
+  // `hasDefaultBranch`; all other lanes grow on demand and are reclaimed as
+  // soon as they fall out of use (left-pack policy — no pre-reservation).
   const activeLanes: Array<string | null> = [];
   if (hasDefaultBranch) {
-    activeLanes.push(null);
-  }
-  for (let i = 0; i < reservedLanesByBranchTag.size; i++) {
     activeLanes.push(null);
   }
   const minLanes = activeLanes.length;
 
   const rows: LaneRow[] = [];
   let maxLanes = Math.max(minLanes, 1);
-
-  /**
-   * Returns the lane reserved for `tag` if that lane is currently free
-   * (null or closed). Otherwise -1. Callers may then place the target SHA
-   * on that lane so the branch stays on a consistent column.
-   */
-  const pickFreeReservedLane = (tag: string | null): number => {
-    if (!tag) {
-      return -1;
-    }
-    const reserved = reservedLanesByBranchTag.get(tag);
-    if (reserved === undefined) {
-      return -1;
-    }
-    if (reserved >= activeLanes.length) {
-      return -1;
-    }
-    const occupant = activeLanes[reserved];
-    if (occupant === null || isClosedLaneToken(occupant)) {
-      return reserved;
-    }
-    return -1;
-  };
 
   /**
    * Finds an empty slot at or after `startIndex`. Lane 0 is never returned
@@ -221,7 +159,6 @@ export function buildLaneRows(
 
     const incomingLaneIndices = collectActiveLaneIndices(activeLanes);
     const commitSha = normalizeSha(commit.sha);
-    const commitBranchTag = branchTagBySha.get(commitSha) ?? null;
     const parentShas = commit.parentShas.map((sha) => normalizeSha(sha)).filter(Boolean);
     const isDefaultChainCommit = defaultChainShas.has(commitSha);
 
@@ -239,22 +176,13 @@ export function buildLaneRows(
       }
       activeLanes[0] = commitSha;
     } else if (laneIndex === -1) {
-      const reservedLane = pickFreeReservedLane(commitBranchTag);
-      if (reservedLane !== -1) {
-        laneIndex = reservedLane;
-        activeLanes[reservedLane] = commitSha;
+      const freeLane = pickFreeLane(0);
+      if (freeLane !== -1) {
+        laneIndex = freeLane;
+        activeLanes[freeLane] = commitSha;
       } else {
-        const freeLane = pickFreeLane(0);
-        if (freeLane !== -1) {
-          laneIndex = freeLane;
-          activeLanes[freeLane] = commitSha;
-        } else {
-          activeLanes.push(commitSha);
-          laneIndex = activeLanes.length - 1;
-        }
-        if (commitBranchTag && !reservedLanesByBranchTag.has(commitBranchTag)) {
-          reservedLanesByBranchTag.set(commitBranchTag, laneIndex);
-        }
+        activeLanes.push(commitSha);
+        laneIndex = activeLanes.length - 1;
       }
     }
 
@@ -315,7 +243,6 @@ export function buildLaneRows(
         if (!rowIndexBySha.has(mergeParentSha)) {
           continue;
         }
-        const mergeParentBranchTag = branchTagBySha.get(mergeParentSha) ?? null;
         const mergeParentIsOnDefaultChain = defaultChainShas.has(mergeParentSha);
         const existingMergeParentLaneIndex = activeLanes.findIndex(
           (sha, j) => j !== laneIndex && sha === mergeParentSha,
@@ -336,18 +263,12 @@ export function buildLaneRows(
           primaryParentUnreachable = false;
           continue;
         }
-        let targetLaneIndex = pickFreeReservedLane(mergeParentBranchTag);
-        if (targetLaneIndex === -1) {
-          targetLaneIndex = pickFreeLane(laneIndex + 1);
-        }
+        let targetLaneIndex = pickFreeLane(laneIndex + 1);
         if (targetLaneIndex === -1) {
           activeLanes.push(mergeParentSha);
           targetLaneIndex = activeLanes.length - 1;
         } else {
           activeLanes[targetLaneIndex] = mergeParentSha;
-        }
-        if (mergeParentBranchTag && !reservedLanesByBranchTag.has(mergeParentBranchTag)) {
-          reservedLanesByBranchTag.set(mergeParentBranchTag, targetLaneIndex);
         }
         mergeTargetLaneIndices.push(targetLaneIndex);
       }

@@ -1406,7 +1406,7 @@ describe("CommitGraph", () => {
     );
   });
 
-  test("pins the checked-out branch to lane 1 regardless of which sibling is current", () => {
+  test("keeps each sibling branch on its own deterministic lane regardless of checkout", () => {
     const metrics = resolveCommitGraphStyleMetrics("japaneseExpress");
     const minLaneDisplayOffset = Math.min(
       getLaneDisplayOffset(0, "japaneseExpress"),
@@ -1414,12 +1414,21 @@ describe("CommitGraph", () => {
       getLaneDisplayOffset(2, "japaneseExpress"),
       getLaneDisplayOffset(3, "japaneseExpress"),
     );
-    const laneOneX = laneX(1, {
-      style: "japaneseExpress",
-      minLaneDisplayOffset,
-      laneGap: metrics.laneGap,
-      lanePadding: metrics.lanePadding,
-    });
+    const laneXByIndex = (index: number) =>
+      laneX(index, {
+        style: "japaneseExpress",
+        minLaneDisplayOffset,
+        laneGap: metrics.laneGap,
+        lanePadding: metrics.lanePadding,
+      });
+    // Left-pack allocation: the newest sibling tip claims lane 1, the
+    // next-newest lane 2, and so on. The assignment is independent of
+    // which branch is currently checked out.
+    const expectedLaneByBranch: Record<string, number> = {
+      "test-branch-3": 1,
+      "test-branch-2": 2,
+      "test-branch-1": 3,
+    };
 
     for (const currentBranchName of ["test-branch-1", "test-branch-2", "test-branch-3"]) {
       const html = renderToStaticMarkup(
@@ -1449,16 +1458,17 @@ describe("CommitGraph", () => {
         />,
       );
 
-      const tipRowHtml = extractCommitRowMarkup(html, `${currentBranchName}-tip`);
-      const seedRowHtml = extractCommitRowMarkup(html, `${currentBranchName}-seed`);
-
-      // Checked-out branch always occupies lane 1 (right next to the default lane).
-      expect(tipRowHtml).toMatch(
-        new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneOneX}"`),
-      );
-      expect(seedRowHtml).toMatch(
-        new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneOneX}"`),
-      );
+      for (const [branchName, laneIdx] of Object.entries(expectedLaneByBranch)) {
+        const tipRowHtml = extractCommitRowMarkup(html, `${branchName}-tip`);
+        const seedRowHtml = extractCommitRowMarkup(html, `${branchName}-seed`);
+        const expectedX = laneXByIndex(laneIdx);
+        expect(tipRowHtml).toMatch(
+          new RegExp(`class="commit-graph__lane-line"[^>]*x1="${expectedX}"`),
+        );
+        expect(seedRowHtml).toMatch(
+          new RegExp(`class="commit-graph__lane-line"[^>]*x1="${expectedX}"`),
+        );
+      }
     }
   });
 

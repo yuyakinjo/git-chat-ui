@@ -7,7 +7,13 @@ import { promisify } from "node:util";
 import { normalizeOpenAiReasoningEffort, resolveCommitTitlePrompt } from "../shared/ai.js";
 import { DEFAULT_APP_CONFIG } from "../shared/config.js";
 import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssistant.js";
-import type { AppConfig, CommitGraphMode, CommitGraphStyle, DiffViewerMode } from "./types.js";
+import type {
+  AppConfig,
+  CommitGraphMode,
+  CommitGraphStyle,
+  CommitMergeAnimation,
+  DiffViewerMode,
+} from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +42,24 @@ function normalizeCommitGraphStyle(value: unknown): CommitGraphStyle {
   }
 
   return DEFAULT_CONFIG.commitGraphStyle;
+}
+
+function normalizeCommitMergeAnimation(value: unknown): CommitMergeAnimation {
+  if (
+    value === "none" ||
+    value === "pulse" ||
+    value === "ripple" ||
+    value === "orbit" ||
+    value === "shimmer" ||
+    value === "metaball" ||
+    value === "morph" ||
+    value === "dissolve" ||
+    value === "particle"
+  ) {
+    return value;
+  }
+
+  return DEFAULT_CONFIG.commitMergeAnimation;
 }
 
 function normalizeDiffViewerMode(value: unknown): DiffViewerMode {
@@ -157,6 +181,7 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     commitGraphStyle: normalizeCommitGraphStyle(value.commitGraphStyle),
+    commitMergeAnimation: normalizeCommitMergeAnimation(value.commitMergeAnimation),
     diffViewerMode: normalizeDiffViewerMode(value.diffViewerMode),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
     repositoryAssistantPolicies: normalizeRepositoryAssistantPolicies(

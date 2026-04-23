@@ -30,6 +30,26 @@ export function parseCommitGraphStyle(value: unknown): AppConfig["commitGraphSty
   return null;
 }
 
+export function parseCommitMergeAnimation(
+  value: unknown,
+): AppConfig["commitMergeAnimation"] | null {
+  if (
+    value === "none" ||
+    value === "pulse" ||
+    value === "ripple" ||
+    value === "orbit" ||
+    value === "shimmer" ||
+    value === "metaball" ||
+    value === "morph" ||
+    value === "dissolve" ||
+    value === "particle"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
 export function parseDiffViewerMode(value: unknown): AppConfig["diffViewerMode"] | null {
   if (value === "builtin" || value === "pierre") {
     return value;

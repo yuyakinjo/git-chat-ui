@@ -222,10 +222,10 @@ describe("buildLaneRows", () => {
     expect(layout.maxLanes).toBeGreaterThanOrEqual(2);
   });
 
-  test("uses reservedBranchOrder to stabilise derived lane order", () => {
-    // featureB appears first in the commit list, but `featureA` is reserved
-    // earlier — featureA should claim lane 1 once it appears, and featureB
-    // stays on its own (later) lane.
+  test("allocates derived lanes left-packed in commit iteration order", () => {
+    // featureB appears first in the commit list, so it claims lane 1.
+    // featureA appears second and takes lane 2. Each branch keeps its lane
+    // for subsequent commits because the primary-parent seed stays put.
     const layout = buildLaneRows(
       [
         { sha: "b-2", parentShas: ["b-1"], branchTag: "featureB" },
@@ -236,19 +236,16 @@ describe("buildLaneRows", () => {
       ],
       {
         defaultBranchHeadSha: "root",
-        reservedBranchOrder: ["featureA", "featureB"],
+        defaultBranchName: "main",
       },
     );
 
     const laneByIndex = layout.rows.map((row) => row.laneIndex);
-    // row 4 is the default branch.
     expect(laneByIndex[4]).toBe(0);
-    // featureA commits (rows 1, 3) share lane 1 (reserved ahead of featureB).
-    expect(laneByIndex[1]).toBe(1);
-    expect(laneByIndex[3]).toBe(1);
-    // featureB commits (rows 0, 2) share lane 2.
-    expect(laneByIndex[0]).toBe(2);
-    expect(laneByIndex[2]).toBe(2);
+    expect(laneByIndex[0]).toBe(1);
+    expect(laneByIndex[2]).toBe(1);
+    expect(laneByIndex[1]).toBe(2);
+    expect(laneByIndex[3]).toBe(2);
   });
 
   test("does not absorb derived-branch commits into lane 0 when the default chain passes through them", () => {
@@ -266,15 +263,61 @@ describe("buildLaneRows", () => {
       {
         defaultBranchHeadSha: "feature-2",
         defaultBranchName: "main",
-        reservedBranchOrder: ["feature"],
       },
     );
 
-    // feature commits must stay on lane 1 (their branch tag's reserved lane),
-    // not be swallowed by lane 0.
+    // feature commits must stay on lane 1, not be swallowed by lane 0 —
+    // the `defaultChainShas` guard skips SHAs claimed by the feature tag.
     expect(layout.rows[0].laneIndex).toBe(1);
     expect(layout.rows[1].laneIndex).toBe(1);
     expect(layout.rows[2].laneIndex).toBe(0);
+  });
+
+  test("reuses a vacated lane after a branch ends", () => {
+    // featureA was merged back into main before featureB was born. Its lane
+    // slot should be recycled rather than leaving a permanently blank column.
+    const layout = buildLaneRows(
+      [
+        { sha: "b-tip", parentShas: ["main-tip"], branchTag: "featureB" },
+        { sha: "main-tip", parentShas: ["main-prev", "a-tip"], branchTag: "main" },
+        { sha: "a-tip", parentShas: ["main-prev"], branchTag: "featureA" },
+        { sha: "main-prev", parentShas: ["base"], branchTag: "main" },
+        { sha: "base", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "main-tip",
+        defaultBranchName: "main",
+      },
+    );
+
+    const laneByIndex = layout.rows.map((row) => row.laneIndex);
+    // featureB (row 0) claims lane 1 first.
+    expect(laneByIndex[0]).toBe(1);
+    // featureA (row 2) reuses lane 1 once featureB's lane has closed.
+    expect(laneByIndex[2]).toBe(1);
+    // The graph never grows wider than lane 1 — no leftover empty column.
+    expect(layout.maxLanes).toBe(2);
+  });
+
+  test("a living branch keeps the same lane across consecutive commits", () => {
+    const layout = buildLaneRows(
+      [
+        { sha: "f-3", parentShas: ["f-2"], branchTag: "feature" },
+        { sha: "f-2", parentShas: ["f-1"], branchTag: "feature" },
+        { sha: "f-1", parentShas: ["main-tip"], branchTag: "feature" },
+        { sha: "main-tip", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "main-tip",
+        defaultBranchName: "main",
+      },
+    );
+
+    const laneByIndex = layout.rows.map((row) => row.laneIndex);
+    expect(laneByIndex[0]).toBe(1);
+    expect(laneByIndex[1]).toBe(1);
+    expect(laneByIndex[2]).toBe(1);
+    expect(laneByIndex[3]).toBe(0);
   });
 
   test("flags default-chain rows as NOT reservedButEmpty", () => {

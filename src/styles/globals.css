@@ -3261,6 +3261,313 @@ body[data-theme-mode="dark"] .commit-graph__sha-jump-submit {
   animation: commit-node-firefly 1s ease-in infinite;
 }
 
+.commit-node-merge-pulse {
+  animation: commit-node-merge-pulse 1.8s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform, filter;
+}
+
+@keyframes commit-node-merge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgb(var(--theme-elevated-rgb) / 0));
+  }
+  50% {
+    transform: scale(1.18);
+    filter: drop-shadow(
+      0 0 6px var(--merge-pulse-color, rgba(59, 130, 246, 0.55))
+    );
+  }
+}
+
+.commit-node-merge-ring {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  border-radius: 9999px;
+}
+
+.commit-node-merge-ring--ripple::before,
+.commit-node-merge-ring--ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--merge-pulse-color, rgba(59, 130, 246, 0.55));
+  opacity: 0;
+  animation: commit-node-merge-ripple 2s ease-out infinite;
+  will-change: transform, opacity;
+}
+
+.commit-node-merge-ring--ripple::after {
+  animation-delay: 1s;
+}
+
+@keyframes commit-node-merge-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.commit-node-merge-ring--orbit {
+  overflow: visible;
+}
+
+.commit-node-merge-ring--orbit::before,
+.commit-node-merge-ring--orbit::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32%;
+  height: 32%;
+  border-radius: 9999px;
+  background: var(--merge-pulse-color, rgba(59, 130, 246, 0.9));
+  box-shadow: 0 0 4px var(--merge-pulse-color, rgba(59, 130, 246, 0.55));
+  animation: commit-node-merge-orbit-primary 3.2s linear infinite;
+  will-change: transform;
+}
+
+.commit-node-merge-ring--orbit::after {
+  filter: hue-rotate(180deg);
+  animation: commit-node-merge-orbit-secondary 3.2s linear infinite;
+}
+
+@keyframes commit-node-merge-orbit-primary {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) translate(220%, 0);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg) translate(220%, 0);
+  }
+}
+
+@keyframes commit-node-merge-orbit-secondary {
+  from {
+    transform: translate(-50%, -50%) rotate(180deg) translate(220%, 0);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(540deg) translate(220%, 0);
+  }
+}
+
+.commit-node-merge-ring--shimmer {
+  overflow: visible;
+}
+
+.commit-node-merge-ring--shimmer::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    var(--merge-pulse-color, rgba(59, 130, 246, 0.85)) 0deg,
+    transparent 90deg,
+    var(--merge-pulse-color, rgba(236, 72, 153, 0.85)) 180deg,
+    transparent 270deg,
+    var(--merge-pulse-color, rgba(59, 130, 246, 0.85)) 360deg
+  );
+  filter: blur(3px) hue-rotate(0deg);
+  opacity: 0.75;
+  animation: commit-node-merge-shimmer 2.6s linear infinite;
+  will-change: transform, filter;
+}
+
+@keyframes commit-node-merge-shimmer {
+  0% {
+    transform: rotate(0deg);
+    filter: blur(3px) hue-rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+    filter: blur(3px) hue-rotate(180deg);
+  }
+}
+
+.commit-node-merge-ring--metaball {
+  overflow: visible;
+  filter: blur(2px) contrast(12);
+}
+
+.commit-node-merge-ring--metaball::before,
+.commit-node-merge-ring--metaball::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  height: 70%;
+  margin: -35% 0 0 -35%;
+  border-radius: 9999px;
+  background: var(--merge-pulse-color, rgba(59, 130, 246, 1));
+  will-change: transform;
+}
+
+.commit-node-merge-ring--metaball::before {
+  animation: commit-node-merge-metaball-a 2.2s ease-in-out infinite;
+}
+
+.commit-node-merge-ring--metaball::after {
+  animation: commit-node-merge-metaball-b 2.2s ease-in-out infinite;
+}
+
+@keyframes commit-node-merge-metaball-a {
+  0%,
+  100% {
+    transform: translate(-110%, 0);
+  }
+  50% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes commit-node-merge-metaball-b {
+  0%,
+  100% {
+    transform: translate(110%, 0);
+  }
+  50% {
+    transform: translate(0, 0);
+  }
+}
+
+.commit-node-merge-ring--morph::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background: var(--merge-pulse-color, rgba(59, 130, 246, 0.8));
+  opacity: 0.55;
+  animation: commit-node-merge-morph 2.6s ease-in-out infinite;
+  will-change: border-radius, transform;
+}
+
+@keyframes commit-node-merge-morph {
+  0%,
+  100% {
+    border-radius: 50%;
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    border-radius: 45% 55% 52% 48% / 60% 44% 56% 40%;
+    transform: rotate(90deg) scale(1.1);
+  }
+  50% {
+    border-radius: 30% 70% 60% 40% / 40% 55% 45% 60%;
+    transform: rotate(180deg) scale(1.2);
+  }
+  75% {
+    border-radius: 60% 40% 48% 52% / 55% 45% 55% 45%;
+    transform: rotate(270deg) scale(1.1);
+  }
+}
+
+.commit-node-merge-ring--dissolve {
+  overflow: visible;
+}
+
+.commit-node-merge-ring--dissolve::before,
+.commit-node-merge-ring--dissolve::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    var(--merge-pulse-color, rgba(59, 130, 246, 0.9)) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  animation: commit-node-merge-dissolve 2.8s ease-in-out infinite;
+  will-change: transform, opacity, filter;
+}
+
+.commit-node-merge-ring--dissolve::after {
+  animation-delay: 1.4s;
+  filter: hue-rotate(180deg);
+}
+
+@keyframes commit-node-merge-dissolve {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(0deg);
+    filter: blur(0) saturate(1.1);
+  }
+  40% {
+    opacity: 0.85;
+    transform: scale(1.05) rotate(140deg);
+    filter: blur(1px) saturate(1.4);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6) rotate(360deg);
+    filter: blur(3px) saturate(1);
+  }
+}
+
+.commit-node-merge-ring--particle {
+  overflow: visible;
+  color: var(--merge-pulse-color, rgba(59, 130, 246, 0.95));
+}
+
+.commit-node-merge-ring--particle::before,
+.commit-node-merge-ring--particle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.4px;
+  height: 2.4px;
+  margin: -1.2px 0 0 -1.2px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow:
+    var(--merge-particle-radius, 14px) 0 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * -1) 0 0 currentColor,
+    0 var(--merge-particle-radius, 14px) 0 currentColor,
+    0 calc(var(--merge-particle-radius, 14px) * -1) 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * 0.71)
+      calc(var(--merge-particle-radius, 14px) * 0.71) 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * -0.71)
+      calc(var(--merge-particle-radius, 14px) * 0.71) 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * 0.71)
+      calc(var(--merge-particle-radius, 14px) * -0.71) 0 currentColor,
+    calc(var(--merge-particle-radius, 14px) * -0.71)
+      calc(var(--merge-particle-radius, 14px) * -0.71) 0 currentColor;
+  animation: commit-node-merge-particle 2.4s ease-in infinite;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.commit-node-merge-ring--particle::after {
+  animation-delay: 1.2s;
+  filter: hue-rotate(180deg);
+}
+
+@keyframes commit-node-merge-particle {
+  0% {
+    transform: scale(2.6) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    transform: scale(0.4) rotate(140deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.15) rotate(180deg);
+    opacity: 0;
+  }
+}
+
 .commit-graph__compact-lane {
   overflow: hidden;
   border-radius: 9999px;

@@ -22,6 +22,7 @@ const config: AppConfig = {
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphMode: "detailed",
   commitGraphStyle: "standard",
+  commitMergeAnimation: "none",
   diffViewerMode: "builtin",
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
@@ -185,10 +186,13 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(3);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(4);
     expect(html).toContain("Commit Graph Style");
     expect(html).toContain(">Standard</option>");
     expect(html).toContain(">Japanese Express</option>");
+    expect(html).toContain("Merge Node Animation");
+    expect(html).toContain(">None (オフ)</option>");
+    expect(html).toContain(">Pulse (合流パルス)</option>");
     expect(html).toContain("Diff Viewer");
     expect(html).toContain(">@pierre/diffs</option>");
   });

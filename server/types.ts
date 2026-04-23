@@ -3,6 +3,7 @@ export type {
   AppConfig,
   CommitGraphMode,
   CommitGraphStyle,
+  CommitMergeAnimation,
   DiffViewerMode,
   WindowState,
 } from "../shared/config.js";
