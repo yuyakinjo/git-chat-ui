@@ -11,6 +11,8 @@ import {
   laneX,
   parseCommitRefLabels,
   RIGHT_BRANCH_LANE_COLORS,
+  ROW_HEIGHT,
+  ROW_STEP,
   laneColor,
   resolveCommitGraphStyleMetrics,
 } from "../../../src/components/CommitGraphHelpers";
@@ -255,6 +257,49 @@ const checkedOutMainBranchContext: BranchResponse = {
     },
   ],
 };
+
+const reversePrimaryParentCommits: CommitListItem[] = [
+  {
+    sha: "newer-parent",
+    parentShas: ["base"],
+    author: "kinjo",
+    date: "2026-04-01T12:00:00.000Z",
+    subject: "chore: parent with newer timestamp",
+    decoration: "",
+  },
+  {
+    sha: "middle",
+    parentShas: ["middle-base"],
+    author: "kinjo",
+    date: "2026-03-31T12:00:00.000Z",
+    subject: "feat: unrelated row between parent and child",
+    decoration: "",
+  },
+  {
+    sha: "older-child",
+    parentShas: ["newer-parent"],
+    author: "kinjo",
+    date: "2026-03-30T12:00:00.000Z",
+    subject: "fix: child with older timestamp",
+    decoration: "",
+  },
+  {
+    sha: "base",
+    parentShas: [],
+    author: "kinjo",
+    date: "2026-03-29T12:00:00.000Z",
+    subject: "chore: base",
+    decoration: "",
+  },
+  {
+    sha: "middle-base",
+    parentShas: [],
+    author: "kinjo",
+    date: "2026-03-28T12:00:00.000Z",
+    subject: "chore: unrelated base",
+    decoration: "",
+  },
+];
 
 const stackedCheckedOutBranchCommitsBase: CommitListItem[] = [
   {
@@ -1695,6 +1740,56 @@ describe("CommitGraph", () => {
     );
     expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
     expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
+  });
+
+  test("draws a reverse primary-parent connector from the upper parent row to the lower child lane", () => {
+    const layout = buildLaneRows(reversePrimaryParentCommits);
+    const parentLaneX = laneX(layout.rows[0].laneIndex);
+    const childLaneX = laneX(layout.rows[2].laneIndex);
+    const targetY = ROW_STEP * 2 + ROW_HEIGHT / 2;
+    const expectedPath = buildPrimaryParentCurvePath({
+      sourceLaneIndex: layout.rows[0].laneIndex,
+      targetLaneIndex: layout.rows[2].laneIndex,
+      targetY,
+      cornerRadius: resolveCommitGraphStyleMetrics("standard").elbowCornerRadius,
+      elbowSide: "start",
+    });
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={reversePrimaryParentCommits}
+        mode="detailed"
+        graphStyle="standard"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha={null}
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+      />,
+    );
+
+    const parentRowHtml = extractCommitRowMarkup(html, "newer-parent");
+    const childRowHtml = extractCommitRowMarkup(html, "older-child");
+
+    expect(parentRowHtml).toContain(`d="${expectedPath}"`);
+    expect(parentRowHtml).toContain(`height="${targetY + 2}"`);
+    expect(parentRowHtml).toContain(`M ${parentLaneX} 16`);
+    expect(parentRowHtml).toContain(`L ${childLaneX} ${targetY}`);
+    expect(childRowHtml).not.toContain(
+      `class="commit-graph__lane-line" x1="${childLaneX}" y1="16"`,
+    );
   });
 
   test("keeps stacked Japanese Express WIP on the standard anchor while source stems stay on commit rows", () => {

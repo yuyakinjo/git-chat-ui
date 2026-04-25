@@ -502,6 +502,34 @@ describe("getWorkingTreeStatus", () => {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }
   });
+
+  test("returns raw paths for files that porcelain text output would quote", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+    const quotedFile = 'src/quote "file".txt';
+    const quotedPath = path.join(fixture.repoPath, quotedFile);
+
+    try {
+      await fs.mkdir(path.dirname(quotedPath), { recursive: true });
+      await fs.writeFile(quotedPath, "before\n");
+      await runGit(["add", quotedFile], fixture.repoPath);
+      await runGit(["commit", "-m", "add quoted path"], fixture.repoPath);
+      await fs.writeFile(quotedPath, "after\n");
+
+      const status = await getWorkingTreeStatus(fixture.repoPath);
+
+      expect(status.unstaged).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            file: quotedFile,
+            x: " ",
+            y: "M",
+          }),
+        ]),
+      );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("conflict details and resolution", () => {
@@ -1226,6 +1254,27 @@ describe("discardFile", () => {
       expect(await fs.readFile(path.join(fixture.repoPath, "README.md"), "utf8")).toBe(
         "line 1\nline 2\n",
       );
+    } finally {
+      await fs.rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test("restores quoted tracked paths to HEAD", async () => {
+    const fixture = await createWorkingTreeDiffFixture();
+    const quotedFile = 'src/quote "file".txt';
+    const quotedPath = path.join(fixture.repoPath, quotedFile);
+
+    try {
+      await fs.mkdir(path.dirname(quotedPath), { recursive: true });
+      await fs.writeFile(quotedPath, "before\n");
+      await runGit(["add", quotedFile], fixture.repoPath);
+      await runGit(["commit", "-m", "add quoted path"], fixture.repoPath);
+      await fs.writeFile(quotedPath, "after\n");
+
+      await discardFile(fixture.repoPath, quotedFile);
+
+      expect(await runGit(["status", "--porcelain", "--", quotedFile], fixture.repoPath)).toBe("");
+      expect(await fs.readFile(quotedPath, "utf8")).toBe("before\n");
     } finally {
       await fs.rm(fixture.rootDir, { recursive: true, force: true });
     }

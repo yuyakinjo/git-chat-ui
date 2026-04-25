@@ -61,8 +61,8 @@ import {
 import { stashFilesAsSingleEntry } from "../lib/stashFiles";
 import { waitForNextPaint } from "../lib/waitForNextPaint";
 import {
-  getWorkingTreeDiscardConfirmMessage,
   resolveWorkingTreeDiscardTarget,
+  type WorkingTreeDiscardTarget,
 } from "../lib/workingTreeDiscard";
 import { BranchActionDialog } from "./BranchActionDialog";
 import { BranchCreateDialog } from "./BranchCreateDialog";
@@ -83,6 +83,7 @@ import { StashRenameDialog } from "./StashRenameDialog";
 import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
 import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
+import { WorkingTreeDiscardDialog } from "./WorkingTreeDiscardDialog";
 import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
 import type { AppConfig, Branch, ConflictSummary, PullStatus, Repository } from "../types";
 
@@ -215,6 +216,8 @@ export function ControllerView({
   const [panelVisibility, setPanelVisibility] = useState<ControllerPanelVisibility>(() =>
     readInitialControllerPanelVisibility(),
   );
+  const [workingTreeDiscardTarget, setWorkingTreeDiscardTarget] =
+    useState<WorkingTreeDiscardTarget | null>(null);
   const [recentCommandPaletteItemIds, setRecentCommandPaletteItemIds] = useState<string[]>(() =>
     readInitialRecentCommandPaletteItemIds(),
   );
@@ -1272,13 +1275,7 @@ export function ControllerView({
           return;
         }
 
-        if (!window.confirm(getWorkingTreeDiscardConfirmMessage(target))) {
-          return;
-        }
-
-        void data.mutateWorkingState(async () => {
-          await api.discardFile(repoPath, target.file);
-        });
+        setWorkingTreeDiscardTarget(target);
       }}
       onOpenWorkingTreeDiff={(file, area) => {
         void data.loadWorkingTreeDiffDetail(file, area);
@@ -1814,6 +1811,25 @@ export function ControllerView({
           onClose={() => branchOps.setStashDeleteTarget(null)}
           onDelete={() => {
             void branchOps.handleDeleteStash();
+          }}
+        />
+      ) : null}
+
+      {workingTreeDiscardTarget ? (
+        <WorkingTreeDiscardDialog
+          target={workingTreeDiscardTarget}
+          busy={data.operationBusy}
+          onClose={() => setWorkingTreeDiscardTarget(null)}
+          onDiscard={() => {
+            const target = workingTreeDiscardTarget;
+            void data.mutateWorkingState(
+              async () => {
+                await api.discardFile(repoPath, target.file);
+              },
+              {
+                onSuccess: () => setWorkingTreeDiscardTarget(null),
+              },
+            );
           }}
         />
       ) : null}

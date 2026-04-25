@@ -12,24 +12,57 @@ interface WorkingTreeFileStatusEntry {
   y: string;
 }
 
+function isRenameOrCopyStatus(x: string, y: string): boolean {
+  return x === "R" || x === "C" || y === "R" || y === "C";
+}
+
+function parseWorkingTreeStatusEntries(output: string): WorkingTreeFileStatusEntry[] {
+  const entries: WorkingTreeFileStatusEntry[] = [];
+  const fields = output.split("\0");
+
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (!field) {
+      continue;
+    }
+
+    const x = field[0] ?? " ";
+    const y = field[1] ?? " ";
+    const file = field.slice(3);
+    if (!file) {
+      continue;
+    }
+
+    let previousFile: string | null = null;
+    if (isRenameOrCopyStatus(x, y)) {
+      const previousField = fields[index + 1] ?? "";
+      if (previousField) {
+        previousFile = previousField;
+        index += 1;
+      }
+    }
+
+    entries.push({
+      file,
+      previousFile,
+      x,
+      y,
+    });
+  }
+
+  return entries;
+}
+
 export async function getWorkingTreeStatus(repoPath: string): Promise<WorkingTreeStatus> {
   await ensureRepoPath(repoPath);
 
-  const statusOutput = await runGit(["status", "--porcelain=v1", "-uall"], repoPath);
+  const statusOutput = await runGit(["status", "--porcelain=v1", "-z", "-uall"], repoPath);
   const conflicted: WorkingFile[] = [];
   const staged: WorkingFile[] = [];
   const unstaged: WorkingFile[] = [];
 
-  for (const line of statusOutput.split("\n")) {
-    if (!line.trim()) {
-      continue;
-    }
-
-    const x = line[0] ?? " ";
-    const y = line[1] ?? " ";
-    const rawPath = line.slice(3).trim();
-    const file = rawPath.includes(" -> ") ? (rawPath.split(" -> ").at(-1) ?? rawPath) : rawPath;
-
+  for (const entry of parseWorkingTreeStatusEntries(statusOutput)) {
+    const { file, x, y } = entry;
     const normalizedStatus = statusLabel(x, y);
 
     if (isUnmergedStatus(x, y)) {
@@ -87,28 +120,11 @@ async function getWorkingTreeFileStatusEntry(
   repoPath: string,
   file: string,
 ): Promise<WorkingTreeFileStatusEntry | null> {
-  const output = await runGit(["status", "--porcelain=v1", "-uall", "--", file], repoPath);
+  const output = await runGit(["status", "--porcelain=v1", "-z", "-uall", "--", file], repoPath);
 
-  for (const line of output.split("\n")) {
-    if (!line.trim()) {
-      continue;
-    }
-
-    const x = line[0] ?? " ";
-    const y = line[1] ?? " ";
-    const rawPath = line.slice(3).trim();
-    const previousFile = rawPath.includes(" -> ") ? (rawPath.split(" -> ").at(0) ?? null) : null;
-    const normalizedFile = rawPath.includes(" -> ")
-      ? (rawPath.split(" -> ").at(-1) ?? rawPath)
-      : rawPath;
-
-    if (normalizedFile === file) {
-      return {
-        file: normalizedFile,
-        previousFile,
-        x,
-        y,
-      };
+  for (const entry of parseWorkingTreeStatusEntries(output)) {
+    if (entry.file === file) {
+      return entry;
     }
   }
 
@@ -117,8 +133,11 @@ async function getWorkingTreeFileStatusEntry(
 
 async function pathExistsInHead(repoPath: string, file: string): Promise<boolean> {
   try {
-    const output = await runGit(["ls-tree", "-r", "--name-only", "HEAD", "--", file], repoPath);
-    return output.split("\n").some((line) => line.trim() === file);
+    const output = await runGit(
+      ["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", file],
+      repoPath,
+    );
+    return output.split("\0").some((line) => line === file);
   } catch {
     return false;
   }

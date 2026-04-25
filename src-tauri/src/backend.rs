@@ -3467,13 +3467,6 @@ fn parse_diff_file_kinds(output: &str) -> Vec<(String, CommitFileKind)> {
         .collect()
 }
 
-fn parse_status_path(raw_path: &str) -> (Option<String>, String) {
-    match raw_path.split_once(" -> ") {
-        Some((left, right)) => (Some(left.to_string()), right.to_string()),
-        None => (None, raw_path.to_string()),
-    }
-}
-
 fn parse_commit_file_stats(output: &str, status_output: Option<&str>) -> Vec<CommitFileStat> {
     let stats: Vec<CommitFileStat> = output
         .lines()
@@ -6059,16 +6052,12 @@ pub fn get_working_tree_diff_detail(
 #[tauri::command]
 pub fn get_working_tree_status(repo_path: String) -> Result<WorkingTreeStatus, String> {
     ensure_repo_path(&repo_path)?;
-    let output = run_git(&["status", "--porcelain=v1", "-uall"], &repo_path)?;
+    let output = run_git(&["status", "--porcelain=v1", "-z", "-uall"], &repo_path)?;
     let mut conflicted = Vec::new();
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
 
-    for line in output.lines() {
-        let Some(entry) = parse_working_tree_status_entry(line) else {
-            continue;
-        };
-
+    for entry in parse_working_tree_status_entries(&output) {
         let item = WorkingFile {
             file: entry.file.clone(),
             x: entry.x.to_string(),
@@ -6259,29 +6248,55 @@ struct ConflictContext {
 
 const EMPTY_TREE_SHA: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-fn parse_working_tree_status_entry(line: &str) -> Option<WorkingTreeFileStatusEntryRecord> {
-    if line.trim().is_empty() {
+fn is_rename_or_copy_status(x: char, y: char) -> bool {
+    matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')
+}
+
+fn parse_working_tree_status_entry(field: &str) -> Option<WorkingTreeFileStatusEntryRecord> {
+    if field.is_empty() {
         return None;
     }
 
-    let x = line.chars().nth(0).unwrap_or(' ');
-    let y = line.chars().nth(1).unwrap_or(' ');
-    let raw_path = line.get(3..).unwrap_or("").trim();
-    if raw_path.is_empty() {
-        return None;
-    }
-
-    let (previous_file, file) = parse_status_path(raw_path);
+    let x = field.chars().next().unwrap_or(' ');
+    let y = field.chars().nth(1).unwrap_or(' ');
+    let file = field.get(3..).unwrap_or("").to_string();
     if file.is_empty() {
         return None;
     }
 
     Some(WorkingTreeFileStatusEntryRecord {
         file,
-        previous_file,
+        previous_file: None,
         x,
         y,
     })
+}
+
+fn parse_working_tree_status_entries(output: &str) -> Vec<WorkingTreeFileStatusEntryRecord> {
+    let fields: Vec<&str> = output.split('\0').collect();
+    let mut entries = Vec::new();
+    let mut index = 0;
+
+    while index < fields.len() {
+        let field = fields[index];
+        index += 1;
+
+        let Some(mut entry) = parse_working_tree_status_entry(field) else {
+            continue;
+        };
+
+        if is_rename_or_copy_status(entry.x, entry.y) && index < fields.len() {
+            let previous_file = fields[index];
+            index += 1;
+            if !previous_file.is_empty() {
+                entry.previous_file = Some(previous_file.to_string());
+            }
+        }
+
+        entries.push(entry);
+    }
+
+    entries
 }
 
 fn create_merge_session_id() -> String {
@@ -6325,17 +6340,16 @@ fn get_working_tree_file_status_entry(
     let args = vec![
         "status".to_string(),
         "--porcelain=v1".to_string(),
+        "-z".to_string(),
         "-uall".to_string(),
         "--".to_string(),
         file.to_string(),
     ];
     let output = run_git_owned(&args, repo_path)?;
 
-    for line in output.lines() {
-        if let Some(entry) = parse_working_tree_status_entry(line) {
-            if entry.file == file {
-                return Ok(Some(entry));
-            }
+    for entry in parse_working_tree_status_entries(&output) {
+        if entry.file == file {
+            return Ok(Some(entry));
         }
     }
 
@@ -6343,10 +6357,9 @@ fn get_working_tree_file_status_entry(
 }
 
 fn list_conflict_files(worktree_path: &str) -> Result<Vec<WorkingFile>, String> {
-    let output = run_git(&["status", "--porcelain=v1", "-uall"], worktree_path)?;
-    let mut files: Vec<WorkingFile> = output
-        .lines()
-        .filter_map(parse_working_tree_status_entry)
+    let output = run_git(&["status", "--porcelain=v1", "-z", "-uall"], worktree_path)?;
+    let mut files: Vec<WorkingFile> = parse_working_tree_status_entries(&output)
+        .into_iter()
         .filter(|entry| is_unmerged_status(entry.x, entry.y))
         .map(|entry| WorkingFile {
             file: entry.file,
@@ -6482,20 +6495,18 @@ fn get_conflict_file_status(
     file: &str,
 ) -> Result<Option<WorkingFile>, String> {
     let output = run_git(
-        &["status", "--porcelain=v1", "-uall", "--", file],
+        &["status", "--porcelain=v1", "-z", "-uall", "--", file],
         worktree_path,
     )?;
 
-    for line in output.lines() {
-        if let Some(entry) = parse_working_tree_status_entry(line) {
-            if entry.file == file && is_unmerged_status(entry.x, entry.y) {
-                return Ok(Some(WorkingFile {
-                    file: entry.file,
-                    x: entry.x.to_string(),
-                    y: entry.y.to_string(),
-                    status_label: status_label(entry.x, entry.y),
-                }));
-            }
+    for entry in parse_working_tree_status_entries(&output) {
+        if entry.file == file && is_unmerged_status(entry.x, entry.y) {
+            return Ok(Some(WorkingFile {
+                file: entry.file,
+                x: entry.x.to_string(),
+                y: entry.y.to_string(),
+                status_label: status_label(entry.x, entry.y),
+            }));
         }
     }
 
@@ -6538,6 +6549,7 @@ fn path_exists_in_head(repo_path: &str, file: &str) -> bool {
     let args = vec![
         "ls-tree".to_string(),
         "-r".to_string(),
+        "-z".to_string(),
         "--name-only".to_string(),
         "HEAD".to_string(),
         "--".to_string(),
@@ -6545,7 +6557,7 @@ fn path_exists_in_head(repo_path: &str, file: &str) -> bool {
     ];
 
     run_git_owned(&args, repo_path)
-        .map(|output| output.lines().any(|line| line.trim() == file))
+        .map(|output| output.split('\0').any(|line| line == file))
         .unwrap_or(false)
 }
 
@@ -8833,6 +8845,44 @@ mod tests {
     }
 
     #[test]
+    fn discard_file_restores_quoted_tracked_path_to_head() {
+        let fixture = create_working_tree_diff_fixture();
+        let quoted_file = "src/quote \"file\".txt";
+        let quoted_path = Path::new(&fixture.repo_path).join(quoted_file);
+        fs::create_dir_all(
+            quoted_path
+                .parent()
+                .expect("quoted path should have a parent"),
+        )
+        .expect("quoted path parent should be created");
+        fs::write(&quoted_path, "before\n").expect("quoted file should be written");
+        run_command("git", &["add", quoted_file], &fixture.repo_path)
+            .expect("git add should succeed");
+        run_command(
+            "git",
+            &["commit", "-m", "add quoted path"],
+            &fixture.repo_path,
+        )
+        .expect("git commit should succeed");
+        fs::write(&quoted_path, "after\n").expect("quoted file should be modified");
+
+        discard_file(fixture.repo_path.clone(), quoted_file.to_string())
+            .expect("discard file should succeed");
+
+        let status = run_command(
+            "git",
+            &["status", "--porcelain", "--", quoted_file],
+            &fixture.repo_path,
+        )
+        .expect("git status should succeed");
+        let contents =
+            fs::read_to_string(quoted_path).expect("quoted file contents should be readable");
+
+        assert_eq!(status, "");
+        assert_eq!(contents, "before\n");
+    }
+
+    #[test]
     fn discard_file_removes_staged_added_file_from_index_and_working_tree() {
         let fixture = create_working_tree_diff_fixture();
         let notes_path = Path::new(&fixture.repo_path).join("notes.txt");
@@ -9367,6 +9417,37 @@ mod tests {
                 ("uu.txt".to_string(), "UU:Both Modified".to_string()),
             ])
         );
+    }
+
+    #[test]
+    fn get_working_tree_status_returns_raw_quoted_paths() {
+        let fixture = create_working_tree_diff_fixture();
+        let quoted_file = "src/quote \"file\".txt";
+        let quoted_path = Path::new(&fixture.repo_path).join(quoted_file);
+        fs::create_dir_all(
+            quoted_path
+                .parent()
+                .expect("quoted path should have a parent"),
+        )
+        .expect("quoted path parent should be created");
+        fs::write(&quoted_path, "before\n").expect("quoted file should be written");
+        run_command("git", &["add", quoted_file], &fixture.repo_path)
+            .expect("git add should succeed");
+        run_command(
+            "git",
+            &["commit", "-m", "add quoted path"],
+            &fixture.repo_path,
+        )
+        .expect("git commit should succeed");
+        fs::write(&quoted_path, "after\n").expect("quoted file should be modified");
+
+        let status = get_working_tree_status(fixture.repo_path.clone())
+            .expect("working tree status should resolve");
+
+        assert!(status
+            .unstaged
+            .iter()
+            .any(|item| { item.file == quoted_file && item.x == " " && item.y == "M" }));
     }
 
     #[test]
