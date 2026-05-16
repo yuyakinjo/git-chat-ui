@@ -841,8 +841,9 @@ describe("CommitGraph", () => {
     expect(wipConnectorMatch?.[4]).toBe("33");
     expect(firstCommitLaneMatch?.[2]).toBe("-1");
     expect(firstCommitLaneMatch?.[4]).toBe("33");
-    expect(wipRowHtml).not.toMatch(
-      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray=/,
+    // WIP の連結線は未コミット状態を視覚的に伝えるためドット（破線）表示にする。
+    expect(wipRowHtml).toMatch(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray="[^"]+"/,
     );
     expect(firstCommitRowHtml).not.toMatch(
       new RegExp(`class="commit-graph__lane-line"[^>]*x1="${laneX(0)}"[^>]*stroke-dasharray=`),
@@ -1434,8 +1435,9 @@ describe("CommitGraph", () => {
         `class="wip-row__lane-line wip-row__lane-line--connector"[^>]*x1="${featureLaneX}"[^>]*x2="${featureLaneX}"`,
       ),
     );
-    expect(featureCheckedWipRowHtml).not.toMatch(
-      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray=/,
+    // WIP の連結線は未コミット状態を視覚的に伝えるためドット表示にする。
+    expect(featureCheckedWipRowHtml).toMatch(
+      /class="wip-row__lane-line wip-row__lane-line--connector"[^>]*stroke-dasharray="[^"]+"/,
     );
     expect(featureCheckedWipRowHtml).not.toContain(`x1="${mainLaneX}"`);
     expect(mainCheckedWipRowHtml).toMatch(

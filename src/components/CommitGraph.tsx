@@ -631,6 +631,14 @@ export function CommitGraph({
   );
   const hasWipRow =
     (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
+  const checkedOutTimelineIndex = useMemo<number | null>(() => {
+    if (!hasWipRow) return null;
+    const sha = (checkedOutCommitSha ?? "").trim();
+    if (!sha) return null;
+    const commitIdx = commits.findIndex((c) => c.sha.trim() === sha);
+    if (commitIdx < 0) return null;
+    return commitIndexToTimelineIndex.get(commitIdx) ?? null;
+  }, [hasWipRow, checkedOutCommitSha, commits, commitIndexToTimelineIndex]);
   const graphColumnWidth = isDetailedMode
     ? Math.max(
         graphStyleMetrics.minDetailedGraphWidth,
@@ -791,6 +799,24 @@ export function CommitGraph({
       wipAnchor.laneIndex,
     );
 
+    // WIP の連結線は実際にチェックアウト中のコミット行まで届かせる。
+    // チェックアウト中コミットが先頭でない（=最新コミットが別ブランチの場合など）
+    // その行まで縦線を延長しないと、間にある他レーンの行で線が途切れて見える。
+    // 終端はチェックアウト中ノードの直上 (ノード半径 + 1px) まで延ばし、
+    // ドットがノードに連結して見えるようにする。
+    const wipConnectorBottomY =
+      checkedOutTimelineIndex != null
+        ? (checkedOutTimelineIndex + 1) * ROW_STEP +
+          ROW_HEIGHT / 2 -
+          graphStyleMetrics.wipNodeLineClearance
+        : ROW_HEIGHT + LINE_OVERDRAW;
+    const wipSvgHeight = Math.max(
+      ROW_HEIGHT + LINE_OVERDRAW * 2,
+      wipConnectorBottomY + LINE_OVERDRAW,
+    );
+    // WIP ノードのリング (dasharray="2 3") と視覚的に揃えつつ、線幅に応じて少し拡大する。
+    const wipConnectorDashArray = `${Math.max(graphStyleMetrics.detailedLineWidth * 0.6, 1.5).toFixed(2)} ${Math.max(graphStyleMetrics.detailedLineWidth * 1.4, 3).toFixed(2)}`;
+
     return (
       <div
         className="wip-row commit-row"
@@ -801,11 +827,11 @@ export function CommitGraph({
         {isDetailedMode ? (
           <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
             <svg
-              className="absolute left-0"
+              className="absolute left-0 pointer-events-none"
               width={graphColumnWidth}
-              height={ROW_HEIGHT + LINE_OVERDRAW * 2}
+              height={wipSvgHeight}
               style={{ top: `${-LINE_OVERDRAW}px` }}
-              viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${ROW_HEIGHT + LINE_OVERDRAW * 2}`}
+              viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${wipSvgHeight}`}
               fill="none"
               overflow="hidden"
             >
@@ -827,11 +853,12 @@ export function CommitGraph({
                 x1={resolveLaneX(wipAnchor.laneIndex)}
                 y1={wipLineBottomStart}
                 x2={resolveLaneX(wipAnchor.laneIndex)}
-                y2={ROW_HEIGHT + LINE_OVERDRAW}
+                y2={wipConnectorBottomY}
                 stroke={anchorLaneStroke}
                 strokeWidth={anchorLaneStrokeWidth}
                 opacity={anchorLaneOpacity}
                 strokeLinecap="round"
+                strokeDasharray={wipConnectorDashArray}
               />
             </svg>
             <WipNode
@@ -895,14 +922,19 @@ export function CommitGraph({
       </div>
     );
   }, [
+    checkedOutCommitSha,
+    checkedOutTimelineIndex,
+    commits,
     graphColumnWidth,
     graphStyleMetrics.compactLineWidth,
+    graphStyleMetrics.detailedLineWidth,
     graphStyleMetrics.wipNodeRingRadius,
     graphStyleMetrics.wipNodeSize,
     graphStyleMetrics.wipNodeStrokeWidth,
     gridTemplateColumns,
     isCompactLayout,
     isDetailedMode,
+    laneLayout.rows,
     onSelectWip,
     resolveLaneOpacity,
     resolveLaneStroke,
