@@ -440,6 +440,16 @@ struct CommitAvatarManifest {
     commits: HashMap<String, CommitAvatarCommitEntry>,
     #[serde(default)]
     images: HashMap<String, CommitAvatarImageEntry>,
+    /// email (lowercased) -> image_key. GitHub に push 済みの commit から
+    /// 著者 email と avatar の対応を学習し、ローカルのみの commit でも
+    /// 同じ著者であれば avatar を再利用できるようにするためのインデックス。
+    #[serde(default)]
+    emails: HashMap<String, CommitAvatarCommitEntry>,
+    /// author name (lowercased) -> image_key. GitHub の noreply email を
+    /// 使っている著者は email では一致しないため、name でも fallback できる
+    /// ようにするためのセカンダリインデックス。
+    #[serde(default)]
+    names: HashMap<String, CommitAvatarCommitEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -488,6 +498,8 @@ struct GithubCommitAvatarGraphQlNode {
 
 #[derive(Debug, Deserialize)]
 struct GithubCommitAvatarGraphQlAuthor {
+    email: Option<String>,
+    name: Option<String>,
     user: Option<GithubCommitAvatarGraphQlUser>,
 }
 
@@ -495,6 +507,19 @@ struct GithubCommitAvatarGraphQlAuthor {
 struct GithubCommitAvatarGraphQlUser {
     #[serde(rename = "avatarUrl")]
     avatar_url: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct GithubCommitAvatarParseResult {
+    by_sha: HashMap<String, String>,
+    by_email: HashMap<String, String>,
+    by_name: HashMap<String, String>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct CommitAuthorIdentity {
+    email: String,
+    name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1067,10 +1092,53 @@ fn normalize_github_history_ref(ref_name: &str) -> String {
 
 fn resolve_github_history_ref(repo_path: &str, ref_name: Option<&str>) -> Result<String, String> {
     let normalized = normalize_github_history_ref(ref_name.unwrap_or("HEAD"));
+
+    // ローカルのみのブランチ名を GraphQL の expression に渡しても GitHub 側で
+    // object が null になり history が取得できない。remote にも同名ブランチが
+    // 存在する場合に限り、そのまま expression として使用する。
     if normalized != "HEAD" {
-        return Ok(normalized);
+        if let Ok(output) = run_git(
+            &["ls-remote", "--heads", "origin", &normalized],
+            repo_path,
+        ) {
+            if !output.trim().is_empty() {
+                return Ok(normalized);
+            }
+        }
     }
 
+    // ローカルのみのブランチ、または HEAD のとき:
+    // 1) HEAD の upstream (例: origin/develop) があればその short name を使う
+    // 2) なければ origin/HEAD (default branch) を使う
+    // これで GitHub 上に存在する祖先 branch の history が取得でき、表示中の
+    // commit のうち GitHub に push 済みのものは avatar を解決できる。
+    if let Ok(upstream) = run_git(
+        &["rev-parse", "--abbrev-ref", "HEAD@{upstream}"],
+        repo_path,
+    ) {
+        let trimmed = upstream.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with("@{") {
+            let stripped = trimmed.strip_prefix("origin/").unwrap_or(trimmed);
+            if !stripped.is_empty() {
+                return Ok(stripped.to_string());
+            }
+        }
+    }
+
+    if let Ok(default_branch) = run_git(
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        repo_path,
+    ) {
+        let trimmed = default_branch.trim();
+        if !trimmed.is_empty() {
+            let stripped = trimmed.strip_prefix("origin/").unwrap_or(trimmed);
+            if !stripped.is_empty() {
+                return Ok(stripped.to_string());
+            }
+        }
+    }
+
+    // 最終フォールバック: HEAD の SHA (GitHub 上にあれば history が取れる)。
     run_git(&["rev-parse", "HEAD"], repo_path)
 }
 
@@ -1117,7 +1185,7 @@ fn write_commit_avatar_manifest(
     fs::write(path, body).map_err(|error| format!("Failed to write avatar manifest: {error}"))
 }
 
-fn parse_github_commit_avatar_graphql_response(raw: &str) -> HashMap<String, String> {
+fn parse_github_commit_avatar_graphql_response(raw: &str) -> GithubCommitAvatarParseResult {
     let parsed = serde_json::from_str::<GithubCommitAvatarGraphQlResponse>(raw).ok();
     let nodes = parsed
         .and_then(|value| value.data)
@@ -1127,25 +1195,45 @@ fn parse_github_commit_avatar_graphql_response(raw: &str) -> HashMap<String, Str
         .map(|value| value.nodes)
         .unwrap_or_default();
 
-    let mut avatars = HashMap::new();
+    let mut result = GithubCommitAvatarParseResult::default();
     for node in nodes {
         let sha = node.oid.unwrap_or_default().trim().to_string();
-        let avatar_url = node
-            .author
+        let author = node.author;
+        let email = author
+            .as_ref()
+            .and_then(|value| value.email.clone())
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        let name = author
+            .as_ref()
+            .and_then(|value| value.name.clone())
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        let avatar_url = author
             .and_then(|value| value.user)
             .and_then(|value| value.avatar_url)
             .unwrap_or_default()
             .trim()
             .to_string();
 
-        if sha.is_empty() || avatar_url.is_empty() {
+        if avatar_url.is_empty() {
             continue;
         }
 
-        avatars.insert(sha, avatar_url);
+        if !sha.is_empty() {
+            result.by_sha.insert(sha, avatar_url.clone());
+        }
+        if !email.is_empty() {
+            result.by_email.insert(email, avatar_url.clone());
+        }
+        if !name.is_empty() {
+            result.by_name.insert(name, avatar_url);
+        }
     }
 
-    avatars
+    result
 }
 
 fn fetch_github_commit_avatar_urls(
@@ -1153,7 +1241,7 @@ fn fetch_github_commit_avatar_urls(
     owner: &str,
     name: &str,
     ref_name: &str,
-) -> Result<HashMap<String, String>, String> {
+) -> Result<GithubCommitAvatarParseResult, String> {
     let query = [
         "query($owner: String!, $name: String!, $ref: String!, $limit: Int!, $avatarSize: Int!) {",
         "  repository(owner: $owner, name: $name) {",
@@ -1163,6 +1251,8 @@ fn fetch_github_commit_avatar_urls(
         "          nodes {",
         "            oid",
         "            author {",
+        "              email",
+        "              name",
         "              user {",
         "                avatarUrl(size: $avatarSize)",
         "              }",
@@ -1267,14 +1357,46 @@ fn persist_commit_avatar_image(
 fn build_commit_author_avatar_sources(
     manifest: &CommitAvatarManifest,
     shas: &[String],
+    sha_to_identity: &HashMap<String, CommitAuthorIdentity>,
 ) -> HashMap<String, String> {
     let mut avatars = HashMap::new();
 
     for sha in shas {
-        let Some(commit_entry) = manifest.commits.get(sha) else {
+        // 解決順序:
+        // 1) SHA 直接ヒット (GitHub に push 済みの commit)
+        // 2) 著者 email 経由ヒット
+        // 3) 著者 name 経由ヒット (GitHub noreply email を使う著者は email では
+        //    一致しないため、name で fallback)
+        let identity = sha_to_identity.get(sha);
+        let image_key = manifest
+            .commits
+            .get(sha)
+            .map(|entry| entry.image_key.clone())
+            .or_else(|| {
+                let id = identity?;
+                if id.email.is_empty() {
+                    return None;
+                }
+                manifest
+                    .emails
+                    .get(&id.email)
+                    .map(|entry| entry.image_key.clone())
+            })
+            .or_else(|| {
+                let id = identity?;
+                if id.name.is_empty() {
+                    return None;
+                }
+                manifest
+                    .names
+                    .get(&id.name)
+                    .map(|entry| entry.image_key.clone())
+            });
+
+        let Some(image_key) = image_key else {
             continue;
         };
-        let Some(image_entry) = manifest.images.get(&commit_entry.image_key) else {
+        let Some(image_entry) = manifest.images.get(&image_key) else {
             continue;
         };
         let Ok(path) = commit_avatar_image_path(&image_entry.file_name) else {
@@ -1295,6 +1417,53 @@ fn build_commit_author_avatar_sources(
     }
 
     avatars
+}
+
+/// 指定された複数の commit SHA に対し、Git レポジトリのローカル情報から
+/// `sha -> (author email, author name)` を一括取得する。`git log --no-walk`
+/// を 1 回呼ぶだけで済むため、リクエスト数に対してリニアな git 起動を避けられる。
+/// email と name はそれぞれ lowercased & trimmed され、空であれば空文字列。
+fn get_commit_author_identities_batch(
+    repo_path: &str,
+    shas: &[String],
+) -> HashMap<String, CommitAuthorIdentity> {
+    if shas.is_empty() {
+        return HashMap::new();
+    }
+
+    // Tab 区切りで email/name を取得 (name にスペースが含まれても安全に分割できる)。
+    let mut args = vec![
+        "log".to_string(),
+        "--no-walk".to_string(),
+        "--format=%H\t%ae\t%an".to_string(),
+    ];
+    args.extend(shas.iter().cloned());
+
+    let output = match run_git_owned(&args, repo_path) {
+        Ok(value) => value,
+        Err(_) => return HashMap::new(),
+    };
+
+    let mut result = HashMap::new();
+    for line in output.lines() {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.splitn(3, '\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let sha = parts[0].trim().to_string();
+        let email = parts[1].trim().to_lowercase();
+        let name = parts[2].trim().to_lowercase();
+        if sha.is_empty() {
+            continue;
+        }
+        result.insert(sha, CommitAuthorIdentity { email, name });
+    }
+
+    result
 }
 
 #[cfg(target_os = "macos")]
@@ -5784,12 +5953,12 @@ pub fn get_commit_author_avatars(
                     if let Ok(history_ref) =
                         resolve_github_history_ref(&repo_path, ref_name.as_deref())
                     {
-                        if let Ok(commit_avatar_urls) =
+                        if let Ok(parsed) =
                             fetch_github_commit_avatar_urls(&repo_path, &owner, &name, &history_ref)
                         {
                             let mut changed = false;
 
-                            for (sha, avatar_url) in commit_avatar_urls {
+                            for (sha, avatar_url) in parsed.by_sha {
                                 let image_key = stable_hash_text(&avatar_url);
                                 if persist_commit_avatar_image(
                                     &image_key,
@@ -5805,6 +5974,38 @@ pub fn get_commit_author_avatars(
                                 }
                             }
 
+                            for (email, avatar_url) in parsed.by_email {
+                                let image_key = stable_hash_text(&avatar_url);
+                                if persist_commit_avatar_image(
+                                    &image_key,
+                                    &avatar_url,
+                                    &mut manifest,
+                                )
+                                .is_ok()
+                                {
+                                    manifest
+                                        .emails
+                                        .insert(email, CommitAvatarCommitEntry { image_key });
+                                    changed = true;
+                                }
+                            }
+
+                            for (name, avatar_url) in parsed.by_name {
+                                let image_key = stable_hash_text(&avatar_url);
+                                if persist_commit_avatar_image(
+                                    &image_key,
+                                    &avatar_url,
+                                    &mut manifest,
+                                )
+                                .is_ok()
+                                {
+                                    manifest
+                                        .names
+                                        .insert(name, CommitAvatarCommitEntry { image_key });
+                                    changed = true;
+                                }
+                            }
+
                             if changed {
                                 let _ = write_commit_avatar_manifest(&repo_key, &manifest);
                             }
@@ -5815,8 +6016,10 @@ pub fn get_commit_author_avatars(
         }
     }
 
+    let sha_to_identity = get_commit_author_identities_batch(&repo_path, &requested_shas);
+
     Ok(CommitAuthorAvatarsResponse {
-        avatars: build_commit_author_avatar_sources(&manifest, &requested_shas),
+        avatars: build_commit_author_avatar_sources(&manifest, &requested_shas, &sha_to_identity),
     })
 }
 
