@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up.
+description: 現在の会話を別のエージェントが引き継ぐためのハンドオフドキュメントに圧縮する。
 argument-hint: "What will the next session be used for?"
 ---
 

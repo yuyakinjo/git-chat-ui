@@ -1,6 +1,6 @@
 ---
 name: to-prd
-description: Turn the current conversation context into a PRD and publish it to the project issue tracker. Use when user wants to create a PRD from the current context.
+description: 現在の会話コンテキストを PRD に変換し、プロジェクトの issue トラッカーに公開する。ユーザーが現在のコンテキストから PRD を作成したい場合に使用。
 ---
 
 This skill takes the current conversation context and codebase understanding and produces a PRD. Do NOT interview the user — just synthesize what you already know.
