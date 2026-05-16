@@ -411,22 +411,6 @@ export function CommitGraph({
     return { laneByStashId, extraStashLanes };
   }, [timeline, laneLayout, defaultBranchHeadSha]);
 
-  /** Count non-commit (stash) rows that sit between two commits in the timeline. */
-  const stashRowsBetweenCommits = useCallback(
-    (fromCommitIndex: number, toCommitIndex: number): number => {
-      const fromTl = commitIndexToTimelineIndex.get(fromCommitIndex);
-      const toTl = commitIndexToTimelineIndex.get(toCommitIndex);
-      if (fromTl == null || toTl == null) return 0;
-      let count = 0;
-      const lo = Math.min(fromTl, toTl);
-      const hi = Math.max(fromTl, toTl);
-      for (let i = lo + 1; i < hi; i++) {
-        if (timeline[i].type === "stash") count++;
-      }
-      return count;
-    },
-    [commitIndexToTimelineIndex, timeline],
-  );
   // 上の行の primary parent curve が担う合流先 lane を row 毎にまとめる。
   // ここに含まれる lane は converging 水平線を描くと curve と重なり二股に見えるためスキップする。
   const convergingLanesCoveredByPrimaryCurveByRow = useMemo(() => {
@@ -1468,18 +1452,20 @@ export function CommitGraph({
                   );
                 })()
               : null;
-          const interveningStashRows =
-            isPrimaryBranchSourceRow &&
-            row.primaryParentRowIndex !== null &&
-            row.primaryParentRowIndex > index
-              ? stashRowsBetweenCommits(index, row.primaryParentRowIndex)
-              : 0;
+          // primary parent curve の Y 距離は「表示行 (timeline) 距離」で計算する。
+          // 配列 idx 距離だと git log が topology 順で返す場合に、間に date sort
+          // で挟まれる他レーンのコミット行が考慮されず、curve が実際の親より上で
+          // 終端して phantom branch line に見える (ca-trust の dd91fcd → 6b8c003 等)。
+          // stash 行も timeline 距離に自然に含まれるため interveningStashRows は不要。
+          const primaryParentTimelineIdx =
+            isPrimaryBranchSourceRow && row.primaryParentRowIndex !== null
+              ? (commitIndexToTimelineIndex.get(row.primaryParentRowIndex) ?? null)
+              : null;
           const primaryParentTargetY =
             isPrimaryBranchSourceRow &&
-            row.primaryParentRowIndex !== null &&
-            row.primaryParentRowIndex > index
-              ? (row.primaryParentRowIndex - index + interveningStashRows) * ROW_STEP +
-                ROW_HEIGHT / 2
+            primaryParentTimelineIdx !== null &&
+            primaryParentTimelineIdx > timelineIndex
+              ? (primaryParentTimelineIdx - timelineIndex) * ROW_STEP + ROW_HEIGHT / 2
               : null;
           // マージ曲線も 1 行分下の中央まで延ばして垂直優勢な「↱」形に見せる
           // (行内完結だと曲がり角が始点に寄り過ぎて「⤴」に見えるため)
