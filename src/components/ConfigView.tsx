@@ -21,6 +21,12 @@ import {
 import { api } from "../lib/api";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "../lib/commitTitlePrompt";
 import {
+  COMMIT_LOG_PAGE_SIZE_MAX,
+  COMMIT_LOG_PAGE_SIZE_MIN,
+  DEFAULT_COMMIT_LOG_PAGE_SIZE,
+  clampCommitLogPageSize,
+} from "../../shared/config.js";
+import {
   buildOpenAiModelOptions,
   filterOpenAiModelOptions,
   resolveListboxScrollTop,
@@ -98,6 +104,7 @@ function applyConfigToState(config: AppConfig): {
   commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
+  commitLogPageSize: number;
 } {
   return {
     openAiToken: config.openAiToken,
@@ -110,6 +117,7 @@ function applyConfigToState(config: AppConfig): {
     commitMergeAnimation: config.commitMergeAnimation,
     diffViewerMode: config.diffViewerMode,
     repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
+    commitLogPageSize: clampCommitLogPageSize(config.commitLogPageSize),
   };
 }
 
@@ -426,6 +434,9 @@ export function ConfigView({
   const [repositoryScanDepth, setRepositoryScanDepth] = useState(
     initialConfigState?.repositoryScanDepth ?? 4,
   );
+  const [commitLogPageSize, setCommitLogPageSize] = useState(
+    clampCommitLogPageSize(initialConfigState?.commitLogPageSize ?? DEFAULT_COMMIT_LOG_PAGE_SIZE),
+  );
   const [loading, setLoading] = useState(config === null);
   const [saving, setSaving] = useState(false);
   const [isOpenAiTokenRevealed, setIsOpenAiTokenRevealed] = useState(false);
@@ -596,6 +607,7 @@ export function ConfigView({
     setCommitMergeAnimation(next.commitMergeAnimation);
     setDiffViewerMode(next.diffViewerMode);
     setRepositoryScanDepth(next.repositoryScanDepth);
+    setCommitLogPageSize(next.commitLogPageSize);
     setLoading(false);
   }, [config]);
 
@@ -633,6 +645,8 @@ export function ConfigView({
         setCommitGraphStyle(next.commitGraphStyle);
         setDiffViewerMode(next.diffViewerMode);
         setRepositoryScanDepth(next.repositoryScanDepth);
+        setCommitMergeAnimation(next.commitMergeAnimation);
+        setCommitLogPageSize(next.commitLogPageSize);
         onConfigSaved(loadedConfig);
       } catch (error) {
         if (active) {
@@ -837,6 +851,7 @@ export function ConfigView({
     setSaving(true);
     try {
       const normalizedDepth = normalizeDepth(repositoryScanDepth);
+      const normalizedCommitLogPageSize = clampCommitLogPageSize(commitLogPageSize);
 
       const response = await api.saveConfig({
         openAiToken,
@@ -849,6 +864,7 @@ export function ConfigView({
         commitMergeAnimation,
         diffViewerMode,
         repositoryScanDepth: normalizedDepth,
+        commitLogPageSize: normalizedCommitLogPageSize,
       });
 
       const nextConfig = response.config ?? (await api.getConfig());
@@ -869,6 +885,7 @@ export function ConfigView({
       setCommitTitlePrompt(nextConfig.commitTitlePrompt);
       onConfigSaved(nextConfig);
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
+      setCommitLogPageSize(clampCommitLogPageSize(nextConfig.commitLogPageSize));
       setCommitGraphMode(nextConfig.commitGraphMode);
       setCommitGraphStyle(nextConfig.commitGraphStyle);
       setCommitMergeAnimation(nextConfig.commitMergeAnimation);
@@ -892,7 +909,7 @@ export function ConfigView({
         <div className="min-w-0 flex-1">
           <h2 className="text-2xl font-semibold text-ink">Config</h2>
           <p className="text-sm text-ink-soft">
-            トークン、コミットグラフ表示、リポジトリ探索設定を管理します。
+            トークン、コミットログ取得件数、コミットグラフ表示、リポジトリ探索設定を管理します。
           </p>
         </div>
         <button
@@ -1005,6 +1022,33 @@ export function ConfigView({
                   <p className="mt-1 text-xs text-ink-subtle">
                     `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} -{" "}
                     {MAX_REPOSITORY_SCAN_DEPTH}）。
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    Commit log page size
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={COMMIT_LOG_PAGE_SIZE_MIN}
+                    max={COMMIT_LOG_PAGE_SIZE_MAX}
+                    step={1}
+                    value={commitLogPageSize}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next)) {
+                        setCommitLogPageSize(next);
+                      }
+                    }}
+                    onBlur={() =>
+                      setCommitLogPageSize((current) => clampCommitLogPageSize(current))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-ink-subtle">
+                    コミットログを一度に読み込む件数です（{COMMIT_LOG_PAGE_SIZE_MIN}〜
+                    {COMMIT_LOG_PAGE_SIZE_MAX}）。
                   </p>
                 </div>
               </div>

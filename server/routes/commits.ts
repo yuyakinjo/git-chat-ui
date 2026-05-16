@@ -1,5 +1,7 @@
 import { Router } from "express";
 
+import { clampCommitLogPageSize } from "../../shared/config.js";
+import { readConfig } from "../configStore.js";
 import {
   commitChanges,
   getBranchDiffDetail,
@@ -18,6 +20,8 @@ const router = Router();
 
 router.get("/api/commits", async (request, response, next) => {
   try {
+    const appConfig = await readConfig();
+    const defaultLimit = clampCommitLogPageSize(appConfig.commitLogPageSize);
     const repoPath = getRepoPathFromQuery(request);
     const ref = typeof request.query.ref === "string" ? request.query.ref : undefined;
     const compareRefQuery = request.query.compareRef;
@@ -27,14 +31,14 @@ router.get("/api/commits", async (request, response, next) => {
         ? [compareRefQuery]
         : undefined;
     const offset = Number(request.query.offset ?? 0);
-    const limit = Number(request.query.limit ?? 50);
+    const limit = Number(request.query.limit ?? defaultLimit);
 
     const result = await getCommits({
       repoPath,
       ref,
       compareRefs,
       offset: Number.isFinite(offset) ? offset : 0,
-      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 50,
+      limit: clampCommitLogPageSize(Number.isFinite(limit) ? limit : defaultLimit),
     });
 
     response.json(result);

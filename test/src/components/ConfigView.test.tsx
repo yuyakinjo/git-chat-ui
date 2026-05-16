@@ -25,6 +25,7 @@ const config: AppConfig = {
   commitMergeAnimation: "none",
   diffViewerMode: "builtin",
   repositoryScanDepth: 4,
+  commitLogPageSize: 100,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],
   windowState: null,

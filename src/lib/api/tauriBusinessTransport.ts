@@ -1,4 +1,5 @@
 import type { BusinessTransport } from "./businessTransport";
+import { clampCommitLogPageSize } from "../../../shared/config.js";
 import { invokeCommand } from "../tauriRuntime";
 
 export function createTauriBusinessTransport(): BusinessTransport {
@@ -57,7 +58,7 @@ export function createTauriBusinessTransport(): BusinessTransport {
       });
     },
 
-    getCommits(repoPath, ref, offset, limit = 50, compareRefs) {
+    getCommits(repoPath, ref, offset, limit, compareRefs) {
       const normalizedCompareRefs =
         compareRefs?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
 
@@ -66,7 +67,7 @@ export function createTauriBusinessTransport(): BusinessTransport {
         refName: ref && ref.trim() ? ref : null,
         compareRefs: normalizedCompareRefs.length > 0 ? normalizedCompareRefs : null,
         offset,
-        limit,
+        limit: clampCommitLogPageSize(limit),
       });
     },
 

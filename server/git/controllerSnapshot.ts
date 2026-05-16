@@ -1,5 +1,7 @@
 import type { ControllerSnapshot } from "../types.js";
 
+import { clampCommitLogPageSize } from "../../shared/config.js";
+
 import { getBranches, getPullStatus } from "./branch.js";
 import { getCommits } from "./commit.js";
 import { getRepositoryFingerprint } from "./repository.js";
@@ -116,8 +118,7 @@ function buildCacheKey(options: {
 }
 
 function clampSnapshotLimit(limit: number | undefined): number {
-  const resolvedLimit = Number.isFinite(limit) ? Math.trunc(limit ?? 50) : 50;
-  return Math.min(Math.max(resolvedLimit, 1), 100);
+  return clampCommitLogPageSize(limit);
 }
 
 function clampSnapshotOffset(offset: number | undefined): number {

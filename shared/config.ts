@@ -36,6 +36,22 @@ export interface WindowState {
   isMaximized: boolean;
 }
 
+/** コミットログ一覧のページサイズ（この範囲にクランプ） */
+export const COMMIT_LOG_PAGE_SIZE_MIN = 100;
+export const COMMIT_LOG_PAGE_SIZE_MAX = 200;
+export const DEFAULT_COMMIT_LOG_PAGE_SIZE = COMMIT_LOG_PAGE_SIZE_MIN;
+
+export function clampCommitLogPageSize(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_COMMIT_LOG_PAGE_SIZE;
+  }
+  const rounded = Math.trunc(value);
+  return Math.min(
+    Math.max(rounded, COMMIT_LOG_PAGE_SIZE_MIN),
+    COMMIT_LOG_PAGE_SIZE_MAX,
+  );
+}
+
 export interface AppConfig {
   openAiToken: string;
   openAiModel: string;
@@ -48,6 +64,8 @@ export interface AppConfig {
   commitGraphStyle: CommitGraphStyle;
   commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
+  /** UI / API が一度に読み込むコミット数（100–200） */
+  commitLogPageSize: number;
   repositoryScanDepth: number;
   repositoryAssistantPolicies: RepositoryAssistantPolicies;
   recentlyUsed: Array<{
@@ -74,6 +92,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   commitGraphStyle: "standard",
   commitMergeAnimation: "none",
   diffViewerMode: "builtin",
+  commitLogPageSize: DEFAULT_COMMIT_LOG_PAGE_SIZE,
   repositoryScanDepth: 4,
   repositoryAssistantPolicies: {},
   recentlyUsed: [],

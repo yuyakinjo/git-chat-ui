@@ -1,5 +1,7 @@
 import type { Request } from "express";
 
+import { clampCommitLogPageSize } from "../../shared/config.js";
+
 import type { AppConfig } from "../types.js";
 
 export function getRequiredString(value: unknown, field: string): string {
@@ -75,6 +77,25 @@ export function parseRepositoryScanDepth(value: unknown): number | null {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       return parsed;
+    }
+  }
+
+  return null;
+}
+
+export function parseCommitLogPageSize(value: unknown): number | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return clampCommitLogPageSize(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return clampCommitLogPageSize(parsed);
     }
   }
 

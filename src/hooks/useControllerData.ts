@@ -22,6 +22,7 @@ import {
 import { isHeadDecoration } from "../lib/controllerViewUtils";
 import { describeGitError } from "../lib/errors";
 import { withPromiseTimeout } from "../lib/promiseTimeout";
+import { clampCommitLogPageSize } from "../../shared/config.js";
 import { getSelfMutationBlockedReason } from "../lib/repositoryMutationSafety";
 import type {
   BranchDiffDetail,
@@ -96,6 +97,10 @@ export function useControllerData({
   const initialCommitMessageDraft = useMemo(
     () => readInitialCommitMessageDraft(repoPath),
     [repoPath],
+  );
+  const commitLogPageSize = useMemo(
+    () => clampCommitLogPageSize(appConfig?.commitLogPageSize),
+    [appConfig?.commitLogPageSize],
   );
   const [branches, setBranches] = useState<BranchResponse | null>(null);
   const [branchPullRequests, setBranchPullRequests] = useState<Record<string, BranchPullRequest>>(
@@ -709,7 +714,7 @@ export function useControllerData({
           .filter((ref) => ref.length > 0 && ref !== normalizedRef);
         const compareRefArgs = normalizedCompareRefs.length > 0 ? normalizedCompareRefs : undefined;
         const fetchPage = async (offset: number) =>
-          api.getCommits(repoPath, normalizedRef, offset, 50, compareRefArgs);
+          api.getCommits(repoPath, normalizedRef, offset, commitLogPageSize, compareRefArgs);
 
         const initial = await fetchPage(options.offset);
         if (requestId !== commitDataRequestRef.current) {
@@ -760,7 +765,7 @@ export function useControllerData({
         }
       }
     },
-    [applyCommitPage, repoPath, reportError],
+    [applyCommitPage, commitLogPageSize, repoPath, reportError],
   );
 
   const applyControllerSnapshot = useCallback(
@@ -806,7 +811,7 @@ export function useControllerData({
           api.getControllerSnapshot(repoPath, {
             ref: options.ref,
             offset: 0,
-            limit: 50,
+            limit: commitLogPageSize,
             includeCommits,
           }),
           CONTROLLER_SNAPSHOT_TIMEOUT_MS,
@@ -829,7 +834,7 @@ export function useControllerData({
         }
       }
     },
-    [applyControllerSnapshot, repoPath, reportError],
+    [applyControllerSnapshot, commitLogPageSize, repoPath, reportError],
   );
 
   const loadBranches = useCallback(async (): Promise<BranchResponse | null> => {

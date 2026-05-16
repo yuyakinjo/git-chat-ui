@@ -5,7 +5,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { normalizeOpenAiReasoningEffort, resolveCommitTitlePrompt } from "../shared/ai.js";
-import { DEFAULT_APP_CONFIG } from "../shared/config.js";
+import {
+  clampCommitLogPageSize,
+  DEFAULT_APP_CONFIG,
+} from "../shared/config.js";
 import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssistant.js";
 import type {
   AppConfig,
@@ -77,6 +80,10 @@ function normalizeRepositoryScanDepth(value: unknown): number {
 
   const rounded = Math.round(value);
   return Math.min(Math.max(rounded, MIN_REPOSITORY_SCAN_DEPTH), MAX_REPOSITORY_SCAN_DEPTH);
+}
+
+function normalizeCommitLogPageSize(value: unknown): number {
+  return clampCommitLogPageSize(value);
 }
 
 function normalizeRecentlyUsed(value: unknown): Array<{
@@ -183,6 +190,7 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     commitGraphStyle: normalizeCommitGraphStyle(value.commitGraphStyle),
     commitMergeAnimation: normalizeCommitMergeAnimation(value.commitMergeAnimation),
     diffViewerMode: normalizeDiffViewerMode(value.diffViewerMode),
+    commitLogPageSize: normalizeCommitLogPageSize(value.commitLogPageSize),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),
     repositoryAssistantPolicies: normalizeRepositoryAssistantPolicies(
       value.repositoryAssistantPolicies,

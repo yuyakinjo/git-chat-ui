@@ -35,6 +35,9 @@ const REPOSITORY_ASSISTANT_REQUIRES_OPENAI_ERROR: &str =
     "AI sidebar requires an OpenAI token in Config.";
 const COMMIT_AVATAR_HISTORY_LIMIT: usize = 100;
 const COMMIT_AVATAR_SIZE: usize = 72;
+const COMMIT_LOG_PAGE_SIZE_MIN: usize = 100;
+const COMMIT_LOG_PAGE_SIZE_MAX: usize = 200;
+const DEFAULT_COMMIT_LOG_PAGE_SIZE: usize = COMMIT_LOG_PAGE_SIZE_MIN;
 const MAX_REPOSITORY_ASSISTANT_MESSAGES: usize = 12;
 const MAX_REPOSITORY_ASSISTANT_LIST_ITEMS: usize = 8;
 const DEFAULT_COMMIT_TITLE_PROMPT: &str = concat!(
@@ -344,6 +347,7 @@ pub struct AppConfig {
     pub commit_merge_animation: CommitMergeAnimation,
     pub diff_viewer_mode: DiffViewerMode,
     pub repository_scan_depth: usize,
+    pub commit_log_page_size: usize,
     pub repository_assistant_policies: RepositoryAssistantPolicies,
     pub recently_used: Vec<RecentRepository>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -375,6 +379,7 @@ impl Default for AppConfig {
             commit_merge_animation: CommitMergeAnimation::None,
             diff_viewer_mode: DiffViewerMode::Builtin,
             repository_scan_depth: 4,
+            commit_log_page_size: DEFAULT_COMMIT_LOG_PAGE_SIZE,
             repository_assistant_policies: HashMap::new(),
             recently_used: Vec::new(),
             window_state: None,
@@ -886,6 +891,7 @@ pub struct SaveConfigInput {
     pub commit_merge_animation: Option<CommitMergeAnimation>,
     pub diff_viewer_mode: Option<DiffViewerMode>,
     pub repository_scan_depth: Option<usize>,
+    pub commit_log_page_size: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1532,6 +1538,17 @@ fn normalize_repository_scan_depth(value: usize) -> usize {
     value.clamp(MIN_SCAN_DEPTH, MAX_SCAN_DEPTH)
 }
 
+fn normalize_commit_log_page_size(value: usize) -> usize {
+    value.clamp(COMMIT_LOG_PAGE_SIZE_MIN, COMMIT_LOG_PAGE_SIZE_MAX)
+}
+
+fn resolve_commit_log_page_limit(explicit: Option<usize>) -> usize {
+    let fallback = read_config()
+        .map(|cfg| normalize_commit_log_page_size(cfg.commit_log_page_size))
+        .unwrap_or(DEFAULT_COMMIT_LOG_PAGE_SIZE);
+    normalize_commit_log_page_size(explicit.unwrap_or(fallback))
+}
+
 fn normalize_selected_ai_provider(value: Option<&Value>) -> AiProvider {
     match value.and_then(Value::as_str) {
         Some("claudeCode") => AiProvider::ClaudeCode,
@@ -1796,6 +1813,17 @@ fn normalize_config_value(value: Value) -> AppConfig {
         _ => default.repository_scan_depth,
     };
 
+    let commit_log_page_size = match value.get("commitLogPageSize") {
+        Some(Value::Number(number)) => {
+            let parsed = number
+                .as_u64()
+                .and_then(|size| usize::try_from(size).ok())
+                .unwrap_or(default.commit_log_page_size);
+            normalize_commit_log_page_size(parsed)
+        }
+        _ => default.commit_log_page_size,
+    };
+
     let recently_used = normalize_recently_used(value.get("recentlyUsed"));
     let window_state = normalize_window_state(value.get("windowState"));
 
@@ -1812,6 +1840,7 @@ fn normalize_config_value(value: Value) -> AppConfig {
         commit_merge_animation,
         diff_viewer_mode,
         repository_scan_depth,
+        commit_log_page_size,
         repository_assistant_policies,
         recently_used,
         window_state,
@@ -1871,6 +1900,7 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         commit_merge_animation: config.commit_merge_animation,
         diff_viewer_mode: config.diff_viewer_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
+        commit_log_page_size: normalize_commit_log_page_size(config.commit_log_page_size),
         repository_assistant_policies: normalize_repository_assistant_policies(
             &config.repository_assistant_policies,
         ),
@@ -5858,7 +5888,7 @@ pub fn get_commits(
         compare_refs.retain(|value| seen.insert(value.clone()));
     }
 
-    let bounded_limit = limit.clamp(1, 100);
+    let bounded_limit = normalize_commit_log_page_size(limit);
 
     let mut args = vec![
         "log".to_string(),
@@ -7310,7 +7340,7 @@ pub fn get_controller_snapshot(
         "auto"
     };
     let bounded_offset = offset.unwrap_or(0);
-    let bounded_limit = limit.unwrap_or(50).clamp(1, 100);
+    let bounded_limit = resolve_commit_log_page_limit(limit);
     let should_include_commits = include_commits.unwrap_or(true);
     let fingerprint = get_fingerprint(repo_path.clone())?.fingerprint;
     let cache_key = build_controller_snapshot_cache_key(
@@ -7751,6 +7781,11 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
                 .repository_scan_depth
                 .unwrap_or(current.repository_scan_depth),
         ),
+        commit_log_page_size: normalize_commit_log_page_size(
+            input
+                .commit_log_page_size
+                .unwrap_or(current.commit_log_page_size),
+        ),
         repository_assistant_policies: input
             .repository_assistant_policies
             .as_ref()
@@ -7790,6 +7825,7 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
         commit_merge_animation: current.commit_merge_animation,
         diff_viewer_mode: current.diff_viewer_mode,
         repository_scan_depth: current.repository_scan_depth,
+        commit_log_page_size: current.commit_log_page_size,
         repository_assistant_policies: current.repository_assistant_policies,
         recently_used: current.recently_used,
         window_state: current.window_state,
@@ -8431,7 +8467,8 @@ mod tests {
             "commitTitlePrompt": "Write a short Japanese commit message.",
             "commitGraphMode": "simple",
             "commitGraphStyle": "japaneseExpress",
-            "repositoryScanDepth": 6
+            "repositoryScanDepth": 6,
+            "commitLogPageSize": 150
         }));
 
         assert_eq!(config.open_ai_token, "sk-openai");
@@ -8450,6 +8487,15 @@ mod tests {
         assert_eq!(config.commit_graph_mode, CommitGraphMode::Simple);
         assert_eq!(config.commit_graph_style, CommitGraphStyle::JapaneseExpress);
         assert_eq!(config.repository_scan_depth, 6);
+        assert_eq!(config.commit_log_page_size, 150);
+    }
+
+    #[test]
+    fn normalize_config_value_clamps_commit_log_page_size() {
+        let low = normalize_config_value(json!({ "commitLogPageSize": 50 }));
+        assert_eq!(low.commit_log_page_size, COMMIT_LOG_PAGE_SIZE_MIN);
+        let high = normalize_config_value(json!({ "commitLogPageSize": 999 }));
+        assert_eq!(high.commit_log_page_size, COMMIT_LOG_PAGE_SIZE_MAX);
     }
 
     #[test]

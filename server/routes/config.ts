@@ -10,6 +10,7 @@ import {
   parseCommitGraphMode,
   parseCommitGraphStyle,
   parseCommitMergeAnimation,
+  parseCommitLogPageSize,
   parseDiffViewerMode,
   parseRepositoryScanDepth,
   parseSelectedAiProvider,
@@ -49,6 +50,7 @@ export function createConfigRouter({
       const parsedDiffViewerMode = parseDiffViewerMode(request.body.diffViewerMode);
       const parsedSelectedAiProvider = parseSelectedAiProvider(request.body.selectedAiProvider);
       const parsedRepositoryScanDepth = parseRepositoryScanDepth(request.body.repositoryScanDepth);
+      const parsedCommitLogPageSize = parseCommitLogPageSize(request.body.commitLogPageSize);
 
       const nextConfig: AppConfig = {
         ...current,
@@ -82,6 +84,7 @@ export function createConfigRouter({
         commitMergeAnimation: parsedMergeAnimation ?? current.commitMergeAnimation,
         diffViewerMode: parsedDiffViewerMode ?? current.diffViewerMode,
         repositoryScanDepth: parsedRepositoryScanDepth ?? current.repositoryScanDepth,
+        commitLogPageSize: parsedCommitLogPageSize ?? current.commitLogPageSize,
         repositoryAssistantPolicies:
           request.body.repositoryAssistantPolicies === undefined
             ? current.repositoryAssistantPolicies

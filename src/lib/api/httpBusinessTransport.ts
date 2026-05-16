@@ -1,4 +1,5 @@
 import type { BusinessTransport } from "./businessTransport";
+import { clampCommitLogPageSize } from "../../../shared/config.js";
 
 async function request<T>(baseUrl: string, path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -100,11 +101,12 @@ export function createHttpBusinessTransport(baseUrl: string): BusinessTransport 
       return request(baseUrl, `/controller/snapshot?${params.toString()}`);
     },
 
-    getCommits(repoPath, ref, offset, limit = 50, compareRefs) {
+    getCommits(repoPath, ref, offset, limit, compareRefs) {
+      const resolvedLimit = clampCommitLogPageSize(limit);
       const params = new URLSearchParams({
         repoPath,
         offset: String(offset),
-        limit: String(limit),
+        limit: String(resolvedLimit),
       });
 
       if (ref && ref.trim()) {

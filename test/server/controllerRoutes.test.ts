@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import { createControllerRouter } from "../../server/routes/controller.js";
+import { DEFAULT_APP_CONFIG } from "../../shared/config.js";
 import { invokeJsonRoute } from "./routeHarness";
 
 const snapshot = {
@@ -48,6 +49,7 @@ describe("createControllerRouter", () => {
       invokeJsonRoute(
         createControllerRouter({
           getControllerSnapshot,
+          readConfig: async () => ({ ...DEFAULT_APP_CONFIG }),
         }),
         "get",
         "/api/controller/snapshot",
@@ -57,7 +59,7 @@ describe("createControllerRouter", () => {
             ref: "refs/heads/main",
             compareRef: ["refs/heads/feature/cache", "refs/heads/release"],
             offset: "10",
-            limit: "25",
+            limit: "150",
             includeCommits: "false",
           },
         },
@@ -72,7 +74,7 @@ describe("createControllerRouter", () => {
       ref: "refs/heads/main",
       compareRefs: ["refs/heads/feature/cache", "refs/heads/release"],
       offset: 10,
-      limit: 25,
+      limit: 150,
       includeCommits: false,
     });
   });

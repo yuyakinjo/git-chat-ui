@@ -114,7 +114,7 @@ export const api = {
     repoPath: string,
     ref: string | undefined,
     offset: number,
-    limit = 50,
+    limit?: number,
     compareRefs?: string[],
   ): Promise<CommitResponse> {
     return getBusinessTransport().getCommits(repoPath, ref, offset, limit, compareRefs);
