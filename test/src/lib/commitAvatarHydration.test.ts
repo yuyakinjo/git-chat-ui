@@ -15,14 +15,14 @@ function createCommit(sha: string): CommitListItem {
 }
 
 describe("shouldAttemptRemoteCommitAvatarHydration", () => {
-  test("skips remote hydration while appending older pages", () => {
+  test("hydrates older pages (append=true) when newly visible commits lack cached avatars", () => {
     expect(
       shouldAttemptRemoteCommitAvatarHydration({
         append: true,
         commits: [createCommit("abc1234")],
         currentAvatars: {},
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("hydrates again when the visible page still includes commits without cached avatars", () => {
@@ -45,6 +45,18 @@ describe("shouldAttemptRemoteCommitAvatarHydration", () => {
         currentAvatars: {
           abc1234: "data:image/png;base64,first",
           def5678: "data:image/png;base64,second",
+        },
+      }),
+    ).toBe(false);
+  });
+
+  test("skips remote hydration on append when every appended commit is already cached", () => {
+    expect(
+      shouldAttemptRemoteCommitAvatarHydration({
+        append: true,
+        commits: [createCommit("abc1234")],
+        currentAvatars: {
+          abc1234: "data:image/png;base64,first",
         },
       }),
     ).toBe(false);

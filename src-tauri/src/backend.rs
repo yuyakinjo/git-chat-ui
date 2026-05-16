@@ -1069,6 +1069,7 @@ fn commit_avatar_extension_for_mime_type(mime_type: &str) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn normalize_github_history_ref(ref_name: &str) -> String {
     let trimmed = ref_name.trim();
     if trimmed.is_empty() {
@@ -1096,6 +1097,7 @@ fn normalize_github_history_ref(ref_name: &str) -> String {
     trimmed.to_string()
 }
 
+#[allow(dead_code)]
 fn resolve_github_history_ref(repo_path: &str, ref_name: Option<&str>) -> Result<String, String> {
     let normalized = normalize_github_history_ref(ref_name.unwrap_or("HEAD"));
 
@@ -5957,6 +5959,9 @@ pub fn get_commit_author_avatars(
     shas: Vec<String>,
     allow_remote_fetch: bool,
 ) -> Result<CommitAuthorAvatarsResponse, String> {
+    // Tauri command のパラメータ名規約のため `ref_name` を維持する必要があるが、
+    // GraphQL の expression にはバッチ先頭の SHA を使うため値自体は未使用。
+    let _ = ref_name;
     ensure_repo_path(&repo_path)?;
 
     let mut seen = HashSet::new();
@@ -5980,8 +5985,11 @@ pub fn get_commit_author_avatars(
         if let Some(repository_url) = repository_url.as_deref() {
             if let Some((owner, name)) = parse_github_repository_slug(repository_url) {
                 if ensure_github_auth(&repo_path).is_ok() {
-                    if let Ok(history_ref) =
-                        resolve_github_history_ref(&repo_path, ref_name.as_deref())
+                    // GraphQL `history(first: 100)` は expression から遡って 100 件返すだけなので、
+                    // ページネーション（load-more）したバッチに対しても avatar を取得するため、
+                    // リクエストされた SHA リストの先頭（バッチ内で最新の commit）を起点にする。
+                    // requested_shas は関数頭部で空チェック済みなので [0] は安全。
+                    let history_ref = requested_shas[0].clone();
                     {
                         if let Ok(parsed) =
                             fetch_github_commit_avatar_urls(&repo_path, &owner, &name, &history_ref)

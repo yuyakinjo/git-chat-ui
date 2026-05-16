@@ -338,7 +338,13 @@ export async function getCommitAuthorAvatars(options: {
     if (repoSlug) {
       try {
         await runGh(["auth", "status", "-h", "github.com"], options.repoPath);
-        const ref = await resolveGithubHistoryRef(options.repoPath, options.ref);
+
+        // GraphQL `history(first: 100)` は expression から遡って 100 件返すだけなので、
+        // ページネーションされたバッチに対しても avatar を取得するために、
+        // リクエストされた SHA リストの先頭 (= バッチ内で最新の commit) を起点にする。
+        // 先頭が空（通常無いが防御的に）の場合のみ branch tip にフォールバック。
+        const fallbackRef = await resolveGithubHistoryRef(options.repoPath, options.ref);
+        const ref = shas[0] ?? fallbackRef;
         const commitAvatarUrls = await fetchGithubCommitAvatarUrls({
           repoPath: options.repoPath,
           owner: repoSlug.owner,
