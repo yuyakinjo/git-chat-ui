@@ -320,6 +320,81 @@ describe("buildLaneRows", () => {
     expect(laneByIndex[3]).toBe(0);
   });
 
+  test("reserves a lane between disjoint chains sharing the same branchTag", () => {
+    // feat の上下チェーンが default chain の m-3, m-2 を挟んで分裂している状況。
+    // ADR-0001 のとおり、両チェーンは同一 lane に乗り、中央の main 行でも縦線が
+    // 継続するよう lane を予約し続ける。
+    const layout = buildLaneRows(
+      [
+        { sha: "feat-upper-2", parentShas: ["feat-upper-1"], branchTag: "feat" },
+        { sha: "feat-upper-1", parentShas: ["m-3"], branchTag: "feat" },
+        { sha: "m-3", parentShas: ["m-2"], branchTag: "main" },
+        { sha: "m-2", parentShas: ["m-1"], branchTag: "main" },
+        { sha: "feat-lower-2", parentShas: ["feat-lower-1"], branchTag: "feat" },
+        { sha: "feat-lower-1", parentShas: ["m-1"], branchTag: "feat" },
+        { sha: "m-1", parentShas: ["m-0"], branchTag: "main" },
+        { sha: "m-0", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "m-3",
+        defaultBranchName: "main",
+      },
+    );
+
+    const lanes = layout.rows.map((row) => row.laneIndex);
+    // feat の上下チェーンは同じ lane (lane 1) に乗る
+    expect(lanes[0]).toBe(1);
+    expect(lanes[1]).toBe(1);
+    expect(lanes[4]).toBe(1);
+    expect(lanes[5]).toBe(1);
+    // main は lane 0
+    expect(lanes[2]).toBe(0);
+    expect(lanes[3]).toBe(0);
+    // 中央の main 行 (m-3, m-2) でも feat lane を outgoing/incoming に持つ (縦線描画)
+    expect(layout.rows[2].outgoingLaneIndices).toContain(1);
+    expect(layout.rows[2].incomingLaneIndices).toContain(1);
+    expect(layout.rows[3].outgoingLaneIndices).toContain(1);
+    expect(layout.rows[3].incomingLaneIndices).toContain(1);
+    // span 終了後 (m-1, m-0) は feat lane の予約が解除される
+    expect(layout.rows[6].outgoingLaneIndices).not.toContain(1);
+    expect(layout.maxLanes).toBe(2);
+  });
+
+  test("does not reserve lane across span for commits without branchTag", () => {
+    // branchTag を持たないコミットには予約ロジックは適用されない (現状互換)。
+    const layout = buildLaneRows([
+      { sha: "feat-upper", parentShas: ["m-2"] },
+      { sha: "m-2", parentShas: ["m-1"] },
+      { sha: "feat-lower", parentShas: ["m-1"] },
+      { sha: "m-1", parentShas: [] },
+    ]);
+
+    // branchTag なし → lane 予約は起きない (中央の m-2 で feat lane は閉じる)
+    expect(layout.rows[1].outgoingLaneIndices).not.toContain(2);
+  });
+
+  test("releases reserved lane after the branchTag's lastRow", () => {
+    // feat の lastRow = 1 で span 終了。row 2 以降では feat lane は free。
+    // 別の branchTag (other) が row 2 で同じ lane 1 を取れる。
+    const layout = buildLaneRows(
+      [
+        { sha: "feat-1", parentShas: ["m-2"], branchTag: "feat" },
+        { sha: "feat-0", parentShas: ["m-2"], branchTag: "feat" },
+        { sha: "other-1", parentShas: ["m-1"], branchTag: "other" },
+        { sha: "m-2", parentShas: ["m-1"], branchTag: "main" },
+        { sha: "m-1", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "m-2",
+        defaultBranchName: "main",
+      },
+    );
+
+    // feat 終了後、other が lane 1 を再利用できる
+    expect(layout.rows[2].laneIndex).toBe(1);
+    expect(layout.maxLanes).toBe(2);
+  });
+
   test("flags default-chain rows as NOT reservedButEmpty", () => {
     const layout = buildLaneRows(
       [

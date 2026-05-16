@@ -123,6 +123,108 @@ describe("buildCommitBranchColoring", () => {
     expect(coloring.get("feat-1")).toBe(anonTag);
   });
 
+  test("non-default branch tip propagates its tag through merge second-parents within its reachable history", () => {
+    // feat-tip は merge コミットで、second-parent (sub-2 → sub-1) も feat ブランチ
+    // から到達可能。tip からの first-parent walk のみだと sub-* に到達できず、
+    // 上下分裂を起こす元になる。defaultBranchName が指定された non-default tip では
+    // second-parent を同じ tag で再帰 walk する。
+    const coloring = buildCommitBranchColoring({
+      commits: [
+        { sha: "feat-tip", parentShas: ["f-1", "sub-2"] },
+        { sha: "f-1", parentShas: ["base"] },
+        { sha: "sub-2", parentShas: ["sub-1"] },
+        { sha: "sub-1", parentShas: ["base"] },
+        { sha: "base", parentShas: [] },
+      ],
+      branchTips: [
+        { name: "main", sha: "base" },
+        { name: "feat", sha: "feat-tip" },
+      ],
+      defaultBranchName: "main",
+    });
+
+    expect(coloring.get("feat-tip")).toBe("feat");
+    expect(coloring.get("f-1")).toBe("feat");
+    expect(coloring.get("sub-2")).toBe("feat");
+    expect(coloring.get("sub-1")).toBe("feat");
+    expect(coloring.get("base")).toBe("main");
+  });
+
+  test("non-default branch tip second-parent walk does not invade default chain", () => {
+    // feat-tip の second-parent が main 上のコミットを指す場合でも、既に main で
+    // tagged されているので break する。default chain は侵食しない。
+    const coloring = buildCommitBranchColoring({
+      commits: [
+        { sha: "feat-tip", parentShas: ["f-1", "m-1"] },
+        { sha: "m-1", parentShas: ["m-0"] },
+        { sha: "f-1", parentShas: ["m-0"] },
+        { sha: "m-0", parentShas: [] },
+      ],
+      branchTips: [
+        { name: "main", sha: "m-1" },
+        { name: "feat", sha: "feat-tip" },
+      ],
+      defaultBranchName: "main",
+    });
+
+    expect(coloring.get("feat-tip")).toBe("feat");
+    expect(coloring.get("f-1")).toBe("feat");
+    expect(coloring.get("m-1")).toBe("main");
+    expect(coloring.get("m-0")).toBe("main");
+  });
+
+  test("default branch tip does NOT propagate its tag through merge second-parents", () => {
+    // main の tip walk で second-parent walk すると、削除済み feat ブランチも main
+    // に飲み込まれてしまう。それでは「main の linear history」という意味が壊れる。
+    // default branch は first-parent only に保つ。
+    const coloring = buildCommitBranchColoring({
+      commits: [
+        { sha: "m-tip", parentShas: ["m-merge"] },
+        { sha: "m-merge", parentShas: ["m-base", "feat-2"] },
+        { sha: "feat-2", parentShas: ["feat-1"] },
+        { sha: "feat-1", parentShas: ["m-base"] },
+        { sha: "m-base", parentShas: [] },
+      ],
+      branchTips: [{ name: "main", sha: "m-tip" }],
+      defaultBranchName: "main",
+    });
+
+    expect(coloring.get("m-tip")).toBe("main");
+    expect(coloring.get("m-merge")).toBe("main");
+    expect(coloring.get("m-base")).toBe("main");
+    // feat-* は __anon__ にフォールバック (既存挙動を維持)
+    const anonTag = coloring.get("feat-2");
+    expect(anonTag?.startsWith(ANON_TAG_PREFIX)).toBe(true);
+    expect(coloring.get("feat-1")).toBe(anonTag);
+  });
+
+  test("non-default tip second-parent walk recurses through nested merges", () => {
+    // feat-tip → first-parent f-1 (merge of f-0 and sub-2)。f-1 の second-parent
+    // (sub-2 → sub-1) も feat tag であるべき。再帰的に walk する必要がある。
+    const coloring = buildCommitBranchColoring({
+      commits: [
+        { sha: "feat-tip", parentShas: ["f-1"] },
+        { sha: "f-1", parentShas: ["f-0", "sub-2"] },
+        { sha: "f-0", parentShas: ["base"] },
+        { sha: "sub-2", parentShas: ["sub-1"] },
+        { sha: "sub-1", parentShas: ["base"] },
+        { sha: "base", parentShas: [] },
+      ],
+      branchTips: [
+        { name: "main", sha: "base" },
+        { name: "feat", sha: "feat-tip" },
+      ],
+      defaultBranchName: "main",
+    });
+
+    expect(coloring.get("feat-tip")).toBe("feat");
+    expect(coloring.get("f-1")).toBe("feat");
+    expect(coloring.get("f-0")).toBe("feat");
+    expect(coloring.get("sub-2")).toBe("feat");
+    expect(coloring.get("sub-1")).toBe("feat");
+    expect(coloring.get("base")).toBe("main");
+  });
+
   test("does not override a claimed branch tag when traversing merge parents", () => {
     // `feat-1` is already reached by the `feature` branch tip before the
     // merge walk runs, so the anonymous walk should leave it alone.

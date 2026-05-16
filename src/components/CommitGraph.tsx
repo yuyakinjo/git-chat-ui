@@ -265,8 +265,9 @@ export function CommitGraph({
           parentShas: commit.parentShas,
         })),
         branchTips: branchTipsForColoring,
+        defaultBranchName,
       }),
-    [commits, branchTipsForColoring],
+    [commits, branchTipsForColoring, defaultBranchName],
   );
   const laneLayout = useMemo(() => {
     const laneCommits: CommitForLane[] = commits.map((commit) => ({
