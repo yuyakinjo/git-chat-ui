@@ -322,6 +322,12 @@ export function buildLaneRows(
     // ADR-0001: この commit が branchTag を持ち、まだ後続行に同 tag のコミットが
     // 残っているなら、本来 lane を閉じる/解放する代わりに reserved token に置換し、
     // 中央の default chain 行を貫通する縦線を維持する。
+    //
+    // ただし、同じ tag が複数の disjoint chain として並走するケース (例: feature
+    // branch の tip から second-parent 再帰で塗られた複数 chain) では、既に他 lane
+    // で同 tag の予約が継続中の場合がある。その状態でこちらも追加で予約すると
+    // tag の最終行までずっと複数 lane が活性扱いとなり、本来途切れるべき lane で
+    // 縦線が継続描画されてしまう。同 tag の予約は 1 lane に集約する。
     if (
       commitTag !== "" &&
       laneIndex >= 0 &&
@@ -329,7 +335,15 @@ export function buildLaneRows(
     ) {
       const currentSlot = activeLanes[laneIndex];
       if (currentSlot === null || isClosedLaneToken(currentSlot)) {
-        activeLanes[laneIndex] = reservedLaneToken(commitTag);
+        const hasOtherReservation = activeLanes.some(
+          (slot, slotIdx) =>
+            slotIdx !== laneIndex &&
+            isReservedLaneToken(slot) &&
+            parseReservedTag(slot) === commitTag,
+        );
+        if (!hasOtherReservation) {
+          activeLanes[laneIndex] = reservedLaneToken(commitTag);
+        }
       }
     }
 
