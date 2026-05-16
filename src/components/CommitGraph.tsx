@@ -270,15 +270,49 @@ export function CommitGraph({
     [commits, branchTipsForColoring, defaultBranchName],
   );
   const laneLayout = useMemo(() => {
-    const laneCommits: CommitForLane[] = commits.map((commit) => ({
+    // 可視 timeline の順序 (純粋 date desc) に合わせて commits をソートしてから
+    // lane 計算する。git log --date-order は topology 優先で、second-parent 系列が
+    // 配列上で newer commits より前に並ぶことがあり、純粋 date desc に並べ替える
+    // timeline 側と順序が乖離する。乖離があると、可視 UI で 2 行の間に挟まれて
+    // 表示される他レーンのコミット行で縦線が描画されず線が途切れる
+    // (cf. ADR-0001 の前提 = 配列順 ≡ 視覚順)。
+    const sortedWithIdx = commits
+      .map((commit, originalIdx) => ({ commit, originalIdx }))
+      .sort((a, b) => {
+        const dA = new Date(a.commit.date).getTime();
+        const dB = new Date(b.commit.date).getTime();
+        if (dA === dB) {
+          // tie-break で配列順を保つ (stable な date desc)
+          return a.originalIdx - b.originalIdx;
+        }
+        return dB - dA;
+      });
+    const laneCommits: CommitForLane[] = sortedWithIdx.map(({ commit }) => ({
       sha: commit.sha,
       parentShas: commit.parentShas,
       branchTag: branchColoring.get(commit.sha.trim()) ?? null,
     }));
-    return buildLaneRows(laneCommits, {
+    const sortedLayout = buildLaneRows(laneCommits, {
       defaultBranchHeadSha,
       defaultBranchName,
     });
+    // sorted index → original commits index の写像。
+    const sortedToOriginalIdx = sortedWithIdx.map(({ originalIdx }) => originalIdx);
+    // 出力 rows は原配列インデックスでアクセスされるため、各 sorted row を元 idx 位置に並べ直す。
+    // primaryParentRowIndex は sorted index で計算されるので original index に戻す必要がある。
+    const remappedRows: typeof sortedLayout.rows = new Array(commits.length);
+    sortedLayout.rows.forEach((sortedRow, sortedIdx) => {
+      const originalIdx = sortedToOriginalIdx[sortedIdx];
+      const remappedPrimaryParentRowIndex =
+        sortedRow.primaryParentRowIndex !== null
+          ? (sortedToOriginalIdx[sortedRow.primaryParentRowIndex] ?? null)
+          : null;
+      remappedRows[originalIdx] = {
+        ...sortedRow,
+        primaryParentRowIndex: remappedPrimaryParentRowIndex,
+      };
+    });
+    return { rows: remappedRows, maxLanes: sortedLayout.maxLanes };
   }, [branchColoring, commits, defaultBranchHeadSha, defaultBranchName]);
   // -- Unified timeline: interleave commits and stashes by date (newest-first) --
   type TimelineCommitEntry = { type: "commit"; commit: CommitListItem; commitIndex: number };
