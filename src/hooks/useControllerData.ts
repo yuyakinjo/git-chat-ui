@@ -59,7 +59,7 @@ import type {
 } from "./useControllerDataTypes";
 
 const CONTROLLER_SNAPSHOT_TIMEOUT_MS = 8_000;
-const COMMIT_DETAIL_TIMEOUT_MS = 6_000;
+const COMMIT_DETAIL_TIMEOUT_MS = 15_000;
 const BRANCH_PULL_REQUEST_TIMEOUT_MS = 4_000;
 
 function readInitialCommitMessageDraft(repoPath: string): {
