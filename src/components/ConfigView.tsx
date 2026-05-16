@@ -1,4 +1,12 @@
-import { AlertCircle, CheckCircle2, ChevronDown, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  X,
+} from "lucide-react";
 import {
   useEffect,
   useId,
@@ -38,6 +46,7 @@ export {
 interface ConfigViewProps {
   onNotify: (message: string) => void;
   config: AppConfig | null;
+  onClose: () => void;
   onConfigSaved: (config: AppConfig) => void;
   onAiGenerationConfigChange: (config: AiGenerationConfig) => void;
 }
@@ -380,6 +389,7 @@ function MergeNodeAnimationPreview({
 export function ConfigView({
   onNotify,
   config,
+  onClose,
   onConfigSaved,
   onAiGenerationConfigChange,
 }: ConfigViewProps): JSX.Element {
@@ -878,11 +888,22 @@ export function ConfigView({
 
   return (
     <section className="panel mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden p-6">
-      <div className="mb-4 shrink-0">
-        <h2 className="text-2xl font-semibold text-ink">Config</h2>
-        <p className="text-sm text-ink-soft">
-          トークン、コミットグラフ表示、リポジトリ探索設定を管理します。
-        </p>
+      <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-2xl font-semibold text-ink">Config</h2>
+          <p className="text-sm text-ink-soft">
+            トークン、コミットグラフ表示、リポジトリ探索設定を管理します。
+          </p>
+        </div>
+        <button
+          type="button"
+          className="inline-flex shrink-0 rounded-lg border border-black/10 bg-white/40 p-2 text-ink-soft transition hover:bg-white/70 hover:text-ink"
+          aria-label="Config を閉じる"
+          title="閉じる"
+          onClick={onClose}
+        >
+          <X size={18} strokeWidth={2.2} aria-hidden="true" />
+        </button>
       </div>
 
       {loading ? (

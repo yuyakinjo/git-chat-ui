@@ -146,6 +146,7 @@ describe("ConfigView", () => {
       <ConfigView
         onNotify={() => {}}
         config={config}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,
@@ -164,6 +165,7 @@ describe("ConfigView", () => {
       <ConfigView
         onNotify={() => {}}
         config={config}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,
@@ -181,6 +183,7 @@ describe("ConfigView", () => {
       <ConfigView
         onNotify={() => {}}
         config={config}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,
@@ -206,6 +209,7 @@ describe("ConfigView", () => {
           commitGraphStyle: "japaneseExpress",
           commitMergeAnimation: "particle",
         }}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,
@@ -227,6 +231,7 @@ describe("ConfigView", () => {
       <ConfigView
         onNotify={() => {}}
         config={config}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,
@@ -243,6 +248,7 @@ describe("ConfigView", () => {
       <ConfigView
         onNotify={() => {}}
         config={config}
+        onClose={() => {}}
         onConfigSaved={() => {}}
         onAiGenerationConfigChange={() => {}}
       />,

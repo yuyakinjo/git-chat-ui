@@ -843,8 +843,10 @@ export default function App(): JSX.Element {
   };
 
   const handleOpenConfig = useCallback((): void => {
-    setActiveTabId(CONFIG_TAB_ID);
-  }, []);
+    setActiveTabId((current) =>
+      current === CONFIG_TAB_ID ? configReturnTabId : CONFIG_TAB_ID,
+    );
+  }, [configReturnTabId]);
 
   const handleControllerInitialLoadSettled = useCallback(
     (repoPath: string): void => {
@@ -1502,6 +1504,7 @@ export default function App(): JSX.Element {
               <ConfigView
                 config={appConfig}
                 onNotify={setNotice}
+                onClose={() => setActiveTabId(configReturnTabId)}
                 onAiGenerationConfigChange={setAiGenerationConfig}
                 onConfigSaved={(config) => {
                   setAppConfig(config);
