@@ -395,6 +395,40 @@ describe("buildLaneRows", () => {
     expect(layout.maxLanes).toBe(2);
   });
 
+  test("trims phantom reserved lane when next same-tag commit is pre-placed elsewhere", () => {
+    // ca-trust の cc4472964 ケースの最小再現:
+    // 上の merge-tip (feat タグ) が second-parent として feat-lower-1 を先取りで
+    // 別 lane に placed する。その後 feat-upper-1 (同 feat タグ) が elbow で
+    // default chain に降りて lane 1 を予約するが、後続の feat-lower-1 は
+    // 既に lane 2 に置かれているため lane 1 を回収しない。
+    // → lane 1 は span 終端まで「誰にも使われない予約」(phantom) になる。
+    // 修正後: lane 1 を中間/下方行の activeLaneIndices に残さない。
+    const layout = buildLaneRows(
+      [
+        { sha: "merge-tip", parentShas: ["feat-upper-1", "feat-lower-1"], branchTag: "feat" },
+        { sha: "feat-upper-1", parentShas: ["m-tip"], branchTag: "feat" },
+        { sha: "feat-lower-1", parentShas: ["m-tip"], branchTag: "feat" },
+        { sha: "m-tip", parentShas: ["m-base"], branchTag: "main" },
+        { sha: "m-base", parentShas: [], branchTag: "main" },
+      ],
+      {
+        defaultBranchHeadSha: "m-tip",
+        defaultBranchName: "main",
+      },
+    );
+
+    // 構造確認: feat-upper-1=lane1, feat-lower-1=lane2 (pre-placed)
+    expect(layout.rows[1].laneIndex).toBe(1);
+    expect(layout.rows[2].laneIndex).toBe(2);
+    // feat-upper-1 は elbow で default chain (lane 0) に降りる
+    expect(layout.rows[1].primaryParentLaneIndex).toBe(0);
+    // 重要: row 1 の outgoing から phantom lane 1 が除去される (下方向の線が切れる)
+    expect(layout.rows[1].outgoingLaneIndices).not.toContain(1);
+    // 中間行 (row 2 = feat-lower-1) で phantom lane 1 が描画されない
+    expect(layout.rows[2].activeLaneIndices).not.toContain(1);
+    expect(layout.rows[2].incomingLaneIndices).not.toContain(1);
+  });
+
   test("flags default-chain rows as NOT reservedButEmpty", () => {
     const layout = buildLaneRows(
       [

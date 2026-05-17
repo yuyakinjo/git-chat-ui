@@ -171,6 +171,12 @@ export function buildLaneRows(
 
   const rows: LaneRow[] = [];
   let maxLanes = Math.max(minLanes, 1);
+  // ADR-0001 の lane 予約は「同じ branchTag のコミットが reserved lane を後で回収する」
+  // 前提だが、後続の同タグコミットが既に別 lane の merge parent として placed されて
+  // いるケースでは回収が起きず、reserved lane が span 終端まで「誰にも使われない
+  // 縦線 (phantom)」として残る。各行末で reserved 状態の lane を記録しておき、
+  // post-pass で claim されなかった span を行ごとの active/incoming/outgoing から除去する。
+  const reservedLaneIndicesByRow: Array<Set<number>> = [];
 
   /**
    * Finds an empty slot at or after `startIndex`. Lane 0 is never returned
@@ -412,6 +418,99 @@ export function buildLaneRows(
       inverseChildren: [],
       defaultLaneReservedButEmpty,
     });
+    const reservedNow = new Set<number>();
+    for (let slotIdx = 0; slotIdx < activeLanes.length; slotIdx += 1) {
+      if (isReservedLaneToken(activeLanes[slotIdx])) {
+        reservedNow.add(slotIdx);
+      }
+    }
+    reservedLaneIndicesByRow.push(reservedNow);
+  }
+
+  // Post-pass: 誰にも claim されなかった reserved lane span を行から除去する。
+  // span = ある lane が reserved 状態で連続している行範囲。span 開始行は
+  // reservation を作った行 (= その行は commit が同 lane を使っているので line は
+  // 真実)。span 内 (開始行を除く) で `rows[r].laneIndex === lane` となる行が
+  // 1 つでもあれば「claim された」とみなして除去しない。1 つも無ければ phantom
+  // 扱いで span 内 (開始行を除く) の active/incoming/outgoing から lane を消す。
+  // 開始行については outgoingLaneIndices のみトリム — incoming は前 row から
+  // 引き継いだ実線で、laneIndex は commit ノード自身が使う本物の lane だから残す。
+  const phantomLaneByRow = new Map<number, Set<number>>();
+  const seenLanes = new Set<number>();
+  for (const reservedSet of reservedLaneIndicesByRow) {
+    for (const laneIdx of reservedSet) {
+      seenLanes.add(laneIdx);
+    }
+  }
+  for (const laneIdx of seenLanes) {
+    let spanStart: number | null = null;
+    for (let rowIdx = 0; rowIdx <= rows.length; rowIdx += 1) {
+      const isReservedAtRow =
+        rowIdx < rows.length && reservedLaneIndicesByRow[rowIdx]?.has(laneIdx);
+      if (isReservedAtRow && spanStart === null) {
+        spanStart = rowIdx;
+      } else if (!isReservedAtRow && spanStart !== null) {
+        const spanEnd = rowIdx - 1;
+        let claimed = false;
+        // 中間 claim: span 内 (開始行を除く) に lane を laneIndex とするコミットがある。
+        for (let r = spanStart + 1; r <= spanEnd; r += 1) {
+          if (rows[r].laneIndex === laneIdx) {
+            claimed = true;
+            break;
+          }
+        }
+        // 境界 claim: span 終了の理由が「次行のコミットが予約を回収した」ケース。
+        // この場合は ADR-0001 の本来の意図どおり中央行で縦線を引きたいので残す。
+        if (
+          !claimed &&
+          rowIdx < rows.length &&
+          rows[rowIdx].laneIndex === laneIdx
+        ) {
+          claimed = true;
+        }
+        if (!claimed) {
+          // span 開始行: outgoing からだけ除去 (下方向の線をカットする)。
+          // ただし開始行で primary parent elbow 由来で既に hasOutgoingRaw が
+          // false 化される場合は無害。
+          const startSet = phantomLaneByRow.get(spanStart) ?? new Set<number>();
+          startSet.add(laneIdx);
+          phantomLaneByRow.set(spanStart, startSet);
+          for (let r = spanStart + 1; r <= spanEnd; r += 1) {
+            const set = phantomLaneByRow.get(r) ?? new Set<number>();
+            set.add(laneIdx);
+            phantomLaneByRow.set(r, set);
+          }
+        }
+        spanStart = null;
+      }
+    }
+  }
+  if (phantomLaneByRow.size > 0) {
+    for (const [rowIdx, phantoms] of phantomLaneByRow) {
+      const row = rows[rowIdx];
+      // lane ごとに「span 開始行か continuation 行か」を判定する。
+      // - continuation (前行も同じ phantom lane): active/incoming/outgoing 全部から除去。
+      // - span 開始行 (前行は持っていない): commit ノード自身の incoming/laneIndex は
+      //   本物なので残し、outgoing だけ除去して下方向の線をカットする。
+      const continuationLanes = new Set<number>();
+      for (const laneIdx of phantoms) {
+        if (rowIdx > 0 && phantomLaneByRow.get(rowIdx - 1)?.has(laneIdx)) {
+          continuationLanes.add(laneIdx);
+        }
+      }
+      rows[rowIdx] = {
+        ...row,
+        activeLaneIndices:
+          continuationLanes.size > 0
+            ? row.activeLaneIndices.filter((l) => !continuationLanes.has(l))
+            : row.activeLaneIndices,
+        incomingLaneIndices:
+          continuationLanes.size > 0
+            ? row.incomingLaneIndices.filter((l) => !continuationLanes.has(l))
+            : row.incomingLaneIndices,
+        outgoingLaneIndices: row.outgoingLaneIndices.filter((l) => !phantoms.has(l)),
+      };
+    }
   }
 
   // Post-pass: collect inverse children. For each row whose primaryParentRowIndex
