@@ -5737,7 +5737,7 @@ pub fn sync_window_appearance(
     Ok(OkResponse { ok: true })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_repositories(query: Option<String>) -> Result<RepositoriesResponse, String> {
     let config = read_config()?;
     let recent_map: HashMap<String, String> = config
@@ -5751,7 +5751,7 @@ pub fn get_repositories(query: Option<String>) -> Result<RepositoriesResponse, S
     Ok(RepositoriesResponse { repositories })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resolve_repositories(repo_paths: Vec<String>) -> Result<RepositoriesResponse, String> {
     Ok(RepositoriesResponse {
         repositories: resolve_repositories_internal(repo_paths)?,
@@ -5769,7 +5769,7 @@ pub fn mark_recent_repository(repo_path: String) -> Result<OkResponse, String> {
     Ok(OkResponse { ok: true })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
     ensure_repo_path(&repo_path)?;
 
@@ -5831,7 +5831,7 @@ pub fn get_branches(repo_path: String) -> Result<BranchResponse, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_repository_github_url(repo_path: String) -> Result<RepositoryGithubUrlResponse, String> {
     ensure_repo_path(&repo_path)?;
     Ok(RepositoryGithubUrlResponse {
@@ -5846,7 +5846,7 @@ pub fn get_repository_assistant_user_profile(
     get_repository_assistant_user_profile_for_repo(&repo_path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_branch_pull_requests(repo_path: String) -> Result<BranchPullRequestsResponse, String> {
     ensure_repo_path(&repo_path)?;
     Ok(BranchPullRequestsResponse {
@@ -5854,7 +5854,7 @@ pub fn get_branch_pull_requests(repo_path: String) -> Result<BranchPullRequestsR
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_repository_mutation_safety(
     repo_path: String,
 ) -> Result<RepositoryMutationSafetyResponse, String> {
@@ -7325,7 +7325,7 @@ pub fn get_pull_status(
     get_pull_status_for_branch(&repo_path, branch_name.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_controller_snapshot(
     repo_path: String,
     ref_name: Option<String>,
@@ -7756,7 +7756,7 @@ pub fn get_fingerprint(repo_path: String) -> Result<FingerprintResponse, String>
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_config() -> Result<AppConfig, String> {
     read_config()
 }

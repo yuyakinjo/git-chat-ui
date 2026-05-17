@@ -241,6 +241,9 @@ export default function App(): JSX.Element {
     Record<string, AssistantConflictOpenRequest>
   >({});
   const [appLoadingState, setAppLoadingState] = useState(createInitialAppStartupLoadState);
+  const [activatedRepositoryPaths, setActivatedRepositoryPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
   const themePickerRef = useRef<HTMLDetailsElement | null>(null);
   const [isThemePickerOpen, setThemePickerOpen] = useState(false);
 
@@ -491,6 +494,15 @@ export default function App(): JSX.Element {
     setLastRepositoryPath((current) =>
       current === activeRepository.path ? current : activeRepository.path,
     );
+
+    setActivatedRepositoryPaths((current) => {
+      if (current.has(activeRepository.path)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(activeRepository.path);
+      return next;
+    });
   }, [activeRepository]);
 
   useEffect(() => {
@@ -1470,6 +1482,7 @@ export default function App(): JSX.Element {
           {openRepositories.map((repository) => {
             const tabId = getRepositoryTabId(repository.path);
             const isActive = activeTabId === tabId;
+            const hasBeenActivated = activatedRepositoryPaths.has(repository.path);
 
             return (
               <section
@@ -1478,23 +1491,25 @@ export default function App(): JSX.Element {
                 hidden={!isActive}
                 aria-hidden={!isActive}
               >
-                <ControllerView
-                  repository={repository}
-                  appConfig={appConfig}
-                  appThemeId={appTheme}
-                  layoutPickerPortalContainer={controllerLayoutPickerPortalContainer}
-                  onOpenConfig={handleOpenConfig}
-                  onSelectTheme={handleSelectAppTheme}
-                  onNotify={setNotice}
-                  onCurrentBranchChange={handleRepositoryBranchChange}
-                  active={isActive}
-                  repositoryGithubUrl={isActive ? githubButtonUrl : null}
-                  assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
-                  assistantConflictOpenRequest={
-                    assistantConflictOpenRequests[repository.path] ?? null
-                  }
-                  onInitialLoadSettled={handleControllerInitialLoadSettled}
-                />
+                {hasBeenActivated ? (
+                  <ControllerView
+                    repository={repository}
+                    appConfig={appConfig}
+                    appThemeId={appTheme}
+                    layoutPickerPortalContainer={controllerLayoutPickerPortalContainer}
+                    onOpenConfig={handleOpenConfig}
+                    onSelectTheme={handleSelectAppTheme}
+                    onNotify={setNotice}
+                    onCurrentBranchChange={handleRepositoryBranchChange}
+                    active={isActive}
+                    repositoryGithubUrl={isActive ? githubButtonUrl : null}
+                    assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
+                    assistantConflictOpenRequest={
+                      assistantConflictOpenRequests[repository.path] ?? null
+                    }
+                    onInitialLoadSettled={handleControllerInitialLoadSettled}
+                  />
+                ) : null}
               </section>
             );
           })}

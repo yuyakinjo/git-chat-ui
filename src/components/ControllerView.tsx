@@ -14,7 +14,9 @@ import {
   UploadCloud,
 } from "lucide-react";
 import {
+  lazy,
   startTransition,
+  Suspense,
   useActionState,
   useCallback,
   useEffect,
@@ -64,27 +66,56 @@ import {
   resolveWorkingTreeDiscardTarget,
   type WorkingTreeDiscardTarget,
 } from "../lib/workingTreeDiscard";
-import { BranchActionDialog } from "./BranchActionDialog";
-import { BranchCreateDialog } from "./BranchCreateDialog";
-import { BranchDeleteDialog } from "./BranchDeleteDialog";
-import { BranchDiffOverlay } from "./BranchDiffOverlay";
 import { BranchTree } from "./BranchTree";
 import { type CommandPaletteCommand } from "./CommandPalette";
 import { CommitDetailPanel } from "./CommitDetailPanel";
-import { CommitDiffOverlay } from "./CommitDiffOverlay";
 import { CommitGraph } from "./CommitGraph";
-import { ConflictOverlay } from "./ConflictOverlay";
 import { ControllerCommandPaletteHost } from "./ControllerCommandPaletteHost";
 import { ControllerInlineErrorAlert } from "./ControllerInlineErrorAlert";
 import { GitOperationPanel } from "./GitOperationPanel";
-import { StashDiffOverlay } from "./StashDiffOverlay";
-import { StashDeleteDialog } from "./StashDeleteDialog";
-import { StashRenameDialog } from "./StashRenameDialog";
 import { useControllerBranchOps } from "../hooks/useControllerBranchOps";
 import { useControllerData } from "../hooks/useControllerData";
 import { useControllerPanelDrag } from "../hooks/useControllerPanelDrag";
-import { WorkingTreeDiscardDialog } from "./WorkingTreeDiscardDialog";
-import { WorkingTreeDiffOverlay } from "./WorkingTreeDiffOverlay";
+
+// Lazy-loaded modals/overlays — keep them off the initial module graph so the first
+// Vite dev transform + React commit phase stays light. They only mount when opened.
+const BranchActionDialog = lazy(() =>
+  import("./BranchActionDialog").then((module) => ({ default: module.BranchActionDialog })),
+);
+const BranchCreateDialog = lazy(() =>
+  import("./BranchCreateDialog").then((module) => ({ default: module.BranchCreateDialog })),
+);
+const BranchDeleteDialog = lazy(() =>
+  import("./BranchDeleteDialog").then((module) => ({ default: module.BranchDeleteDialog })),
+);
+const BranchDiffOverlay = lazy(() =>
+  import("./BranchDiffOverlay").then((module) => ({ default: module.BranchDiffOverlay })),
+);
+const CommitDiffOverlay = lazy(() =>
+  import("./CommitDiffOverlay").then((module) => ({ default: module.CommitDiffOverlay })),
+);
+const ConflictOverlay = lazy(() =>
+  import("./ConflictOverlay").then((module) => ({ default: module.ConflictOverlay })),
+);
+const StashDeleteDialog = lazy(() =>
+  import("./StashDeleteDialog").then((module) => ({ default: module.StashDeleteDialog })),
+);
+const StashDiffOverlay = lazy(() =>
+  import("./StashDiffOverlay").then((module) => ({ default: module.StashDiffOverlay })),
+);
+const StashRenameDialog = lazy(() =>
+  import("./StashRenameDialog").then((module) => ({ default: module.StashRenameDialog })),
+);
+const WorkingTreeDiffOverlay = lazy(() =>
+  import("./WorkingTreeDiffOverlay").then((module) => ({
+    default: module.WorkingTreeDiffOverlay,
+  })),
+);
+const WorkingTreeDiscardDialog = lazy(() =>
+  import("./WorkingTreeDiscardDialog").then((module) => ({
+    default: module.WorkingTreeDiscardDialog,
+  })),
+);
 import type { AppConfig, Branch, ConflictSummary, PullStatus, Repository } from "../types";
 
 interface AssistantConflictOpenRequest {
@@ -1661,178 +1692,180 @@ export function ControllerView({
         onExecuteCommand={handleExecuteCommandPaletteCommand}
       />
 
-      {selectedCommitDetail && data.focusedCommitDiffFile ? (
-        <CommitDiffOverlay
-          repoPath={repoPath}
-          appThemeId={appThemeId}
-          diffViewerMode={appConfig?.diffViewerMode}
-          detail={selectedCommitDetail}
-          filePath={data.focusedCommitDiffFile}
-          onClose={() => data.setFocusedCommitDiffFile(null)}
-          onNotify={onNotify}
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {selectedCommitDetail && data.focusedCommitDiffFile ? (
+          <CommitDiffOverlay
+            repoPath={repoPath}
+            appThemeId={appThemeId}
+            diffViewerMode={appConfig?.diffViewerMode}
+            detail={selectedCommitDetail}
+            filePath={data.focusedCommitDiffFile}
+            onClose={() => data.setFocusedCommitDiffFile(null)}
+            onNotify={onNotify}
+          />
+        ) : null}
 
-      {data.focusedWorkingTreeDiff ? (
-        <WorkingTreeDiffOverlay
-          appThemeId={appThemeId}
-          diffViewerMode={appConfig?.diffViewerMode}
-          detail={data.workingTreeDiffDetail}
-          loading={data.loadingWorkingTreeDiffDetail}
-          filePath={data.focusedWorkingTreeDiff.file}
-          area={data.focusedWorkingTreeDiff.area}
-          onClose={data.closeWorkingTreeDiffOverlay}
-        />
-      ) : null}
+        {data.focusedWorkingTreeDiff ? (
+          <WorkingTreeDiffOverlay
+            appThemeId={appThemeId}
+            diffViewerMode={appConfig?.diffViewerMode}
+            detail={data.workingTreeDiffDetail}
+            loading={data.loadingWorkingTreeDiffDetail}
+            filePath={data.focusedWorkingTreeDiff.file}
+            area={data.focusedWorkingTreeDiff.area}
+            onClose={data.closeWorkingTreeDiffOverlay}
+          />
+        ) : null}
 
-      {data.focusedStash ? (
-        <StashDiffOverlay
-          repoPath={repoPath}
-          appThemeId={appThemeId}
-          diffViewerMode={appConfig?.diffViewerMode}
-          stash={data.focusedStash}
-          detail={data.stashDiffDetail}
-          loading={data.loadingStashDiffDetail}
-          onClose={data.closeStashDiffOverlay}
-        />
-      ) : null}
+        {data.focusedStash ? (
+          <StashDiffOverlay
+            repoPath={repoPath}
+            appThemeId={appThemeId}
+            diffViewerMode={appConfig?.diffViewerMode}
+            stash={data.focusedStash}
+            detail={data.stashDiffDetail}
+            loading={data.loadingStashDiffDetail}
+            onClose={data.closeStashDiffOverlay}
+          />
+        ) : null}
 
-      {data.showBranchDiff ? (
-        <BranchDiffOverlay
-          repoPath={repoPath}
-          appThemeId={appThemeId}
-          diffViewerMode={appConfig?.diffViewerMode}
-          detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
-          loading={data.loadingBranchDiffDetail}
-          baseBranchName={data.branchDiffBaseLabel}
-          targetBranchName={data.currentLocalBranch?.name ?? null}
-          onClose={() => data.setShowBranchDiff(false)}
-          onNotify={onNotify}
-        />
-      ) : null}
+        {data.showBranchDiff ? (
+          <BranchDiffOverlay
+            repoPath={repoPath}
+            appThemeId={appThemeId}
+            diffViewerMode={appConfig?.diffViewerMode}
+            detail={data.branchDiffMatchesCurrentBranch ? data.branchDiffDetail : null}
+            loading={data.loadingBranchDiffDetail}
+            baseBranchName={data.branchDiffBaseLabel}
+            targetBranchName={data.currentLocalBranch?.name ?? null}
+            onClose={() => data.setShowBranchDiff(false)}
+            onNotify={onNotify}
+          />
+        ) : null}
 
-      {data.showConflictViewer && activeConflictSummary ? (
-        <ConflictOverlay
-          summary={activeConflictSummary}
-          activeFilePath={data.focusedConflictFile}
-          detail={data.conflictFileDetail}
-          loading={data.loadingConflictFileDetail}
-          busy={data.operationBusy}
-          onSelectFile={(file) => {
-            void data.openConflictViewer({
-              summary: activeConflictSummary,
-              file,
-              sessionId: activeConflictSummary.sessionId ?? null,
-            });
-          }}
-          onResolve={(side) => {
-            void data.resolveActiveConflict(side);
-          }}
-          onCompleteMergeSession={() => {
-            void data.completeActiveMergeSession();
-          }}
-          onAbortMergeSession={() => {
-            void data.abortActiveMergeSession();
-          }}
-          onClose={data.closeConflictViewer}
-        />
-      ) : null}
+        {data.showConflictViewer && activeConflictSummary ? (
+          <ConflictOverlay
+            summary={activeConflictSummary}
+            activeFilePath={data.focusedConflictFile}
+            detail={data.conflictFileDetail}
+            loading={data.loadingConflictFileDetail}
+            busy={data.operationBusy}
+            onSelectFile={(file) => {
+              void data.openConflictViewer({
+                summary: activeConflictSummary,
+                file,
+                sessionId: activeConflictSummary.sessionId ?? null,
+              });
+            }}
+            onResolve={(side) => {
+              void data.resolveActiveConflict(side);
+            }}
+            onCompleteMergeSession={() => {
+              void data.completeActiveMergeSession();
+            }}
+            onAbortMergeSession={() => {
+              void data.abortActiveMergeSession();
+            }}
+            onClose={data.closeConflictViewer}
+          />
+        ) : null}
 
-      {branchOps.branchAction ? (
-        <BranchActionDialog
-          sourceBranchName={branchOps.branchAction.source.name}
-          targetBranchName={branchOps.branchAction.target.name}
-          step={branchOps.branchAction.step}
-          busy={data.operationBusy}
-          mergeDisabledReason={branchActionMergeDisabledReason}
-          onClose={() => branchOps.setBranchAction(null)}
-          onMerge={() => {
-            void branchOps.handleMergeBranchAction();
-          }}
-          onPreparePullRequest={() => {
-            void branchOps.handlePreparePullRequest();
-          }}
-          onConfirmPushAndCreatePullRequest={() => {
-            void branchOps.handleCreatePullRequest(true);
-          }}
-          onBack={() => {
-            branchOps.setBranchAction((current) =>
-              current ? { ...current, step: "select-action" } : current,
-            );
-          }}
-        />
-      ) : null}
+        {branchOps.branchAction ? (
+          <BranchActionDialog
+            sourceBranchName={branchOps.branchAction.source.name}
+            targetBranchName={branchOps.branchAction.target.name}
+            step={branchOps.branchAction.step}
+            busy={data.operationBusy}
+            mergeDisabledReason={branchActionMergeDisabledReason}
+            onClose={() => branchOps.setBranchAction(null)}
+            onMerge={() => {
+              void branchOps.handleMergeBranchAction();
+            }}
+            onPreparePullRequest={() => {
+              void branchOps.handlePreparePullRequest();
+            }}
+            onConfirmPushAndCreatePullRequest={() => {
+              void branchOps.handleCreatePullRequest(true);
+            }}
+            onBack={() => {
+              branchOps.setBranchAction((current) =>
+                current ? { ...current, step: "select-action" } : current,
+              );
+            }}
+          />
+        ) : null}
 
-      {branchOps.branchCreateSource ? (
-        <BranchCreateDialog
-          baseBranchName={branchOps.branchCreateSource.name}
-          busy={data.operationBusy}
-          onClose={() => branchOps.setBranchCreateSource(null)}
-          onCreate={(newBranchName) => {
-            void branchOps.handleCreateBranch(newBranchName);
-          }}
-        />
-      ) : null}
+        {branchOps.branchCreateSource ? (
+          <BranchCreateDialog
+            baseBranchName={branchOps.branchCreateSource.name}
+            busy={data.operationBusy}
+            onClose={() => branchOps.setBranchCreateSource(null)}
+            onCreate={(newBranchName) => {
+              void branchOps.handleCreateBranch(newBranchName);
+            }}
+          />
+        ) : null}
 
-      {branchOps.branchDeleteTarget ? (
-        <BranchDeleteDialog
-          branchName={branchOps.branchDeleteTarget.name}
-          branchType={branchOps.branchDeleteTarget.type}
-          busy={data.operationBusy}
-          forceDelete={branchOps.branchDeleteForce}
-          onClose={() => {
-            branchOps.setBranchDeleteForce(false);
-            branchOps.setBranchDeleteTarget(null);
-          }}
-          onForceDeleteChange={branchOps.setBranchDeleteForce}
-          onDelete={() => {
-            void branchOps.handleDeleteBranch();
-          }}
-        />
-      ) : null}
+        {branchOps.branchDeleteTarget ? (
+          <BranchDeleteDialog
+            branchName={branchOps.branchDeleteTarget.name}
+            branchType={branchOps.branchDeleteTarget.type}
+            busy={data.operationBusy}
+            forceDelete={branchOps.branchDeleteForce}
+            onClose={() => {
+              branchOps.setBranchDeleteForce(false);
+              branchOps.setBranchDeleteTarget(null);
+            }}
+            onForceDeleteChange={branchOps.setBranchDeleteForce}
+            onDelete={() => {
+              void branchOps.handleDeleteBranch();
+            }}
+          />
+        ) : null}
 
-      {branchOps.stashRenameTarget ? (
-        <StashRenameDialog
-          stashId={branchOps.stashRenameTarget.id}
-          initialMessage={branchOps.stashRenameTarget.message}
-          busy={data.operationBusy}
-          onClose={() => branchOps.setStashRenameTarget(null)}
-          onRename={(message) => {
-            void branchOps.handleRenameStash(message);
-          }}
-        />
-      ) : null}
+        {branchOps.stashRenameTarget ? (
+          <StashRenameDialog
+            stashId={branchOps.stashRenameTarget.id}
+            initialMessage={branchOps.stashRenameTarget.message}
+            busy={data.operationBusy}
+            onClose={() => branchOps.setStashRenameTarget(null)}
+            onRename={(message) => {
+              void branchOps.handleRenameStash(message);
+            }}
+          />
+        ) : null}
 
-      {branchOps.stashDeleteTarget ? (
-        <StashDeleteDialog
-          stashId={branchOps.stashDeleteTarget.id}
-          message={branchOps.stashDeleteTarget.message}
-          busy={data.operationBusy}
-          onClose={() => branchOps.setStashDeleteTarget(null)}
-          onDelete={() => {
-            void branchOps.handleDeleteStash();
-          }}
-        />
-      ) : null}
+        {branchOps.stashDeleteTarget ? (
+          <StashDeleteDialog
+            stashId={branchOps.stashDeleteTarget.id}
+            message={branchOps.stashDeleteTarget.message}
+            busy={data.operationBusy}
+            onClose={() => branchOps.setStashDeleteTarget(null)}
+            onDelete={() => {
+              void branchOps.handleDeleteStash();
+            }}
+          />
+        ) : null}
 
-      {workingTreeDiscardTarget ? (
-        <WorkingTreeDiscardDialog
-          target={workingTreeDiscardTarget}
-          busy={data.operationBusy}
-          onClose={() => setWorkingTreeDiscardTarget(null)}
-          onDiscard={() => {
-            const target = workingTreeDiscardTarget;
-            void data.mutateWorkingState(
-              async () => {
-                await api.discardFile(repoPath, target.file);
-              },
-              {
-                onSuccess: () => setWorkingTreeDiscardTarget(null),
-              },
-            );
-          }}
-        />
-      ) : null}
+        {workingTreeDiscardTarget ? (
+          <WorkingTreeDiscardDialog
+            target={workingTreeDiscardTarget}
+            busy={data.operationBusy}
+            onClose={() => setWorkingTreeDiscardTarget(null)}
+            onDiscard={() => {
+              const target = workingTreeDiscardTarget;
+              void data.mutateWorkingState(
+                async () => {
+                  await api.discardFile(repoPath, target.file);
+                },
+                {
+                  onSuccess: () => setWorkingTreeDiscardTarget(null),
+                },
+              );
+            }}
+          />
+        ) : null}
+      </Suspense>
     </section>
   );
 }
