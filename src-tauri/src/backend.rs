@@ -5900,7 +5900,12 @@ pub fn get_commits(
         format!("--skip={offset}"),
         "-n".to_string(),
         bounded_limit.to_string(),
-        "--pretty=format:%H%x1f%P%x1f%an%x1f%ad%x1f%s%x1f%d%x1e".to_string(),
+        // `date` フィールドには committer date (%cd) を渡す。git の --date-order は
+        // committer date で sorting topology を決めるため、フロント側でこの `date` を
+        // 再ソートしても backend と同じ topology 順を保てる。author date (%ad) を渡すと
+        // rebase/amend で committer date が更新されたコミット (例: cc44729) が再ソート
+        // 時に親より上に来る逆転表示になり、コミットグラフの線が乖離する。
+        "--pretty=format:%H%x1f%P%x1f%an%x1f%cd%x1f%s%x1f%d%x1e".to_string(),
         selected_ref,
     ];
     for compare_ref in compare_refs {

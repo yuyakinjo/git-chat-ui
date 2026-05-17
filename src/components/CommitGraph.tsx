@@ -307,9 +307,14 @@ export function CommitGraph({
         sortedRow.primaryParentRowIndex !== null
           ? (sortedToOriginalIdx[sortedRow.primaryParentRowIndex] ?? null)
           : null;
+      const remappedInverseChildren = sortedRow.inverseChildren.map((entry) => ({
+        childRowIndex: sortedToOriginalIdx[entry.childRowIndex] ?? entry.childRowIndex,
+        childLaneIndex: entry.childLaneIndex,
+      }));
       remappedRows[originalIdx] = {
         ...sortedRow,
         primaryParentRowIndex: remappedPrimaryParentRowIndex,
+        inverseChildren: remappedInverseChildren,
       };
     });
     return { rows: remappedRows, maxLanes: sortedLayout.maxLanes };
@@ -1410,6 +1415,8 @@ export function CommitGraph({
             primaryParentRowIndex: null,
             mergeTargetLaneIndices: [],
             convergingLaneIndices: [],
+            inverseChildren: [],
+            defaultLaneReservedButEmpty: false,
           };
           const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
           const isPrimaryBranchSourceRow =
@@ -1467,6 +1474,48 @@ export function CommitGraph({
             primaryParentTimelineIdx > timelineIndex
               ? (primaryParentTimelineIdx - timelineIndex) * ROW_STEP + ROW_HEIGHT / 2
               : null;
+          // 「親が timeline 上で子より上に表示される」逆転ケース。inverseChildren に
+          // 含まれる各 child について、親 ◯ から child ◯ への下向き curve をここ
+          // (親側 SVG) で描く。子側 SVG で上方向に curve を引くと DOM 順により
+          // intermediate avatar/node を覆ってしまうため、親側で描き intermediate
+          // contents が curve の上に重なる挙動を利用する。
+          const inverseChildCurvePaths: Array<{
+            childRowIndex: number;
+            childLaneIndex: number;
+            pathD: string;
+            stroke: string;
+            targetY: number;
+          }> = (row.inverseChildren ?? []).flatMap((entry) => {
+            const childTimelineIdx =
+              commitIndexToTimelineIndex.get(entry.childRowIndex) ?? null;
+            if (childTimelineIdx === null || childTimelineIdx <= timelineIndex) {
+              return [];
+            }
+            const childRowDistance = childTimelineIdx - timelineIndex;
+            const targetY = childRowDistance * ROW_STEP + ROW_HEIGHT / 2;
+            const pathD = buildPrimaryParentCurvePath({
+              sourceLaneIndex: row.laneIndex,
+              targetLaneIndex: entry.childLaneIndex,
+              targetY,
+              resolveLaneX,
+              cornerRadius: graphStyleMetrics.elbowCornerRadius,
+              elbowSide: "start",
+            });
+            const stroke = resolveLaneStroke(entry.childRowIndex, entry.childLaneIndex);
+            return [
+              {
+                childRowIndex: entry.childRowIndex,
+                childLaneIndex: entry.childLaneIndex,
+                pathD,
+                stroke,
+                targetY,
+              },
+            ];
+          });
+          const inverseChildCurveExtent = inverseChildCurvePaths.reduce(
+            (max, entry) => Math.max(max, entry.targetY + LINE_OVERDRAW * 2),
+            0,
+          );
           // マージ曲線も 1 行分下の中央まで延ばして垂直優勢な「↱」形に見せる
           // (行内完結だと曲がり角が始点に寄り過ぎて「⤴」に見えるため)
           const hasRenderedMergeTarget = row.mergeTargetLaneIndices.some(
@@ -1479,6 +1528,7 @@ export function CommitGraph({
             ROW_HEIGHT + LINE_OVERDRAW * 2,
             primaryParentTargetY !== null ? primaryParentTargetY + LINE_OVERDRAW * 2 : 0,
             mergeTargetCurveY !== null ? mergeTargetCurveY + LINE_OVERDRAW * 2 : 0,
+            inverseChildCurveExtent,
           );
           const rowLaneStroke = resolveLaneStroke(index, row.laneIndex);
           const isMergeCommit = commit.parentShas.length >= 2;
@@ -1674,12 +1724,13 @@ export function CommitGraph({
                         ))}
 
                       {row.primaryParentLaneIndex !== null &&
-                      row.primaryParentLaneIndex !== row.laneIndex ? (
+                      row.primaryParentLaneIndex !== row.laneIndex &&
+                      primaryParentTargetY !== null ? (
                         <path
                           d={buildPrimaryParentCurvePath({
                             sourceLaneIndex: row.laneIndex,
                             targetLaneIndex: row.primaryParentLaneIndex,
-                            targetY: primaryParentTargetY ?? ROW_HEIGHT,
+                            targetY: primaryParentTargetY,
                             resolveLaneX,
                             targetJoinX: primaryParentJoinX ?? undefined,
                             cornerRadius: graphStyleMetrics.elbowCornerRadius,
@@ -1692,6 +1743,27 @@ export function CommitGraph({
                           strokeLinejoin="round"
                         />
                       ) : null}
+
+                      {inverseChildCurvePaths.map((entry) => (
+                        // rebase/amend で committer date が逆転した結果、子コミット
+                        // (例: cc44729) が「親 (例: 3c08c70) より下」の行に
+                        // 表示される。本来の primary parent curve (子側で描画) は
+                        // 上方向に伸ばせず破損するため、親側 SVG を下方に拡張し
+                        // 親 ◯ → 子 ◯ へ向かう curve をここで描く。SVG が DOM 上で
+                        // 親 row に属し、intermediate rows より「前」にレンダーされる
+                        // ため、intermediate avatar/node が curve を覆い隠す形になり
+                        // z-index による視覚崩れを起こさない。
+                        <path
+                          key={`${commit.sha}-inverse-child-${entry.childRowIndex}`}
+                          d={entry.pathD}
+                          stroke={entry.stroke}
+                          strokeWidth={resolveLaneStrokeWidth(index, entry.childLaneIndex, entry.childLaneIndex)}
+                          opacity={resolveLaneOpacity(index, entry.childLaneIndex, entry.childLaneIndex)}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
 
                       {/* (stash rows are now rendered at their chronological position in the timeline) */}
                     </svg>

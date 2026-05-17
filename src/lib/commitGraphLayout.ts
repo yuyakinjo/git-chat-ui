@@ -26,6 +26,18 @@ export interface LaneLayoutOptions {
   defaultBranchName?: string | null;
 }
 
+/**
+ * Reverse parent→child relationship used when a child's committer date is
+ * older than its parent's (rebase/amend). In display order (date desc) the
+ * parent appears above the child, which inverts the usual "child draws curve
+ * down to parent" rendering. The parent row keeps a list of such children so
+ * it can draw a downward curve to each child instead.
+ */
+export interface InverseChild {
+  childRowIndex: number;
+  childLaneIndex: number;
+}
+
 export interface LaneRow {
   laneIndex: number;
   activeLaneIndices: number[];
@@ -35,6 +47,12 @@ export interface LaneRow {
   primaryParentRowIndex: number | null;
   mergeTargetLaneIndices: number[];
   convergingLaneIndices: number[];
+  /**
+   * Children whose primary parent is THIS row but who appear BELOW this row in
+   * the (date-desc) sort order. Renderers draw an inverse parent→child curve
+   * for each entry, extending the parent's SVG downward.
+   */
+  inverseChildren: InverseChild[];
   /**
    * True when a default branch was declared but this row is not on the
    * default chain. Renderers may use this to keep lane 0 visually reserved
@@ -255,26 +273,40 @@ export function buildLaneRows(
         // draw an elbow to lane 0 (default lane) rather than continuing the
         // derived lane downward.
         primaryParentLaneIndex = 0;
-        const matchingPrimaryParentRowIndex = rowIndexBySha.get(primaryParent) ?? null;
-        primaryParentRowIndex =
-          matchingPrimaryParentRowIndex !== null && matchingPrimaryParentRowIndex > rowIndex
-            ? matchingPrimaryParentRowIndex
-            : null;
+        // primary parent が rebase/amend で committer date 逆転している場合、
+        // ソート順では親 (rowIndex 小) が子 (rowIndex 大) より前に処理される。
+        // 旧コードは `> rowIndex` ガードで親が下方向にいるケースのみ
+        // primaryParentRowIndex を採用していたが、それだと render 側で
+        // targetY が確定できず、curve が「線分の途中」に着地して破損する。
+        // 親の rowIndex を常に採用し、render 側で「親が上」ケースを正しく
+        // 水平線として描画する。
+        primaryParentRowIndex = rowIndexBySha.get(primaryParent) ?? null;
         activeLanes[laneIndex] = CLOSED_LANE_TOKEN;
       } else if (
         !isDefaultChainCommit &&
         existingPrimaryParentLaneIndex !== -1
       ) {
         primaryParentLaneIndex = existingPrimaryParentLaneIndex;
-        const matchingPrimaryParentRowIndex = rowIndexBySha.get(primaryParent) ?? null;
-        primaryParentRowIndex =
-          matchingPrimaryParentRowIndex !== null && matchingPrimaryParentRowIndex > rowIndex
-            ? matchingPrimaryParentRowIndex
-            : null;
+        primaryParentRowIndex = rowIndexBySha.get(primaryParent) ?? null;
         activeLanes[laneIndex] = CLOSED_LANE_TOKEN;
       } else if (!isDefaultChainCommit && !rowIndexBySha.has(primaryParent)) {
         activeLanes[laneIndex] = null;
         primaryParentUnreachable = true;
+      } else if (
+        !isDefaultChainCommit &&
+        (rowIndexBySha.get(primaryParent) ?? rowIndex) < rowIndex
+      ) {
+        // rebase/amend で committer date が逆転し、primary parent が sort 順で
+        // 自分より前 (= 表示上「上」) にあるケース。親は既に処理済みのため
+        // activeLanes には残っておらず、existingPrimaryParentLaneIndex でも
+        // 拾えないが、rowIndexBySha からは引ける。親 lane を記録しつつ自分の
+        // lane を閉じることで、render 側で親側 SVG から子に向けて inverse
+        // parent→child curve を描画させる。
+        const matchingPrimaryParentRowIndex = rowIndexBySha.get(primaryParent) as number;
+        primaryParentLaneIndex =
+          rows[matchingPrimaryParentRowIndex]?.laneIndex ?? null;
+        primaryParentRowIndex = matchingPrimaryParentRowIndex;
+        activeLanes[laneIndex] = CLOSED_LANE_TOKEN;
       } else {
         activeLanes[laneIndex] = primaryParent;
       }
@@ -377,8 +409,32 @@ export function buildLaneRows(
       primaryParentRowIndex,
       mergeTargetLaneIndices,
       convergingLaneIndices,
+      inverseChildren: [],
       defaultLaneReservedButEmpty,
     });
+  }
+
+  // Post-pass: collect inverse children. For each row whose primaryParentRowIndex
+  // points to an EARLIER row (parent above), record this row as an inverse child
+  // of that parent. Parent then draws a downward curve to its inverse children.
+  const inverseChildrenByParentIdx = new Map<number, InverseChild[]>();
+  for (let childIdx = 0; childIdx < rows.length; childIdx += 1) {
+    const childRow = rows[childIdx];
+    const parentIdx = childRow.primaryParentRowIndex;
+    if (parentIdx === null || parentIdx >= childIdx) {
+      continue;
+    }
+    // Skip cases where parent and child share the same lane — the existing
+    // primary lane vertical line already connects them visually.
+    if (childRow.primaryParentLaneIndex === childRow.laneIndex) {
+      continue;
+    }
+    const list = inverseChildrenByParentIdx.get(parentIdx) ?? [];
+    list.push({ childRowIndex: childIdx, childLaneIndex: childRow.laneIndex });
+    inverseChildrenByParentIdx.set(parentIdx, list);
+  }
+  for (const [parentIdx, list] of inverseChildrenByParentIdx) {
+    rows[parentIdx] = { ...rows[parentIdx], inverseChildren: list };
   }
 
   return {
