@@ -52,6 +52,8 @@ import {
   type CommitRefLabel,
 } from "./CommitGraphHelpers";
 
+const LOAD_MORE_PREFETCH_PX = 4_000;
+
 interface CommitGraphProps {
   commits: CommitListItem[];
   commitAuthorAvatars?: Record<string, string>;
@@ -645,10 +647,11 @@ export function CommitGraph({
       return;
     }
 
+    const previousVisibleCommitCount = previousVisibleCommitCountRef.current;
     const nextVisibleCommitCount = timeline.length;
     const animationTargets = resolveCommitEnterAnimationTargets(
       Array.from(rootRef.current.querySelectorAll('[data-animate="commit-enter"]')),
-      previousVisibleCommitCountRef.current,
+      previousVisibleCommitCount,
     );
     previousVisibleCommitCountRef.current = nextVisibleCommitCount;
 
@@ -1216,7 +1219,7 @@ export function CommitGraph({
             return;
           }
 
-          if (target.scrollHeight - target.scrollTop - target.clientHeight < 200) {
+          if (target.scrollHeight - target.scrollTop - target.clientHeight < LOAD_MORE_PREFETCH_PX) {
             onLoadMore();
           }
         }}

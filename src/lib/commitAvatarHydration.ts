@@ -5,9 +5,12 @@ export function shouldAttemptRemoteCommitAvatarHydration(options: {
   commits: CommitListItem[];
   currentAvatars: Record<string, string>;
 }): boolean {
-  // append=true（load-more）でも、新しく見えてきた commit に avatar が無いなら
-  // リモート fetch を許可する。さもないと branch tip から first 100 commit
-  // 以降の commit の avatar が永久に取得できない。
+  if (options.append) {
+    return false;
+  }
+
+  // Initial page hydration can use the remote source. Load-more pages should not
+  // start network avatar hydration while the user is actively scrolling.
   return options.commits.some((commit) => {
     const sha = commit.sha.trim();
     return sha.length > 0 && !options.currentAvatars[sha];
