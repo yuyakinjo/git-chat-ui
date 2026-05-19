@@ -636,6 +636,7 @@ export function BranchTree({
               <button
                 type="button"
                 className="branch-list-item__trigger"
+                title={isDropTarget ? undefined : leaf.branch.name}
               >
                 {isDropTarget && draggedBranchName ? (
                   <div className="branch-drop-split">
