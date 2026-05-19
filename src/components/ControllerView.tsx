@@ -1463,9 +1463,6 @@ export function ControllerView({
             </span>
           </label>
         ))}
-        <div className="controller-layout-picker__hint">
-          Checked panels stay visible after restart.
-        </div>
       </div>
     </details>
   );

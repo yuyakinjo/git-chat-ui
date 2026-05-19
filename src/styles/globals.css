@@ -2713,15 +2713,6 @@ body[data-theme-mode="dark"] .branch-list-item__icon--remote {
   color: var(--text-primary);
 }
 
-.controller-layout-picker__hint {
-  margin-top: 8px;
-  padding: 8px 4px 0;
-  border-top: 1px solid var(--surface-border);
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
 .controller-panels-grid {
   display: grid;
   flex: 1 1 auto;
