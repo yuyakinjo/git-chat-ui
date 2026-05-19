@@ -1072,6 +1072,7 @@ export function CommitGraph({
           : "commit-graph--standard"
       }`}
       data-commit-graph-style={graphStyle}
+      data-commit-graph-layout={isCompactLayout ? "compact" : "full"}
     >
       <div className="commit-graph__header mb-2 flex items-center justify-between px-2">
         <div>

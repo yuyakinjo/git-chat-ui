@@ -3111,6 +3111,17 @@ body[data-theme-mode="dark"] .branch-list-item__icon--remote {
   letter-spacing: 0.08em;
 }
 
+/* Branch list stash divider (`border-black/5`) as vertical column separators (header only). */
+.commit-graph[data-commit-graph-layout="full"] .commit-graph__columns > :nth-child(n + 3):nth-child(-n + 6),
+.commit-graph[data-commit-graph-layout="compact"] .commit-graph__columns > :nth-child(n + 3):nth-child(-n + 4) {
+  border-left: 1.5px solid rgb(0 0 0 / 0.05);
+}
+
+body[data-theme-mode="dark"] .commit-graph[data-commit-graph-layout="full"] .commit-graph__columns > :nth-child(n + 3):nth-child(-n + 6),
+body[data-theme-mode="dark"] .commit-graph[data-commit-graph-layout="compact"] .commit-graph__columns > :nth-child(n + 3):nth-child(-n + 4) {
+  border-left-color: rgb(var(--theme-border-rgb) / 0.12);
+}
+
 .commit-graph__column-spacer {
   display: block;
 }
