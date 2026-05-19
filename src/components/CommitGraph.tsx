@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -181,7 +182,15 @@ export function CommitGraph({
   const previousVisibleCommitCountRef = useRef(0);
   const shaJumpContainerRef = useRef<HTMLDivElement | null>(null);
   const shaJumpInputRef = useRef<HTMLInputElement | null>(null);
+  const timelineSentinelRef = useRef<HTMLDivElement | null>(null);
   const containerWidth = useContainerWidth(rootRef);
+  // 仮想化 (windowing) 用の scroll metrics。スクロール時のみ rAF で更新。
+  const [virtState, setVirtState] = useState<{
+    scrollTop: number;
+    clientHeight: number;
+    firstRowOffset: number;
+  }>(() => ({ scrollTop: 0, clientHeight: 0, firstRowOffset: 0 }));
+  const virtRafIdRef = useRef<number | null>(null);
   const [refsColumnWidth, setRefsColumnWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
       return REF_COLUMN_DEFAULT_WIDTH;
@@ -700,16 +709,39 @@ export function CommitGraph({
     const targetRow = rootRef.current.querySelector<HTMLElement>(
       `[data-commit-sha="${scrollToCommitSha}"]`,
     );
-    if (!targetRow) {
+    if (targetRow) {
+      targetRow.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+      onScrollToCommitHandled(scrollToCommitSha);
       return;
     }
-
-    targetRow.scrollIntoView({
-      block: "center",
-      behavior: "smooth",
-    });
+    // 仮想化により target row が DOM に無い場合は、index から scroll 位置を直接計算する。
+    // commits の絶対 index → timeline index → スクロール位置。
+    const targetCommitIdx = commits.findIndex(
+      (commit) => commit.sha === scrollToCommitSha,
+    );
+    if (targetCommitIdx < 0) return;
+    const targetTimelineIdx = commitIndexToTimelineIndex.get(targetCommitIdx);
+    if (targetTimelineIdx == null) return;
+    const sentinelOffset = timelineSentinelRef.current?.offsetTop ?? 0;
+    const targetScrollTop = Math.max(
+      0,
+      sentinelOffset +
+        targetTimelineIdx * ROW_STEP -
+        rootRef.current.clientHeight / 2 +
+        ROW_HEIGHT / 2,
+    );
+    rootRef.current.scrollTo({ top: targetScrollTop, behavior: "smooth" });
     onScrollToCommitHandled(scrollToCommitSha);
-  }, [onScrollToCommitHandled, scrollToCommitSha, timeline.length]);
+  }, [
+    commits,
+    commitIndexToTimelineIndex,
+    onScrollToCommitHandled,
+    scrollToCommitSha,
+    timeline.length,
+  ]);
 
   const isDetailedMode = mode === "detailed";
   const effectiveMaxLanes = Math.max(
@@ -743,6 +775,86 @@ export function CommitGraph({
   );
   const hasWipRow =
     (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
+  // 仮想化: 可視範囲 (with buffer) を計算する。ROW_STEP=34 が固定なので index ベースで完全に位置決めできる。
+  // BUFFER は cross-row SVG (primary parent curve, inverse child curve など) が
+  // span する最大行数を吸収するために大きめに取る。
+  const VIRT_BUFFER_ROWS = 30;
+  const virtTotalRows = timeline.length;
+  const virtEffectiveOffset = Math.max(
+    0,
+    virtState.scrollTop - virtState.firstRowOffset,
+  );
+  // 初回 mount で clientHeight=0 のときは先頭 40 行ぶんをフォールバック描画する。
+  const virtViewportHeight =
+    virtState.clientHeight > 0 ? virtState.clientHeight : ROW_STEP * 40;
+  const virtVisibleStart = Math.max(
+    0,
+    Math.floor(virtEffectiveOffset / ROW_STEP) - VIRT_BUFFER_ROWS,
+  );
+  const virtVisibleEnd = Math.min(
+    virtTotalRows,
+    Math.ceil((virtEffectiveOffset + virtViewportHeight) / ROW_STEP) +
+      VIRT_BUFFER_ROWS,
+  );
+  const virtVisibleEntries = useMemo(
+    () =>
+      timeline
+        .slice(virtVisibleStart, virtVisibleEnd)
+        .map((entry, sliceIdx) => ({ entry, index: virtVisibleStart + sliceIdx })),
+    [timeline, virtVisibleStart, virtVisibleEnd],
+  );
+  // 仮想化: clientHeight/scrollTop/firstRowOffset を計測して visible range を導出する。
+  // ResizeObserver はコンテナサイズ変化のみ捕捉するため、hasWipRow 変化時にも再計測する。
+  // measure() は visibleStart/End が変わるときだけ state を更新して不要な re-render を抑止する。
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = (): void => {
+      const sentinel = timelineSentinelRef.current;
+      const nextScrollTop = el.scrollTop;
+      const nextClientHeight = el.clientHeight;
+      const nextFirstRowOffset = sentinel?.offsetTop ?? 0;
+      setVirtState((prev) => {
+        const prevEff = Math.max(0, prev.scrollTop - prev.firstRowOffset);
+        const nextEff = Math.max(0, nextScrollTop - nextFirstRowOffset);
+        const prevStart = Math.max(
+          0,
+          Math.floor(prevEff / ROW_STEP) - VIRT_BUFFER_ROWS,
+        );
+        const nextStart = Math.max(
+          0,
+          Math.floor(nextEff / ROW_STEP) - VIRT_BUFFER_ROWS,
+        );
+        const prevVh =
+          prev.clientHeight > 0 ? prev.clientHeight : ROW_STEP * 40;
+        const nextVh =
+          nextClientHeight > 0 ? nextClientHeight : ROW_STEP * 40;
+        const prevEnd =
+          Math.ceil((prevEff + prevVh) / ROW_STEP) + VIRT_BUFFER_ROWS;
+        const nextEnd =
+          Math.ceil((nextEff + nextVh) / ROW_STEP) + VIRT_BUFFER_ROWS;
+        if (
+          prevStart === nextStart &&
+          prevEnd === nextEnd &&
+          prev.firstRowOffset === nextFirstRowOffset
+        ) {
+          return prev;
+        }
+        return {
+          scrollTop: nextScrollTop,
+          clientHeight: nextClientHeight,
+          firstRowOffset: nextFirstRowOffset,
+        };
+      });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasWipRow]);
   const checkedOutTimelineIndex = useMemo<number | null>(() => {
     if (!hasWipRow) return null;
     const sha = (checkedOutCommitSha ?? "").trim();
@@ -1087,6 +1199,54 @@ export function CommitGraph({
         data-controller-panel-drag-ignore="true"
         onScroll={(event) => {
           const target = event.currentTarget;
+          // rAF で throttle した上で virtState を更新 (仮想化のため)。
+          // visible range が変わらなければ state を更新しない (再 render を抑止)。
+          // BUFFER 30行のうち TOLERANCE 5行 (=170px) 以内のスクロールは state 据え置きで
+          // 連続スクロール中の re-render を約 1/5 まで抑える。
+          if (virtRafIdRef.current !== null) {
+            cancelAnimationFrame(virtRafIdRef.current);
+          }
+          virtRafIdRef.current = requestAnimationFrame(() => {
+            virtRafIdRef.current = null;
+            const el = rootRef.current;
+            if (!el) return;
+            const sentinel = timelineSentinelRef.current;
+            const nextScrollTop = el.scrollTop;
+            const nextClientHeight = el.clientHeight;
+            const nextFirstRowOffset = sentinel?.offsetTop ?? 0;
+            setVirtState((prev) => {
+              const ROW_TOLERANCE = 5;
+              const prevEff = Math.max(0, prev.scrollTop - prev.firstRowOffset);
+              const nextEff = Math.max(0, nextScrollTop - nextFirstRowOffset);
+              const prevStart = Math.max(
+                0,
+                Math.floor(prevEff / ROW_STEP) - VIRT_BUFFER_ROWS,
+              );
+              const nextStart = Math.max(
+                0,
+                Math.floor(nextEff / ROW_STEP) - VIRT_BUFFER_ROWS,
+              );
+              const prevVh = prev.clientHeight > 0 ? prev.clientHeight : ROW_STEP * 40;
+              const nextVh =
+                nextClientHeight > 0 ? nextClientHeight : ROW_STEP * 40;
+              const prevEnd = Math.ceil((prevEff + prevVh) / ROW_STEP) + VIRT_BUFFER_ROWS;
+              const nextEnd = Math.ceil((nextEff + nextVh) / ROW_STEP) + VIRT_BUFFER_ROWS;
+              const startDelta = Math.abs(nextStart - prevStart);
+              const endDelta = Math.abs(nextEnd - prevEnd);
+              if (
+                startDelta < ROW_TOLERANCE &&
+                endDelta < ROW_TOLERANCE &&
+                prev.firstRowOffset === nextFirstRowOffset
+              ) {
+                return prev;
+              }
+              return {
+                scrollTop: nextScrollTop,
+                clientHeight: nextClientHeight,
+                firstRowOffset: nextFirstRowOffset,
+              };
+            });
+          });
           if (!hasMore || loadingMore) {
             return;
           }
@@ -1195,7 +1355,19 @@ export function CommitGraph({
 
         {hasWipRow ? renderWipRow() : null}
 
-        {timeline.map((timelineEntry, timelineIndex) => {
+        <div
+          ref={timelineSentinelRef}
+          aria-hidden="true"
+          style={{ height: 0, gridColumn: "1 / -1" }}
+        />
+        <div
+          aria-hidden="true"
+          style={{
+            height: `${virtVisibleStart * ROW_STEP}px`,
+            gridColumn: "1 / -1",
+          }}
+        />
+        {virtVisibleEntries.map(({ entry: timelineEntry, index: timelineIndex }) => {
           // --- Stash row (standalone, at its chronological position) ---
           if (timelineEntry.type === "stash") {
             const stash = timelineEntry.stash;
@@ -2088,6 +2260,13 @@ export function CommitGraph({
           );
         })}
 
+        <div
+          aria-hidden="true"
+          style={{
+            height: `${Math.max(0, (virtTotalRows - virtVisibleEnd)) * ROW_STEP}px`,
+            gridColumn: "1 / -1",
+          }}
+        />
         {!loading && commits.length === 0 ? (
           <div className="p-4 text-sm text-ink-subtle">コミットが見つかりません。</div>
         ) : null}
