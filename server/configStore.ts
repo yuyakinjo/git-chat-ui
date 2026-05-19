@@ -12,7 +12,6 @@ import {
 import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssistant.js";
 import type {
   AppConfig,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitMergeAnimation,
   DiffViewerMode,
@@ -30,14 +29,6 @@ const KEYCHAIN_SERVICE_OPENAI = "git-chat-ui.openai-token";
 const KEYCHAIN_SERVICE_CLAUDE = "git-chat-ui.claudecode-token";
 
 const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_APP_CONFIG };
-
-function normalizeCommitGraphMode(value: unknown): CommitGraphMode {
-  if (value === "simple" || value === "detailed") {
-    return value;
-  }
-
-  return DEFAULT_CONFIG.commitGraphMode;
-}
 
 function normalizeCommitGraphStyle(value: unknown): CommitGraphStyle {
   if (value === "standard" || value === "japaneseExpress") {
@@ -186,7 +177,6 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
         : DEFAULT_CONFIG.claudeCodeToken,
     selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
-    commitGraphMode: normalizeCommitGraphMode(value.commitGraphMode),
     commitGraphStyle: normalizeCommitGraphStyle(value.commitGraphStyle),
     commitMergeAnimation: normalizeCommitMergeAnimation(value.commitMergeAnimation),
     diffViewerMode: normalizeDiffViewerMode(value.diffViewerMode),

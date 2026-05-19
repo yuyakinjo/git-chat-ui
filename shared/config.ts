@@ -2,7 +2,6 @@ import type { AiProvider, OpenAiReasoningEffort } from "./ai.js";
 import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "./ai.js";
 import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
-export type CommitGraphMode = "simple" | "detailed";
 export type CommitGraphStyle = "standard" | "japaneseExpress";
 export type CommitMergeAnimation =
   | "none"
@@ -60,7 +59,6 @@ export interface AppConfig {
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
-  commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
   commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
@@ -88,7 +86,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   claudeCodeToken: "",
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
-  commitGraphMode: "detailed",
   commitGraphStyle: "standard",
   commitMergeAnimation: "none",
   diffViewerMode: "builtin",

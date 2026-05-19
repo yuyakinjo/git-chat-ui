@@ -1,7 +1,6 @@
 export type { AiProvider, OpenAiReasoningEffort } from "../shared/ai.js";
 export type {
   AppConfig,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitMergeAnimation,
   DiffViewerMode,

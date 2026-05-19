@@ -680,7 +680,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -725,7 +724,6 @@ describe("CommitGraph", () => {
           },
           nonHeadFirstCommits[2],
         ]}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -761,7 +759,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -801,7 +798,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -888,7 +884,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -923,7 +918,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -955,7 +949,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -997,7 +990,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1033,7 +1025,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1071,7 +1062,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1103,7 +1093,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={checkedOutMainBranchingCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1144,7 +1133,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={commits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1178,7 +1166,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={continuedDefaultBranchCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1214,7 +1201,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={continuedDefaultBranchCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1253,7 +1239,6 @@ describe("CommitGraph", () => {
         commitAuthorAvatars={{
           abc1234: "data:image/png;base64,avatar",
         }}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1286,7 +1271,6 @@ describe("CommitGraph", () => {
     const featureCheckedHtml = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1312,7 +1296,6 @@ describe("CommitGraph", () => {
     const mainCheckedHtml = renderToStaticMarkup(
       <CommitGraph
         commits={nonHeadFirstCommits}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1375,7 +1358,6 @@ describe("CommitGraph", () => {
     const featureCheckedHtml = renderToStaticMarkup(
       <CommitGraph
         commits={checkedOutMainBranchingCommits}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1401,7 +1383,6 @@ describe("CommitGraph", () => {
     const mainCheckedHtml = renderToStaticMarkup(
       <CommitGraph
         commits={checkedOutMainBranchingCommits}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1481,7 +1462,6 @@ describe("CommitGraph", () => {
       const html = renderToStaticMarkup(
         <CommitGraph
           commits={buildStackedCheckedOutBranchCommits(currentBranchName)}
-          mode="detailed"
           graphStyle="japaneseExpress"
           activeCommitSha={null}
           highlightedCommitSha={null}
@@ -1546,7 +1526,6 @@ describe("CommitGraph", () => {
         commitAuthorAvatars={{
           "main-base": "data:image/png;base64,avatar-parent",
         }}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1610,7 +1589,6 @@ describe("CommitGraph", () => {
         commitAuthorAvatars={{
           "main-base": "data:image/png;base64,avatar-parent",
         }}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1693,7 +1671,6 @@ describe("CommitGraph", () => {
         commitAuthorAvatars={{
           "main-base": "data:image/png;base64,avatar-parent",
         }}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1759,7 +1736,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={reversePrimaryParentCommits}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1832,7 +1808,6 @@ describe("CommitGraph", () => {
         commitAuthorAvatars={{
           "main-base": "data:image/png;base64,avatar-parent",
         }}
-        mode="detailed"
         graphStyle="japaneseExpress"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1903,7 +1878,6 @@ describe("CommitGraph", () => {
     const html = renderToStaticMarkup(
       <CommitGraph
         commits={[newerCommit, olderCommit]}
-        mode="detailed"
         graphStyle="standard"
         activeCommitSha={null}
         highlightedCommitSha={null}
@@ -1991,7 +1965,6 @@ describe("CommitGraph", () => {
       renderToStaticMarkup(
         <CommitGraph
           commits={[headCommit, baseCommit]}
-          mode="detailed"
           graphStyle="standard"
           activeCommitSha={null}
           highlightedCommitSha={null}

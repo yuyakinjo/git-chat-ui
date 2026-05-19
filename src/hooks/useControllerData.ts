@@ -31,7 +31,6 @@ import type {
   CommitResponse,
   ControllerSnapshot,
   CommitDetail,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitListItem,
   CommitMergeAnimation,
@@ -148,7 +147,6 @@ export function useControllerData({
   const [commitDescription, setCommitDescriptionState] = useState(
     initialCommitMessageDraft.description,
   );
-  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>("detailed");
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>("standard");
   const [commitMergeAnimation, setCommitMergeAnimation] =
     useState<CommitMergeAnimation>("none");
@@ -1262,11 +1260,6 @@ export function useControllerData({
     }
   }, [loadBranchDiffDetail, showBranchDiff, showBranchDiffButton]);
 
-  // Sync graph mode from appConfig
-  useEffect(() => {
-    setCommitGraphMode(appConfig?.commitGraphMode ?? "detailed");
-  }, [appConfig?.commitGraphMode]);
-
   useEffect(() => {
     setCommitGraphStyle(appConfig?.commitGraphStyle ?? "standard");
   }, [appConfig?.commitGraphStyle]);
@@ -1383,7 +1376,6 @@ export function useControllerData({
     setCommitDescription,
     clearCommitMessageDraft,
 
-    commitGraphMode,
     commitGraphStyle,
     commitMergeAnimation,
     inlineError,

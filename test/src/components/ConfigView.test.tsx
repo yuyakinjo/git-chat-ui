@@ -20,7 +20,6 @@ const config: AppConfig = {
   claudeCodeToken: "",
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
-  commitGraphMode: "detailed",
   commitGraphStyle: "standard",
   commitMergeAnimation: "none",
   diffViewerMode: "builtin",
@@ -190,7 +189,7 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(4);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(3);
     expect(html).toContain("Commit Graph Style");
     expect(html).toContain(">Standard</option>");
     expect(html).toContain(">Japanese Express</option>");

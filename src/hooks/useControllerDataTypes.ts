@@ -5,7 +5,6 @@ import type {
   BranchPullRequest,
   BranchResponse,
   CommitDetail,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitListItem,
   CommitMergeAnimation,
@@ -101,7 +100,6 @@ export interface UseControllerDataResult {
   setCommitDescription: (desc: string) => void;
   clearCommitMessageDraft: () => void;
 
-  commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
   commitMergeAnimation: CommitMergeAnimation;
   inlineError: UiError | null;

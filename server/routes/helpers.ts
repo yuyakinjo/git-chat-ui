@@ -16,14 +16,6 @@ export function getRepoPathFromQuery(request: Request): string {
   return getRequiredString(request.query.repoPath, "repoPath");
 }
 
-export function parseCommitGraphMode(value: unknown): AppConfig["commitGraphMode"] | null {
-  if (value === "simple" || value === "detailed") {
-    return value;
-  }
-
-  return null;
-}
-
 export function parseCommitGraphStyle(value: unknown): AppConfig["commitGraphStyle"] | null {
   if (value === "standard" || value === "japaneseExpress") {
     return value;

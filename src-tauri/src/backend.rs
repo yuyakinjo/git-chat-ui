@@ -221,19 +221,6 @@ pub struct RepositoryAssistantPolicy {
 pub type RepositoryAssistantPolicies = HashMap<String, RepositoryAssistantPolicy>;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum CommitGraphMode {
-    Simple,
-    Detailed,
-}
-
-impl Default for CommitGraphMode {
-    fn default() -> Self {
-        Self::Detailed
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum CommitGraphStyle {
     Standard,
@@ -342,7 +329,6 @@ pub struct AppConfig {
     pub claude_code_token: String,
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
-    pub commit_graph_mode: CommitGraphMode,
     pub commit_graph_style: CommitGraphStyle,
     pub commit_merge_animation: CommitMergeAnimation,
     pub diff_viewer_mode: DiffViewerMode,
@@ -374,7 +360,6 @@ impl Default for AppConfig {
             claude_code_token: String::new(),
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
-            commit_graph_mode: CommitGraphMode::Detailed,
             commit_graph_style: CommitGraphStyle::Standard,
             commit_merge_animation: CommitMergeAnimation::None,
             diff_viewer_mode: DiffViewerMode::Builtin,
@@ -886,7 +871,6 @@ pub struct SaveConfigInput {
     pub claude_code_token: Option<String>,
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
-    pub commit_graph_mode: Option<CommitGraphMode>,
     pub commit_graph_style: Option<CommitGraphStyle>,
     pub commit_merge_animation: Option<CommitMergeAnimation>,
     pub diff_viewer_mode: Option<DiffViewerMode>,
@@ -1776,11 +1760,6 @@ fn normalize_config_value(value: Value) -> AppConfig {
             .unwrap_or_default(),
     );
 
-    let commit_graph_mode = match value.get("commitGraphMode").and_then(Value::as_str) {
-        Some("simple") => CommitGraphMode::Simple,
-        Some("detailed") => CommitGraphMode::Detailed,
-        _ => default.commit_graph_mode,
-    };
     let commit_graph_style = match value.get("commitGraphStyle").and_then(Value::as_str) {
         Some("standard") => CommitGraphStyle::Standard,
         Some("japaneseExpress") => CommitGraphStyle::JapaneseExpress,
@@ -1837,7 +1816,6 @@ fn normalize_config_value(value: Value) -> AppConfig {
         claude_code_token,
         selected_ai_provider,
         commit_title_prompt,
-        commit_graph_mode,
         commit_graph_style,
         commit_merge_animation,
         diff_viewer_mode,
@@ -1897,7 +1875,6 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         claude_code_token: config.claude_code_token.clone(),
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
-        commit_graph_mode: config.commit_graph_mode,
         commit_graph_style: config.commit_graph_style,
         commit_merge_animation: config.commit_merge_animation,
         diff_viewer_mode: config.diff_viewer_mode,
@@ -7841,7 +7818,6 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
         commit_title_prompt: input
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
-        commit_graph_mode: input.commit_graph_mode.unwrap_or(current.commit_graph_mode),
         commit_graph_style: input
             .commit_graph_style
             .unwrap_or(current.commit_graph_style),
@@ -7893,7 +7869,6 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
         commit_title_prompt: input
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
-        commit_graph_mode: current.commit_graph_mode,
         commit_graph_style: current.commit_graph_style,
         commit_merge_animation: current.commit_merge_animation,
         diff_viewer_mode: current.diff_viewer_mode,
@@ -8538,7 +8513,6 @@ mod tests {
             "claudeCodeToken": "cc-token",
             "selectedAiProvider": "claudeCode",
             "commitTitlePrompt": "Write a short Japanese commit message.",
-            "commitGraphMode": "simple",
             "commitGraphStyle": "japaneseExpress",
             "repositoryScanDepth": 6,
             "commitLogPageSize": 150
@@ -8557,7 +8531,6 @@ mod tests {
             config.commit_title_prompt,
             "Write a short Japanese commit message."
         );
-        assert_eq!(config.commit_graph_mode, CommitGraphMode::Simple);
         assert_eq!(config.commit_graph_style, CommitGraphStyle::JapaneseExpress);
         assert_eq!(config.repository_scan_depth, 6);
         assert_eq!(config.commit_log_page_size, 150);

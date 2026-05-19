@@ -1159,7 +1159,6 @@ export function ControllerView({
     <CommitGraph
       commits={data.commits}
       commitAuthorAvatars={data.commitAuthorAvatars}
-      mode={data.commitGraphMode}
       graphStyle={data.commitGraphStyle}
       mergeAnimation={data.commitMergeAnimation}
       activeCommitSha={data.activeCommit?.sha ?? null}

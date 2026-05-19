@@ -23,7 +23,6 @@ import { resolveDefaultBranch } from "../lib/controllerViewUtils";
 import { formatRelativeDate, shortSha } from "../lib/format";
 import type {
   BranchResponse,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitListItem,
   CommitMergeAnimation,
@@ -57,7 +56,6 @@ import {
 interface CommitGraphProps {
   commits: CommitListItem[];
   commitAuthorAvatars?: Record<string, string>;
-  mode: CommitGraphMode;
   graphStyle: CommitGraphStyle;
   mergeAnimation?: CommitMergeAnimation;
   activeCommitSha: string | null;
@@ -150,7 +148,6 @@ function normalizeCurrentBranchLabels(
 export function CommitGraph({
   commits,
   commitAuthorAvatars = {},
-  mode,
   graphStyle,
   mergeAnimation = "none",
   activeCommitSha,
@@ -743,7 +740,6 @@ export function CommitGraph({
     timeline.length,
   ]);
 
-  const isDetailedMode = mode === "detailed";
   const effectiveMaxLanes = Math.max(
     laneLayout.maxLanes + stashLayout.extraStashLanes,
     1,
@@ -863,13 +859,11 @@ export function CommitGraph({
     if (commitIdx < 0) return null;
     return commitIndexToTimelineIndex.get(commitIdx) ?? null;
   }, [hasWipRow, checkedOutCommitSha, commits, commitIndexToTimelineIndex]);
-  const graphColumnWidth = isDetailedMode
-    ? Math.max(
-        graphStyleMetrics.minDetailedGraphWidth,
-        (maxLaneDisplayOffset - minLaneDisplayOffset) * graphStyleMetrics.laneGap +
-          graphStyleMetrics.lanePadding * 2,
-      )
-    : graphStyleMetrics.compactGraphWidth;
+  const graphColumnWidth = Math.max(
+    graphStyleMetrics.minDetailedGraphWidth,
+    (maxLaneDisplayOffset - minLaneDisplayOffset) * graphStyleMetrics.laneGap +
+      graphStyleMetrics.lanePadding * 2,
+  );
   const columnLayout = resolveCommitGraphColumnLayout({
     containerWidth,
     graphColumnWidth,
@@ -1048,8 +1042,7 @@ export function CommitGraph({
         onClick={onSelectWip}
         title="未コミットの変更があります"
       >
-        {isDetailedMode ? (
-          <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+        <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
             <svg
               className="absolute left-0 pointer-events-none"
               width={graphColumnWidth}
@@ -1098,29 +1091,6 @@ export function CommitGraph({
               variant={graphStyle}
             />
           </div>
-        ) : (
-          <div className="relative flex h-8 items-center justify-center">
-            <div
-              className="wip-row__lane-line wip-row__lane-line--compact absolute"
-              style={{
-                width: `${graphStyleMetrics.compactLineWidth}px`,
-                top: `${wipLineBottomStart}px`,
-                height: `${ROW_HEIGHT + LINE_OVERDRAW - wipLineBottomStart}px`,
-                background:
-                  graphStyle === "japaneseExpress"
-                    ? resolveLaneStroke(wipAnchor.rowIndex, wipAnchor.laneIndex)
-                    : "rgb(var(--color-accent) / 0.2)",
-              }}
-            />
-            <WipNode
-              style={{ color: anchorLaneStroke }}
-              size={graphStyleMetrics.wipNodeSize}
-              ringRadius={graphStyleMetrics.wipNodeRingRadius}
-              strokeWidth={graphStyleMetrics.wipNodeStrokeWidth}
-              variant={graphStyle}
-            />
-          </div>
-        )}
         <div className="overflow-hidden whitespace-nowrap text-xs">
           <span className="wip-row__badge inline-flex items-center px-2 py-px text-[10px] font-semibold leading-4">
             WIP
@@ -1150,14 +1120,12 @@ export function CommitGraph({
     checkedOutTimelineIndex,
     commits,
     graphColumnWidth,
-    graphStyleMetrics.compactLineWidth,
     graphStyleMetrics.detailedLineWidth,
     graphStyleMetrics.wipNodeRingRadius,
     graphStyleMetrics.wipNodeSize,
     graphStyleMetrics.wipNodeStrokeWidth,
     gridTemplateColumns,
     isCompactLayout,
-    isDetailedMode,
     laneLayout.rows,
     onSelectWip,
     resolveLaneOpacity,
@@ -1488,15 +1456,14 @@ export function CommitGraph({
                 onClick={() => onSelectStash?.(stash)}
                 title={`${stash.id}: ${stash.message}`}
               >
-                {isDetailedMode ? (
-                  <div
-                    className="relative h-8"
-                    style={{ width: `${graphColumnWidth}px` }}
-                  >
-                    <svg
-                      className="absolute left-0"
-                      width={graphColumnWidth}
-                      height={stashSvgHeight}
+                <div
+                  className="relative h-8"
+                  style={{ width: `${graphColumnWidth}px` }}
+                >
+                  <svg
+                    className="absolute left-0"
+                    width={graphColumnWidth}
+                    height={stashSvgHeight}
                       style={{ top: `${stashSvgTopPx}px` }}
                       viewBox={`0 ${stashViewBoxY} ${graphColumnWidth} ${stashSvgHeight}`}
                       fill="none"
@@ -1615,26 +1582,7 @@ export function CommitGraph({
                       strokeWidth={graphStyleMetrics.stashNodeStrokeWidth}
                       variant={graphStyle}
                     />
-                  </div>
-                ) : (
-                  <div className="relative flex h-8 items-center justify-center">
-                    <div
-                      className="absolute"
-                      style={{
-                        width: `${graphStyleMetrics.compactLineWidth}px`,
-                        top: 0,
-                        height: `${ROW_HEIGHT}px`,
-                        background: parentLaneStroke,
-                        opacity: graphStyleMetrics.detailedLineOpacity,
-                      }}
-                    />
-                    <StashNode
-                      size={stashNodeSize}
-                      strokeWidth={graphStyleMetrics.stashNodeStrokeWidth}
-                      variant={graphStyle}
-                    />
-                  </div>
-                )}
+                </div>
                 <div className="overflow-hidden whitespace-nowrap text-xs" />
                 {!isCompactLayout ? (
                   <div className="stash-row__meta truncate text-xs">
@@ -1863,12 +1811,11 @@ export function CommitGraph({
                   }
                 }}
               >
-                {isDetailedMode ? (
-                  <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
-                    <svg
-                      className="absolute left-0"
-                      width={graphColumnWidth}
-                      height={graphSvgHeight}
+                <div className="relative h-8" style={{ width: `${graphColumnWidth}px` }}>
+                  <svg
+                    className="absolute left-0"
+                    width={graphColumnWidth}
+                    height={graphSvgHeight}
                       style={{ top: `${-LINE_OVERDRAW}px` }}
                       viewBox={`0 ${-LINE_OVERDRAW} ${graphColumnWidth} ${graphSvgHeight}`}
                       fill="none"
@@ -2105,68 +2052,6 @@ export function CommitGraph({
                       ) : null}
                     </span>
                   </div>
-                ) : (
-                  <div className="relative flex h-8 items-center justify-center">
-                    <div
-                      className="absolute"
-                      style={{
-                        width: `${graphStyleMetrics.compactLineWidth}px`,
-                        top: `${-LINE_OVERDRAW}px`,
-                        height: `${ROW_HEIGHT + LINE_OVERDRAW * 2}px`,
-                        background:
-                          graphStyle === "japaneseExpress"
-                            ? rowLaneStroke
-                            : "rgb(var(--color-accent) / 0.2)",
-                      }}
-                    />
-                    {mergeRingAnimation ? (
-                      <span
-                        aria-hidden="true"
-                        className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
-                        style={{
-                          width: `${nodeSize}px`,
-                          height: `${nodeSize}px`,
-                          ["--merge-pulse-color" as string]: rowLaneStroke,
-                          ["--merge-particle-radius" as string]: `${Math.round(
-                            nodeSize * 1.2,
-                          )}px`,
-                        }}
-                      />
-                    ) : null}
-                    <span
-                      className={[
-                        "commit-node",
-                        avatarSrc ? "commit-node--avatar" : "",
-                        graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
-                        isCheckedOutCommit ? "commit-node-head-glow" : "",
-                        mergePulseApplied ? "commit-node-merge-pulse" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      style={{
-                        ...buildCommitNodeStyle(
-                          rowLaneStroke,
-                          nodeSize,
-                          row.laneIndex,
-                          avatarSrc,
-                        ),
-                        ...(mergePulseApplied
-                          ? ({ "--merge-pulse-color": rowLaneStroke } as CSSProperties)
-                          : {}),
-                      }}
-                    >
-                      {avatarSrc ? (
-                        <img
-                          src={avatarSrc}
-                          alt=""
-                          aria-hidden="true"
-                          className="commit-node__avatar"
-                          draggable={false}
-                        />
-                      ) : null}
-                    </span>
-                  </div>
-                )}
 
                 <div className="overflow-hidden whitespace-nowrap text-xs text-ink-soft">
                   {commitRefBadges.length > 0 ? (

@@ -26,7 +26,6 @@ export type {
 export type {
   AiGenerationConfig,
   AppConfig,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitMergeAnimation,
   DiffViewerMode,

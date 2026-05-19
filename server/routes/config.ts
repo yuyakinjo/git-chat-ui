@@ -7,7 +7,6 @@ import { getAiService, type AiService } from "../ai/service.js";
 import type { AppConfig } from "../types.js";
 
 import {
-  parseCommitGraphMode,
   parseCommitGraphStyle,
   parseCommitMergeAnimation,
   parseCommitLogPageSize,
@@ -44,7 +43,6 @@ export function createConfigRouter({
   router.put("/api/config", async (request, response, next) => {
     try {
       const current = await readConfigImpl();
-      const parsedGraphMode = parseCommitGraphMode(request.body.commitGraphMode);
       const parsedGraphStyle = parseCommitGraphStyle(request.body.commitGraphStyle);
       const parsedMergeAnimation = parseCommitMergeAnimation(request.body.commitMergeAnimation);
       const parsedDiffViewerMode = parseDiffViewerMode(request.body.diffViewerMode);
@@ -79,7 +77,6 @@ export function createConfigRouter({
           typeof request.body.commitTitlePrompt === "string"
             ? request.body.commitTitlePrompt
             : current.commitTitlePrompt,
-        commitGraphMode: parsedGraphMode ?? current.commitGraphMode,
         commitGraphStyle: parsedGraphStyle ?? current.commitGraphStyle,
         commitMergeAnimation: parsedMergeAnimation ?? current.commitMergeAnimation,
         diffViewerMode: parsedDiffViewerMode ?? current.diffViewerMode,

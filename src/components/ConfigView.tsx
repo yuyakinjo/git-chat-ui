@@ -35,7 +35,6 @@ import type {
   AiGenerationConfig,
   AiProvider,
   AppConfig,
-  CommitGraphMode,
   CommitGraphStyle,
   CommitMergeAnimation,
   DiffViewerMode,
@@ -99,7 +98,6 @@ function applyConfigToState(config: AppConfig): {
   claudeCodeToken: string;
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
-  commitGraphMode: CommitGraphMode;
   commitGraphStyle: CommitGraphStyle;
   commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
@@ -112,7 +110,6 @@ function applyConfigToState(config: AppConfig): {
     claudeCodeToken: config.claudeCodeToken,
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
-    commitGraphMode: config.commitGraphMode,
     commitGraphStyle: config.commitGraphStyle,
     commitMergeAnimation: config.commitMergeAnimation,
     diffViewerMode: config.diffViewerMode,
@@ -419,9 +416,6 @@ export function ConfigView({
   const [commitTitlePrompt, setCommitTitlePrompt] = useState(
     initialConfigState?.commitTitlePrompt ?? "",
   );
-  const [commitGraphMode, setCommitGraphMode] = useState<CommitGraphMode>(
-    initialConfigState?.commitGraphMode ?? "detailed",
-  );
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>(
     initialConfigState?.commitGraphStyle ?? "standard",
   );
@@ -602,7 +596,6 @@ export function ConfigView({
       resolveSelectedAiProvider(next.selectedAiProvider, next.openAiToken, next.claudeCodeToken),
     );
     setCommitTitlePrompt(next.commitTitlePrompt);
-    setCommitGraphMode(next.commitGraphMode);
     setCommitGraphStyle(next.commitGraphStyle);
     setCommitMergeAnimation(next.commitMergeAnimation);
     setDiffViewerMode(next.diffViewerMode);
@@ -641,7 +634,6 @@ export function ConfigView({
           ),
         );
         setCommitTitlePrompt(next.commitTitlePrompt);
-        setCommitGraphMode(next.commitGraphMode);
         setCommitGraphStyle(next.commitGraphStyle);
         setDiffViewerMode(next.diffViewerMode);
         setRepositoryScanDepth(next.repositoryScanDepth);
@@ -859,7 +851,6 @@ export function ConfigView({
         claudeCodeToken,
         selectedAiProvider,
         commitTitlePrompt,
-        commitGraphMode,
         commitGraphStyle,
         commitMergeAnimation,
         diffViewerMode,
@@ -886,7 +877,6 @@ export function ConfigView({
       onConfigSaved(nextConfig);
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitLogPageSize(clampCommitLogPageSize(nextConfig.commitLogPageSize));
-      setCommitGraphMode(nextConfig.commitGraphMode);
       setCommitGraphStyle(nextConfig.commitGraphStyle);
       setCommitMergeAnimation(nextConfig.commitMergeAnimation);
       setDiffViewerMode(nextConfig.diffViewerMode);
@@ -930,20 +920,6 @@ export function ConfigView({
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="space-y-5 pb-4">
               <div className="grid gap-4 rounded-2xl border border-black/10 bg-white/65 p-4">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                    Commit Graph Mode
-                  </label>
-                  <select
-                    className="input input-select"
-                    value={commitGraphMode}
-                    onChange={(event) => setCommitGraphMode(event.target.value as CommitGraphMode)}
-                  >
-                    <option value="detailed">Detailed (分岐・合流レーン)</option>
-                    <option value="simple">Simple (簡易レーン)</option>
-                  </select>
-                </div>
-
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                     Commit Graph Style
