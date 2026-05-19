@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type JSX } from "react";
 
 import {
   addOpenCommandPaletteRequestListener,
   isCommandPaletteShortcut,
 } from "../lib/commandPalette";
-import { CommandPalette, type CommandPaletteCommand } from "./CommandPalette";
+import type { CommandPaletteCommand } from "./CommandPalette";
+
+const CommandPalette = lazy(() =>
+  import("./CommandPalette").then((module) => ({ default: module.CommandPalette })),
+);
 
 interface ControllerCommandPaletteHostProps {
   active: boolean;
@@ -87,12 +91,14 @@ export function ControllerCommandPaletteHost({
     };
   }, [active, togglePalette]);
 
-  return (
-    <CommandPalette
-      open={open}
-      commands={commands}
-      onClose={closePalette}
-      onExecuteCommand={onExecuteCommand}
-    />
-  );
+  return open ? (
+    <Suspense fallback={null}>
+      <CommandPalette
+        open={open}
+        commands={commands}
+        onClose={closePalette}
+        onExecuteCommand={onExecuteCommand}
+      />
+    </Suspense>
+  ) : null;
 }

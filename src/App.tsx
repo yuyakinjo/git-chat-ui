@@ -11,14 +11,21 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type JSX,
+} from "react";
 
 import { getRepositoryAssistantActionSpec } from "../shared/repositoryAssistant.js";
 import { AppTabBranchBadge } from "./components/AppTabBranchBadge";
-import { ConfigView } from "./components/ConfigView";
-import { ControllerView } from "./components/ControllerView";
 import { DashboardView } from "./components/DashboardView";
-import { RepositoryAssistantSidebar } from "./components/RepositoryAssistantSidebar";
 import {
   closeRepositoryTab,
   CONFIG_TAB_ID,
@@ -107,6 +114,18 @@ import type {
   RepositoryAssistantSettings,
   RepositoryAssistantUserProfile,
 } from "./types";
+
+const ConfigView = lazy(() =>
+  import("./components/ConfigView").then((module) => ({ default: module.ConfigView })),
+);
+const ControllerView = lazy(() =>
+  import("./components/ControllerView").then((module) => ({ default: module.ControllerView })),
+);
+const RepositoryAssistantSidebar = lazy(() =>
+  import("./components/RepositoryAssistantSidebar").then((module) => ({
+    default: module.RepositoryAssistantSidebar,
+  })),
+);
 
 interface RepositoryAssistantConversationState {
   messages: RepositoryAssistantMessage[];
@@ -273,6 +292,7 @@ export default function App(): JSX.Element {
     ? "リポジトリを開いています"
     : "前回の作業状態を復元しています";
   const ActiveThemeIcon = getAppThemeMode(appTheme) === "light" ? Sun : Moon;
+
   const visibleToolbarItemIds = useMemo(() => {
     const visibleIds = new Set<AppToolbarItemId>([
       "commandPalette",
@@ -1492,23 +1512,25 @@ export default function App(): JSX.Element {
                 aria-hidden={!isActive}
               >
                 {hasBeenActivated ? (
-                  <ControllerView
-                    repository={repository}
-                    appConfig={appConfig}
-                    appThemeId={appTheme}
-                    layoutPickerPortalContainer={controllerLayoutPickerPortalContainer}
-                    onOpenConfig={handleOpenConfig}
-                    onSelectTheme={handleSelectAppTheme}
-                    onNotify={setNotice}
-                    onCurrentBranchChange={handleRepositoryBranchChange}
-                    active={isActive}
-                    repositoryGithubUrl={isActive ? githubButtonUrl : null}
-                    assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
-                    assistantConflictOpenRequest={
-                      assistantConflictOpenRequests[repository.path] ?? null
-                    }
-                    onInitialLoadSettled={handleControllerInitialLoadSettled}
-                  />
+                  <Suspense fallback={null}>
+                    <ControllerView
+                      repository={repository}
+                      appConfig={appConfig}
+                      appThemeId={appTheme}
+                      layoutPickerPortalContainer={controllerLayoutPickerPortalContainer}
+                      onOpenConfig={handleOpenConfig}
+                      onSelectTheme={handleSelectAppTheme}
+                      onNotify={setNotice}
+                      onCurrentBranchChange={handleRepositoryBranchChange}
+                      active={isActive}
+                      repositoryGithubUrl={isActive ? githubButtonUrl : null}
+                      assistantRefreshRequestId={assistantRefreshRequestIds[repository.path] ?? 0}
+                      assistantConflictOpenRequest={
+                        assistantConflictOpenRequests[repository.path] ?? null
+                      }
+                      onInitialLoadSettled={handleControllerInitialLoadSettled}
+                    />
+                  </Suspense>
                 ) : null}
               </section>
             );
@@ -1516,47 +1538,51 @@ export default function App(): JSX.Element {
 
           {isConfigActive || hasVisitedConfig ? (
             <section className="h-full" hidden={!isConfigActive} aria-hidden={!isConfigActive}>
-              <ConfigView
-                config={appConfig}
-                onNotify={setNotice}
-                onClose={() => setActiveTabId(configReturnTabId)}
-                onAiGenerationConfigChange={setAiGenerationConfig}
-                onConfigSaved={(config) => {
-                  setAppConfig(config);
-                  setAiGenerationConfig(pickAiGenerationConfig(config));
-                }}
-              />
+              <Suspense fallback={null}>
+                <ConfigView
+                  config={appConfig}
+                  onNotify={setNotice}
+                  onClose={() => setActiveTabId(configReturnTabId)}
+                  onAiGenerationConfigChange={setAiGenerationConfig}
+                  onConfigSaved={(config) => {
+                    setAppConfig(config);
+                    setAiGenerationConfig(pickAiGenerationConfig(config));
+                  }}
+                />
+              </Suspense>
             </section>
           ) : null}
         </div>
 
-        {activeRepository && activeRepositoryAssistantConversation ? (
-          <RepositoryAssistantSidebar
-            open={isRepositoryAssistantOpen}
-            openAiToken={appConfig?.openAiToken ?? ""}
-            settings={repositoryAssistantSettings}
-            messages={activeRepositoryAssistantConversation.messages}
-            draft={activeRepositoryAssistantConversation.draft}
-            pending={activeRepositoryAssistantConversation.pending}
-            policySaving={repositoryAssistantPolicySavingRepoPath === activeRepository.path}
-            allowedActionIds={activeRepositoryAssistantAllowedActionIds}
-            userAvatarUrl={activeRepositoryAssistantUserProfile?.avatarUrl ?? null}
-            userLogin={activeRepositoryAssistantUserProfile?.login ?? null}
-            error={
-              appConfig?.openAiToken.trim()
-                ? activeRepositoryAssistantConversation.error
-                : "AI sidebar には Config の OpenAI token が必要です。"
-            }
-            onSettingsChange={handleRepositoryAssistantSettingsChange}
-            onDraftChange={handleAssistantDraftChange}
-            onSubmit={handleSubmitAssistantConversation}
-            onClearConversation={handleClearAssistantConversation}
-            onSetActionAllowed={(actionId, allowed) => {
-              handleRepositoryAssistantPolicyChange(activeRepository.path, actionId, allowed);
-            }}
-            onExecuteAction={handleExecuteRepositoryAssistantAction}
-            onClose={() => setRepositoryAssistantOpen(false)}
-          />
+        {isRepositoryAssistantOpen && activeRepository && activeRepositoryAssistantConversation ? (
+          <Suspense fallback={null}>
+            <RepositoryAssistantSidebar
+              open={isRepositoryAssistantOpen}
+              openAiToken={appConfig?.openAiToken ?? ""}
+              settings={repositoryAssistantSettings}
+              messages={activeRepositoryAssistantConversation.messages}
+              draft={activeRepositoryAssistantConversation.draft}
+              pending={activeRepositoryAssistantConversation.pending}
+              policySaving={repositoryAssistantPolicySavingRepoPath === activeRepository.path}
+              allowedActionIds={activeRepositoryAssistantAllowedActionIds}
+              userAvatarUrl={activeRepositoryAssistantUserProfile?.avatarUrl ?? null}
+              userLogin={activeRepositoryAssistantUserProfile?.login ?? null}
+              error={
+                appConfig?.openAiToken.trim()
+                  ? activeRepositoryAssistantConversation.error
+                  : "AI sidebar には Config の OpenAI token が必要です。"
+              }
+              onSettingsChange={handleRepositoryAssistantSettingsChange}
+              onDraftChange={handleAssistantDraftChange}
+              onSubmit={handleSubmitAssistantConversation}
+              onClearConversation={handleClearAssistantConversation}
+              onSetActionAllowed={(actionId, allowed) => {
+                handleRepositoryAssistantPolicyChange(activeRepository.path, actionId, allowed);
+              }}
+              onExecuteAction={handleExecuteRepositoryAssistantAction}
+              onClose={() => setRepositoryAssistantOpen(false)}
+            />
+          </Suspense>
         ) : null}
 
         {isAppLoadingVisible ? (

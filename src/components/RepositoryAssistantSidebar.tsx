@@ -249,6 +249,12 @@ export function RepositoryAssistantSidebar({
     openAiModelsRequestIdRef.current += 1;
     const requestId = openAiModelsRequestIdRef.current;
 
+    if (!open) {
+      setLoadingOpenAiModels(false);
+      setOpenAiModelsError(null);
+      return;
+    }
+
     if (!normalizedToken) {
       setLoadingOpenAiModels(false);
       setOpenAiModels([]);
@@ -298,7 +304,7 @@ export function RepositoryAssistantSidebar({
     return () => {
       active = false;
     };
-  }, [normalizedToken]);
+  }, [normalizedToken, open]);
 
   useEffect(() => {
     if (!isOpenAiModelComboboxOpen) {
