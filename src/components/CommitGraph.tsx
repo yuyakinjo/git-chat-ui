@@ -1164,7 +1164,16 @@ export function CommitGraph({
             // column needs to be excluded from this list.
             // When no neighbouring commit provides lanes and there is no WIP row,
             // fall back to the parent lane index (same as original behaviour).
+            const isLeadingStashBlock = (() => {
+              for (let ti = 0; ti < timelineIndex; ti++) {
+                if (timeline[ti]?.type === "commit") return false;
+              }
+              return true;
+            })();
             const passthroughLanes: number[] = (() => {
+              // 先頭コミットより上の stash 群にはブランチ passthrough 線を描かない。
+              // 破線コネクタのみで十分。
+              if (isLeadingStashBlock) return [];
               const fromPreceding = precedingRow?.outgoingLaneIndices;
               if (fromPreceding?.length) return fromPreceding;
               const fromFollowing = followingRow?.incomingLaneIndices;
@@ -1193,9 +1202,14 @@ export function CommitGraph({
             // Without a WIP row above, nothing should visually connect into the stash row
             // from the header. Starting lane stems at the stash icon top avoids stray
             // coloured segments (other branches' incoming lanes) above the icon.
-            const stashSolidLineY1 = hasWipRow ? -LINE_OVERDRAW : stashIconTopY;
-            const stashSvgTopPx = hasWipRow ? -LINE_OVERDRAW : 0;
-            const stashViewBoxY = hasWipRow ? -LINE_OVERDRAW : 0;
+            // timeline 先頭の stash は WIP 行が上にあっても上方向へ線を伸ばさない。
+            const isTimelineHeadStash = timelineIndex === 0;
+            const stashSolidLineY1 =
+              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : stashIconTopY;
+            const stashSvgTopPx =
+              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : 0;
+            const stashViewBoxY =
+              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : 0;
 
             return (
               <div
@@ -1263,8 +1277,9 @@ export function CommitGraph({
                           );
                         })}
                       {/* 親レーンがpassthroughに含まれない場合のフォールバック描画。
-                          独立レーン時は上下全域、フォールバック（親と同一レーン）時は上部のみ。 */}
-                      {!passthroughLanes.includes(stashParentLaneIndex) ? (
+                          独立レーン時は上下全域、フォールバック（親と同一レーン）時は上部のみ。
+                          timeline 先頭の stash では描かない。 */}
+                      {!isLeadingStashBlock && !passthroughLanes.includes(stashParentLaneIndex) ? (
                         stashIsOnOwnLane ? (
                           <line
                             x1={parentLaneX}
@@ -1418,6 +1433,15 @@ export function CommitGraph({
             inverseChildren: [],
             defaultLaneReservedButEmpty: false,
           };
+          let isFirstCommitInTimeline = true;
+          for (let ti = 0; ti < timelineIndex; ti++) {
+            if (timeline[ti]?.type === "commit") {
+              isFirstCommitInTimeline = false;
+              break;
+            }
+          }
+          const isPrecededByStash =
+            timelineIndex > 0 && timeline[timelineIndex - 1]?.type === "stash";
           const commitRefBadges = refBadgeBySha.get(commit.sha) ?? [];
           const isPrimaryBranchSourceRow =
             row.primaryParentLaneIndex !== null && row.primaryParentLaneIndex !== row.laneIndex;
@@ -1600,9 +1624,13 @@ export function CommitGraph({
                         const isNextRowReusingLane =
                           laneIndex === row.laneIndex && nextRowLaneIndex === laneIndex;
                         const hasIncoming =
-                          (index > 0 && row.incomingLaneIndices.includes(laneIndex)) ||
-                          (hasWipRow && index === 0 && laneIndex === wipAnchor.laneIndex) ||
-                          isPrevRowReusingLane;
+                          (!isFirstCommitInTimeline &&
+                            row.incomingLaneIndices.includes(laneIndex)) ||
+                          (hasWipRow &&
+                            index === 0 &&
+                            laneIndex === wipAnchor.laneIndex &&
+                            !isPrecededByStash) ||
+                          (isPrevRowReusingLane && !isPrecededByStash);
                         const isTopRowSiblingPassthroughLane =
                           index === 0 && laneIndex !== row.laneIndex && !hasIncoming;
                         const hasOutgoingRaw =

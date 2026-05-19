@@ -1872,4 +1872,87 @@ describe("CommitGraph", () => {
     expect(mainBaseRowHtml).not.toContain(`x1="${laneOneX}" y1="16" x2="`);
     expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
   });
+
+  test("does not draw branch passthrough lines above or through a timeline-head stash", () => {
+    const stashParentSha = "head-commit-sha000000000000000000000000";
+    const headCommit: CommitListItem = {
+      sha: stashParentSha,
+      parentShas: ["base-commit-sha000000000000000000000000"],
+      author: "kinjo",
+      date: "2026-05-17T18:12:00.000Z",
+      subject: "chore: head commit",
+      decoration: "(HEAD -> main)",
+    };
+    const baseCommit: CommitListItem = {
+      sha: "base-commit-sha000000000000000000000000",
+      parentShas: [],
+      author: "kinjo",
+      date: "2026-05-15T18:12:00.000Z",
+      subject: "chore: base commit",
+      decoration: "",
+    };
+    const stashes = [
+      {
+        id: "stash@{0}",
+        sha: "stash-sha00000000000000000000000000",
+        parentSha: stashParentSha,
+        message: "On main: git-chat-ui: Working tree",
+        date: "2026-05-18T19:21:00.000Z",
+        files: [],
+      },
+    ];
+    const manyStashes = Array.from({ length: 8 }, (_, index) => ({
+      id: `stash@{${index}}`,
+      sha: `stash-sha-${index}-000000000000000000000000`,
+      parentSha: stashParentSha,
+      message: `On main: stash ${index}`,
+      date: new Date(Date.parse("2026-05-19T14:38:00.000Z") - index * 60_000).toISOString(),
+      files: ["file.ts"],
+    }));
+
+    const renderWithWip = (stashList: typeof stashes, wipStagedCount: number) =>
+      renderToStaticMarkup(
+        <CommitGraph
+          commits={[headCommit, baseCommit]}
+          mode="detailed"
+          graphStyle="standard"
+          activeCommitSha={null}
+          highlightedCommitSha={null}
+          checkedOutCommitSha={stashParentSha}
+          scrollToCommitSha={null}
+          onScrollToCommitHandled={() => {}}
+          hasMore={false}
+          loading={false}
+          loadingMore={false}
+          busy={false}
+          wipStagedCount={wipStagedCount}
+          wipUnstagedCount={0}
+          wipConflictedCount={0}
+          onSelectWip={() => {}}
+          onSelectCommit={() => {}}
+          onCheckoutCommit={() => {}}
+          onCheckoutBranchRef={() => {}}
+          onLoadMore={() => {}}
+          onNotify={() => {}}
+          stashes={stashList}
+          onSelectStash={() => {}}
+        />,
+      );
+
+    for (const wipStagedCount of [0, 1]) {
+      for (const stashList of [stashes, manyStashes]) {
+        const html = renderWithWip(stashList, wipStagedCount);
+        const stashRows = html.match(/class="stash-row commit-row"[\s\S]*?(?=class="stash-row commit-row"|class="commit-row)/g) ?? [];
+        const headCommitRowHtml = extractCommitRowMarkup(html, stashParentSha);
+
+        for (const stashRowHtml of stashRows) {
+          expect(stashRowHtml).not.toContain('y1="-1"');
+          expect(stashRowHtml).not.toContain('class="commit-graph__lane-line"');
+          expect(stashRowHtml).toContain('stroke-dasharray="3 2.5"');
+        }
+
+        expect(headCommitRowHtml).not.toContain('y1="-1"');
+      }
+    }
+  });
 });
