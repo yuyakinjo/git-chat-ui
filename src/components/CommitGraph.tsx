@@ -361,12 +361,13 @@ export function CommitGraph({
   }, [timeline]);
 
   // 各 stash は専用レーンに配置する。優先順位は WIP > Commit > Stash の順で、
-  // 中間 stash (= commit に挟まれた stash) は常にすべての commit lane
-  // (laneLayout.maxLanes) より右側に配置する。これにより stash アイコンが
-  // commit レーンと視覚的に重ならないことを保証する。Leading block の
-  // stash 群 (= どの commit よりも上にあるブロック) は描画側で passthrough を
-  // 出さないため commit レーンとは衝突せず、画面幅を節約するため lane 0 から
-  // 詰めて配置する (WIP lane は引き続き avoid)。
+  // lane 0 から左詰めし、その行を実際に通過するブランチレーン
+  // (passthroughLaneSet) と既に取られた近隣 stash のレーンだけを avoid する。
+  // これにより、グローバルな maxLanes ではなく「その行で実際に使われている
+  // lane」だけが除外されるため、開いている lane があれば stash は左詰めされる。
+  // commit 線と stash の重なりは passthroughLaneSet によって引き続き防がれる。
+  // Leading block の stash 群 (= どの commit よりも上にあるブロック) は描画側で
+  // passthrough を出さないため、自然に lane 0 から詰まる。
   const stashLayout = useMemo(() => {
     const laneByStashId = new Map<string, number>();
     let extraStashLanes = 0;
@@ -468,10 +469,10 @@ export function CommitGraph({
       const lanesTakenByNeighbourStashes =
         assignedLanesByBoundary.get(boundaryKey) ?? new Set<number>();
 
-      // Leading block 以外 (= commit に挟まれた中間 stash) は commit lane と
-      // 衝突しないよう maxLanes 起点に配置する。Leading block はそもそも
-      // commit lane が下から伸びてこないため lane 0 起点で OK。
-      const minStashLane = isLeadingStashBlock ? 0 : laneLayout.maxLanes;
+      // lane 0 から探索し、passthroughLaneSet (= 実際にその行を通過する
+      // commit line) と近隣 stash の取得済み lane だけを avoid する。
+      // これにより、その行で使われていない空き lane があれば左詰めされる。
+      const minStashLane = 0;
 
       let stashLaneIndex = minStashLane;
       while (
