@@ -360,17 +360,16 @@ export function CommitGraph({
     return map;
   }, [timeline]);
 
-  // 各 stash は専用レーンに配置する。GitKraken のように「最初のレーンから」
-  // 詰めて配置するため、グラフ全体の maxLanes には依存させず、各 stash 行で
-  // 実際に通過するブランチレーン (passthrough) だけを避けて最小空きレーンを選ぶ。
+  // 各 stash は専用レーンに配置する。優先順位は WIP > Commit > Stash の順で、
+  // 中間 stash (= commit に挟まれた stash) は常にすべての commit lane
+  // (laneLayout.maxLanes) より右側に配置する。これにより stash アイコンが
+  // commit レーンと視覚的に重ならないことを保証する。Leading block の
+  // stash 群 (= どの commit よりも上にあるブロック) は描画側で passthrough を
+  // 出さないため commit レーンとは衝突せず、画面幅を節約するため lane 0 から
+  // 詰めて配置する (WIP lane は引き続き avoid)。
   const stashLayout = useMemo(() => {
     const laneByStashId = new Map<string, number>();
     let extraStashLanes = 0;
-    // GitKraken と同じく lane 0 から詰めて配置する。default branch reserved
-    // lane との衝突は「実際にその行を通過する passthrough lane」だけで判定するため、
-    // 予約はしない (commit が挟まれた行では passthroughLaneSet が lane 0 を含むので
-    // 自然に lane 1+ に流れる)。
-    const minStashLane = 0;
     // 同じコミット区間に並ぶ stash 同士でもレーンが被らないよう、
     // preceding/following コミットのペアごとに割当済みレーンを記録する。
     const assignedLanesByBoundary = new Map<string, Set<number>>();
@@ -469,7 +468,11 @@ export function CommitGraph({
       const lanesTakenByNeighbourStashes =
         assignedLanesByBoundary.get(boundaryKey) ?? new Set<number>();
 
-      // 最小レーンから埋めていく。passthrough と他 stash の占有レーンだけ避ける。
+      // Leading block 以外 (= commit に挟まれた中間 stash) は commit lane と
+      // 衝突しないよう maxLanes 起点に配置する。Leading block はそもそも
+      // commit lane が下から伸びてこないため lane 0 起点で OK。
+      const minStashLane = isLeadingStashBlock ? 0 : laneLayout.maxLanes;
+
       let stashLaneIndex = minStashLane;
       while (
         passthroughLaneSet.has(stashLaneIndex) ||
