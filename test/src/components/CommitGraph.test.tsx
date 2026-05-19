@@ -1873,6 +1873,83 @@ describe("CommitGraph", () => {
     expect(mainBaseRowHtml).not.toContain(`x1="${laneTwoX}" y1="16" x2="`);
   });
 
+  test("draws continuous main lane line through stash between two commits", () => {
+    const newerCommit: CommitListItem = {
+      sha: "newer-commit-sha0000000000000000000000",
+      parentShas: ["older-commit-sha0000000000000000000000"],
+      author: "kinjo",
+      date: "2026-05-19T14:42:00.000Z",
+      subject: "fix(commit-graph): latest",
+      decoration: "(HEAD -> main)",
+    };
+    const olderCommit: CommitListItem = {
+      sha: "older-commit-sha0000000000000000000000",
+      parentShas: [],
+      author: "kinjo",
+      date: "2026-05-17T18:12:00.000Z",
+      subject: "chore: older",
+      decoration: "",
+    };
+    const stashes = [
+      {
+        id: "stash@{0}",
+        sha: "stash-sha00000000000000000000000000",
+        parentSha: "older-commit-sha0000000000000000000000",
+        message: "On main: Working tree",
+        date: "2026-05-18T19:21:00.000Z",
+        files: [],
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <CommitGraph
+        commits={[newerCommit, olderCommit]}
+        mode="detailed"
+        graphStyle="standard"
+        activeCommitSha={null}
+        highlightedCommitSha={null}
+        checkedOutCommitSha="older-commit-sha0000000000000000000000"
+        scrollToCommitSha={null}
+        onScrollToCommitHandled={() => {}}
+        hasMore={false}
+        loading={false}
+        loadingMore={false}
+        busy={false}
+        wipStagedCount={0}
+        wipUnstagedCount={0}
+        wipConflictedCount={0}
+        onSelectWip={() => {}}
+        onSelectCommit={() => {}}
+        onCheckoutCommit={() => {}}
+        onCheckoutBranchRef={() => {}}
+        onLoadMore={() => {}}
+        onNotify={() => {}}
+        stashes={stashes}
+        onSelectStash={() => {}}
+      />,
+    );
+
+    const metrics = resolveCommitGraphStyleMetrics("standard");
+    const mainLaneX = laneX(0, {
+      style: "standard",
+      minLaneDisplayOffset: 0,
+      laneGap: metrics.laneGap,
+      lanePadding: metrics.lanePadding,
+    });
+    const newerRowHtml = extractCommitRowMarkup(html, newerCommit.sha);
+    const olderRowHtml = extractCommitRowMarkup(html, olderCommit.sha);
+    const stashRowHtml =
+      html.match(
+        /class="stash-row commit-row"[\s\S]*?(?=class="stash-row commit-row"|class="commit-row)/,
+      )?.[0] ?? "";
+
+    expect(newerRowHtml).toContain(`x1="${mainLaneX}"`);
+    expect(newerRowHtml).toMatch(new RegExp(`x1="${mainLaneX}"[^>]*y2="33"`));
+    expect(stashRowHtml).toContain(`x1="${mainLaneX}"`);
+    expect(stashRowHtml).toMatch(new RegExp(`x1="${mainLaneX}"[^>]*y1="-1"`));
+    expect(olderRowHtml).toContain(`x1="${mainLaneX}"`);
+    expect(olderRowHtml).toMatch(new RegExp(`x1="${mainLaneX}"[^>]*y1="-1"`));
+  });
+
   test("does not draw branch passthrough lines above or through a timeline-head stash", () => {
     const stashParentSha = "head-commit-sha000000000000000000000000";
     const headCommit: CommitListItem = {

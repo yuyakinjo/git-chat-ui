@@ -1203,13 +1203,19 @@ export function CommitGraph({
             // from the header. Starting lane stems at the stash icon top avoids stray
             // coloured segments (other branches' incoming lanes) above the icon.
             // timeline 先頭の stash は WIP 行が上にあっても上方向へ線を伸ばさない。
+            // 先頭 stash 群 (leading block) も上方向へ伸ばさない。
+            // コミット→stash→コミット の間では、上のコミット行からの連続性のため
+            // 行上端まで passthrough を伸ばす (WIP 行の有無に依存しない)。
             const isTimelineHeadStash = timelineIndex === 0;
-            const stashSolidLineY1 =
-              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : stashIconTopY;
-            const stashSvgTopPx =
-              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : 0;
-            const stashViewBoxY =
-              !isTimelineHeadStash && hasWipRow ? -LINE_OVERDRAW : 0;
+            const shouldExtendStashPassthroughUp =
+              !isTimelineHeadStash &&
+              !isLeadingStashBlock &&
+              nearestPrecedingCommitIndex !== null;
+            const stashSolidLineY1 = shouldExtendStashPassthroughUp
+              ? -LINE_OVERDRAW
+              : stashIconTopY;
+            const stashSvgTopPx = shouldExtendStashPassthroughUp ? -LINE_OVERDRAW : 0;
+            const stashViewBoxY = shouldExtendStashPassthroughUp ? -LINE_OVERDRAW : 0;
 
             return (
               <div
