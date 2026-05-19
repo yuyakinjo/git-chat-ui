@@ -360,18 +360,56 @@ export function CommitGraph({
     return map;
   }, [timeline]);
 
-  // 各 stash は専用レーンに配置する。ブランチのレーン（過去に登場したものを
-  // 含む）とは視覚的に混ざらないよう、常にコミットグラフ全体の maxLanes より
-  // 右側へ配置する。stash 同士は詰めて並べる。
+  // 各 stash は専用レーンに配置する。GitKraken のように「最初のレーンから」
+  // 詰めて配置するため、グラフ全体の maxLanes には依存させず、各 stash 行で
+  // 実際に通過するブランチレーン (passthrough) だけを避けて最小空きレーンを選ぶ。
   const stashLayout = useMemo(() => {
     const laneByStashId = new Map<string, number>();
     let extraStashLanes = 0;
-    const hasDefaultBranch = (defaultBranchHeadSha ?? "").trim() !== "";
-    const minStashLane = hasDefaultBranch ? 1 : 0;
-    const stashLaneFloor = Math.max(minStashLane, laneLayout.maxLanes);
+    // GitKraken と同じく lane 0 から詰めて配置する。default branch reserved
+    // lane との衝突は「実際にその行を通過する passthrough lane」だけで判定するため、
+    // 予約はしない (commit が挟まれた行では passthroughLaneSet が lane 0 を含むので
+    // 自然に lane 1+ に流れる)。
+    const minStashLane = 0;
     // 同じコミット区間に並ぶ stash 同士でもレーンが被らないよう、
     // preceding/following コミットのペアごとに割当済みレーンを記録する。
     const assignedLanesByBoundary = new Map<string, Set<number>>();
+    const firstCommitTimelineIdx = timeline.findIndex((e) => e.type === "commit");
+
+    // WIP 行の縦点線 (dashed connector) は WIP 行 (timeline の上) から
+    // checked-out commit 行まで lane を貫通する。その途中に stash 行があると
+    // 同 lane に icon が重なるので、stash 配置時には WIP lane も passthrough
+    // 扱いで avoid する。
+    const hasWipRowLocal =
+      (wipStagedCount > 0 || wipUnstagedCount > 0 || wipConflictedCount > 0) && !loading;
+    const wipLaneIndex = hasWipRowLocal
+      ? (() => {
+          const anchorHeadSha = (checkedOutCommitSha ?? "").trim();
+          const anchorRowIndex = anchorHeadSha
+            ? commits.findIndex((c) => c.sha.trim() === anchorHeadSha)
+            : -1;
+          return anchorRowIndex >= 0
+            ? (laneLayout.rows[anchorRowIndex]?.laneIndex ?? 0)
+            : 0;
+        })()
+      : null;
+    // WIP の dashed line が「どこまで」伸びるか (= checked-out commit の timeline idx)。
+    // それより上の timeline 行はすべて WIP line が通過する。
+    const checkedOutCommitIdxLocal = (checkedOutCommitSha ?? "").trim()
+      ? commits.findIndex(
+          (c) => c.sha.trim() === (checkedOutCommitSha as string).trim(),
+        )
+      : -1;
+    let checkedOutTimelineIdxLocal = -1;
+    if (checkedOutCommitIdxLocal >= 0) {
+      for (let i = 0; i < timeline.length; i += 1) {
+        const e = timeline[i];
+        if (e.type === "commit" && e.commitIndex === checkedOutCommitIdxLocal) {
+          checkedOutTimelineIdxLocal = i;
+          break;
+        }
+      }
+    }
 
     for (let t = 0; t < timeline.length; t++) {
       const entry = timeline[t];
@@ -394,12 +432,49 @@ export function CommitGraph({
         }
       }
 
+      // この stash 行を通過するブランチレーン群。先頭 stash ブロック
+      // (commit より前にある stash 群) は描画側で passthrough を出さない
+      // (cf. isLeadingStashBlock at render) ので空集合として扱う。
+      const isLeadingStashBlock =
+        firstCommitTimelineIdx === -1 || t < firstCommitTimelineIdx;
+      const passthroughLaneSet = new Set<number>();
+      if (!isLeadingStashBlock) {
+        const precedingRow =
+          nearestPrecedingCommitIndex != null
+            ? laneLayout.rows[nearestPrecedingCommitIndex]
+            : null;
+        const followingRow =
+          nearestFollowingCommitIndex != null
+            ? laneLayout.rows[nearestFollowingCommitIndex]
+            : null;
+        const passthroughCandidates =
+          precedingRow?.outgoingLaneIndices.length
+            ? precedingRow.outgoingLaneIndices
+            : followingRow?.incomingLaneIndices ?? [];
+        for (const laneIdx of passthroughCandidates) {
+          passthroughLaneSet.add(laneIdx);
+        }
+      }
+      // WIP の dashed line がこの行を通過しているなら、WIP lane も avoid する。
+      // (line は WIP 行から checked-out commit までを縦に貫通するため、
+      //  stash が checked-out commit より上にあれば必ず通過する)
+      if (
+        wipLaneIndex !== null &&
+        (checkedOutTimelineIdxLocal === -1 || t < checkedOutTimelineIdxLocal)
+      ) {
+        passthroughLaneSet.add(wipLaneIndex);
+      }
+
       const boundaryKey = `${nearestPrecedingCommitIndex ?? "_"}:${nearestFollowingCommitIndex ?? "_"}`;
       const lanesTakenByNeighbourStashes =
         assignedLanesByBoundary.get(boundaryKey) ?? new Set<number>();
 
-      let stashLaneIndex = stashLaneFloor;
-      while (lanesTakenByNeighbourStashes.has(stashLaneIndex)) {
+      // 最小レーンから埋めていく。passthrough と他 stash の占有レーンだけ避ける。
+      let stashLaneIndex = minStashLane;
+      while (
+        passthroughLaneSet.has(stashLaneIndex) ||
+        lanesTakenByNeighbourStashes.has(stashLaneIndex)
+      ) {
         stashLaneIndex += 1;
       }
 
@@ -414,7 +489,17 @@ export function CommitGraph({
     }
 
     return { laneByStashId, extraStashLanes };
-  }, [timeline, laneLayout, defaultBranchHeadSha]);
+  }, [
+    timeline,
+    laneLayout,
+    defaultBranchHeadSha,
+    wipStagedCount,
+    wipUnstagedCount,
+    wipConflictedCount,
+    loading,
+    checkedOutCommitSha,
+    commits,
+  ]);
 
   // 上の行の primary parent curve が担う合流先 lane を row 毎にまとめる。
   // ここに含まれる lane は converging 水平線を描くと curve と重なり二股に見えるためスキップする。
