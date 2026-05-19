@@ -27,7 +27,6 @@ export type {
   AiGenerationConfig,
   AppConfig,
   CommitGraphStyle,
-  CommitMergeAnimation,
   DiffViewerMode,
   WindowState,
 } from "../shared/config.js";

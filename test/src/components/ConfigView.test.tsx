@@ -21,7 +21,6 @@ const config: AppConfig = {
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphStyle: "standard",
-  commitMergeAnimation: "none",
   diffViewerMode: "builtin",
   repositoryScanDepth: 4,
   commitLogPageSize: 100,
@@ -189,41 +188,12 @@ describe("ConfigView", () => {
       />,
     );
 
-    expect(html.match(/class="input input-select"/g)?.length).toBe(3);
+    expect(html.match(/class="input input-select"/g)?.length).toBe(2);
     expect(html).toContain("Commit Graph Style");
     expect(html).toContain(">Standard</option>");
     expect(html).toContain(">Japanese Express</option>");
-    expect(html).toContain("Merge Node Animation");
-    expect(html).toContain(">None (オフ)</option>");
-    expect(html).toContain(">Pulse (合流パルス)</option>");
     expect(html).toContain("Diff Viewer");
     expect(html).toContain(">@pierre/diffs</option>");
-  });
-
-  test("renders a merge animation preview that reflects the selected animation", () => {
-    const html = renderToStaticMarkup(
-      <ConfigView
-        onNotify={() => {}}
-        config={{
-          ...config,
-          commitGraphStyle: "japaneseExpress",
-          commitMergeAnimation: "particle",
-        }}
-        onClose={() => {}}
-        onConfigSaved={() => {}}
-        onAiGenerationConfigChange={() => {}}
-      />,
-    );
-
-    expect(html).toContain('class="config-view__merge-animation-field"');
-    expect(html).toContain('class="config-view__merge-animation-preview"');
-    expect(html).toContain('class="config-view__merge-animation-preview-node"');
-    expect(html).toContain(
-      'aria-label="Merge Node Animation preview: Particle (パーティクル集束)"',
-    );
-    expect(html).toContain("commit-node-merge-ring--particle");
-    expect(html).toContain("commit-node--japanese-express");
-    expect(html).not.toContain("config-view__merge-animation-preview-graph");
   });
 
   test("renders an OpenAI model combobox control", () => {

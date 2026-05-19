@@ -13,7 +13,6 @@ import { normalizeRepositoryAssistantPolicies } from "../shared/repositoryAssist
 import type {
   AppConfig,
   CommitGraphStyle,
-  CommitMergeAnimation,
   DiffViewerMode,
 } from "./types.js";
 
@@ -36,24 +35,6 @@ function normalizeCommitGraphStyle(value: unknown): CommitGraphStyle {
   }
 
   return DEFAULT_CONFIG.commitGraphStyle;
-}
-
-function normalizeCommitMergeAnimation(value: unknown): CommitMergeAnimation {
-  if (
-    value === "none" ||
-    value === "pulse" ||
-    value === "ripple" ||
-    value === "orbit" ||
-    value === "shimmer" ||
-    value === "metaball" ||
-    value === "morph" ||
-    value === "dissolve" ||
-    value === "particle"
-  ) {
-    return value;
-  }
-
-  return DEFAULT_CONFIG.commitMergeAnimation;
 }
 
 function normalizeDiffViewerMode(value: unknown): DiffViewerMode {
@@ -178,7 +159,6 @@ function normalizeConfig(value: Partial<AppConfig>): AppConfig {
     selectedAiProvider: normalizeSelectedAiProvider(value.selectedAiProvider),
     commitTitlePrompt: normalizeCommitTitlePrompt(value.commitTitlePrompt),
     commitGraphStyle: normalizeCommitGraphStyle(value.commitGraphStyle),
-    commitMergeAnimation: normalizeCommitMergeAnimation(value.commitMergeAnimation),
     diffViewerMode: normalizeDiffViewerMode(value.diffViewerMode),
     commitLogPageSize: normalizeCommitLogPageSize(value.commitLogPageSize),
     repositoryScanDepth: normalizeRepositoryScanDepth(value.repositoryScanDepth),

@@ -363,19 +363,6 @@ describe("globals.css", () => {
     expect(inputSection).toContain(".config-view__combobox-empty {");
   });
 
-  test("merge animation preview stays compact and aligns with the select row", () => {
-    const inputSection = getSection(".input {", ".config-view__commit-title-prompt {");
-
-    expect(inputSection).toContain(".config-view__merge-animation-field {");
-    expect(inputSection).toContain("display: grid;");
-    expect(inputSection).toContain("grid-template-columns: minmax(0, 1fr) 72px;");
-    expect(inputSection).toContain("align-items: stretch;");
-    expect(inputSection).toContain(".config-view__merge-animation-preview {");
-    expect(inputSection).toContain("justify-content: center;");
-    expect(inputSection).toContain(".config-view__merge-animation-preview-node {");
-    expect(inputSection).not.toContain(".config-view__merge-animation-preview-graph {");
-  });
-
   test("working tree context menu uses the same theme tokens as floating branch actions", () => {
     const menuSection = getSection(".working-tree-context-menu {", ".branch-context-menu {");
 

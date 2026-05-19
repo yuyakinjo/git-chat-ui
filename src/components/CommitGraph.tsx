@@ -25,7 +25,6 @@ import type {
   BranchResponse,
   CommitGraphStyle,
   CommitListItem,
-  CommitMergeAnimation,
   StashEntry,
 } from "../types";
 import {
@@ -57,7 +56,6 @@ interface CommitGraphProps {
   commits: CommitListItem[];
   commitAuthorAvatars?: Record<string, string>;
   graphStyle: CommitGraphStyle;
-  mergeAnimation?: CommitMergeAnimation;
   activeCommitSha: string | null;
   highlightedCommitSha: string | null;
   checkedOutCommitSha: string | null;
@@ -149,7 +147,6 @@ export function CommitGraph({
   commits,
   commitAuthorAvatars = {},
   graphStyle,
-  mergeAnimation = "none",
   activeCommitSha,
   highlightedCommitSha,
   checkedOutCommitSha,
@@ -1771,28 +1768,12 @@ export function CommitGraph({
             inverseChildCurveExtent,
           );
           const rowLaneStroke = resolveLaneStroke(index, row.laneIndex);
-          const isMergeCommit = commit.parentShas.length >= 2;
-          const activeMergeAnimation: CommitMergeAnimation = isMergeCommit
-            ? mergeAnimation
-            : "none";
-          const mergePulseApplied = activeMergeAnimation === "pulse";
-          const mergeRingAnimation =
-            activeMergeAnimation === "ripple" ||
-            activeMergeAnimation === "orbit" ||
-            activeMergeAnimation === "shimmer" ||
-            activeMergeAnimation === "metaball" ||
-            activeMergeAnimation === "morph" ||
-            activeMergeAnimation === "dissolve" ||
-            activeMergeAnimation === "particle"
-              ? activeMergeAnimation
-              : null;
           const nodeClassName = [
             "absolute block commit-node",
             avatarSrc ? "commit-node--avatar" : "",
             graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
             !avatarSrc && graphStyle === "standard" ? "border border-white/90 shadow-sm" : "",
             isCheckedOutCommit ? "commit-node-head-glow" : "",
-            mergePulseApplied ? "commit-node-merge-pulse" : "",
           ]
             .filter(Boolean)
             .join(" ");
@@ -2011,35 +1992,14 @@ export function CommitGraph({
                       {/* (stash rows are now rendered at their chronological position in the timeline) */}
                     </svg>
 
-                    {mergeRingAnimation ? (
-                      <span
-                        aria-hidden="true"
-                        className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
-                        style={{
-                          width: `${nodeSize}px`,
-                          height: `${nodeSize}px`,
-                          left: `${resolveLaneX(row.laneIndex) - nodeSize / 2}px`,
-                          top: `${ROW_HEIGHT / 2 - nodeSize / 2}px`,
-                          ["--merge-pulse-color" as string]: rowLaneStroke,
-                          ["--merge-particle-radius" as string]: `${Math.round(
-                            nodeSize * 1.2,
-                          )}px`,
-                        }}
-                      />
-                    ) : null}
                     <span
                       className={nodeClassName}
-                      style={{
-                        ...buildCommitNodeStyle(
-                          rowLaneStroke,
-                          nodeSize,
-                          row.laneIndex,
-                          avatarSrc,
-                        ),
-                        ...(mergePulseApplied
-                          ? ({ "--merge-pulse-color": rowLaneStroke } as CSSProperties)
-                          : {}),
-                      }}
+                      style={buildCommitNodeStyle(
+                        rowLaneStroke,
+                        nodeSize,
+                        row.laneIndex,
+                        avatarSrc,
+                      )}
                     >
                       {avatarSrc ? (
                         <img

@@ -13,7 +13,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type JSX,
   type KeyboardEvent,
 } from "react";
@@ -36,7 +35,6 @@ import type {
   AiProvider,
   AppConfig,
   CommitGraphStyle,
-  CommitMergeAnimation,
   DiffViewerMode,
   OpenAiModelsResponse,
   TokenValidationResult,
@@ -61,25 +59,6 @@ export type TokenValidationState = "idle" | "checking" | "valid" | "invalid";
 const MIN_REPOSITORY_SCAN_DEPTH = 1;
 const MAX_REPOSITORY_SCAN_DEPTH = 8;
 const COMMIT_TITLE_PROMPT_TEXTAREA_MIN_HEIGHT_PX = 128;
-const MERGE_NODE_PREVIEW_SIZE_PX = 14;
-const MERGE_NODE_PREVIEW_COLOR = "var(--accent)";
-
-const MERGE_NODE_ANIMATION_OPTIONS: ReadonlyArray<{
-  value: CommitMergeAnimation;
-  label: string;
-}> = [
-  { value: "none", label: "None (オフ)" },
-  { value: "pulse", label: "Pulse (合流パルス)" },
-  { value: "ripple", label: "Ripple (リング波紋)" },
-  { value: "orbit", label: "Orbit (周回)" },
-  { value: "shimmer", label: "Shimmer (色シマー)" },
-  { value: "metaball", label: "Metaball (有機融合)" },
-  { value: "morph", label: "Morph (形状変化)" },
-  { value: "dissolve", label: "Dissolve (ディゾルブ)" },
-  { value: "particle", label: "Particle (パーティクル集束)" },
-];
-
-type MergeNodeRingAnimation = Exclude<CommitMergeAnimation, "none" | "pulse">;
 
 function normalizeDepth(value: number): number {
   if (!Number.isFinite(value)) {
@@ -99,7 +78,6 @@ function applyConfigToState(config: AppConfig): {
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
   commitGraphStyle: CommitGraphStyle;
-  commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
   repositoryScanDepth: number;
   commitLogPageSize: number;
@@ -111,7 +89,6 @@ function applyConfigToState(config: AppConfig): {
     selectedAiProvider: config.selectedAiProvider,
     commitTitlePrompt: config.commitTitlePrompt,
     commitGraphStyle: config.commitGraphStyle,
-    commitMergeAnimation: config.commitMergeAnimation,
     diffViewerMode: config.diffViewerMode,
     repositoryScanDepth: normalizeDepth(config.repositoryScanDepth),
     commitLogPageSize: clampCommitLogPageSize(config.commitLogPageSize),
@@ -330,66 +307,6 @@ export function TokenValidationIndicator({
   );
 }
 
-function resolveMergeNodeRingAnimation(
-  animation: CommitMergeAnimation,
-): MergeNodeRingAnimation | null {
-  if (animation === "none" || animation === "pulse") {
-    return null;
-  }
-
-  return animation;
-}
-
-function MergeNodeAnimationPreview({
-  animation,
-  graphStyle,
-}: {
-  animation: CommitMergeAnimation;
-  graphStyle: CommitGraphStyle;
-}): JSX.Element {
-  const mergeRingAnimation = resolveMergeNodeRingAnimation(animation);
-  const selectedAnimationLabel =
-    MERGE_NODE_ANIMATION_OPTIONS.find((option) => option.value === animation)?.label ?? animation;
-  const nodeClassName = [
-    "block commit-node",
-    graphStyle === "japaneseExpress" ? "commit-node--japanese-express" : "",
-    animation === "pulse" ? "commit-node-merge-pulse" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const nodeStyle = {
-    width: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
-    height: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
-    background: MERGE_NODE_PREVIEW_COLOR,
-    ["--merge-pulse-color" as string]: MERGE_NODE_PREVIEW_COLOR,
-  } as CSSProperties;
-  const ringStyle = {
-    width: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
-    height: `${MERGE_NODE_PREVIEW_SIZE_PX}px`,
-    ["--merge-pulse-color" as string]: MERGE_NODE_PREVIEW_COLOR,
-    ["--merge-particle-radius" as string]: `${Math.round(MERGE_NODE_PREVIEW_SIZE_PX * 1.2)}px`,
-  } as CSSProperties;
-
-  return (
-    <div
-      className="config-view__merge-animation-preview"
-      role="img"
-      aria-label={`Merge Node Animation preview: ${selectedAnimationLabel}`}
-      title={selectedAnimationLabel}
-    >
-      <span className="config-view__merge-animation-preview-node" aria-hidden="true">
-        {mergeRingAnimation ? (
-          <span
-            aria-hidden="true"
-            className={`commit-node-merge-ring commit-node-merge-ring--${mergeRingAnimation}`}
-            style={ringStyle}
-          />
-        ) : null}
-        <span aria-hidden="true" className={nodeClassName} style={nodeStyle} />
-      </span>
-    </div>
-  );
-}
 
 export function ConfigView({
   onNotify,
@@ -418,9 +335,6 @@ export function ConfigView({
   );
   const [commitGraphStyle, setCommitGraphStyle] = useState<CommitGraphStyle>(
     initialConfigState?.commitGraphStyle ?? "standard",
-  );
-  const [commitMergeAnimation, setCommitMergeAnimation] = useState<CommitMergeAnimation>(
-    initialConfigState?.commitMergeAnimation ?? "none",
   );
   const [diffViewerMode, setDiffViewerMode] = useState<DiffViewerMode>(
     initialConfigState?.diffViewerMode ?? "builtin",
@@ -597,7 +511,6 @@ export function ConfigView({
     );
     setCommitTitlePrompt(next.commitTitlePrompt);
     setCommitGraphStyle(next.commitGraphStyle);
-    setCommitMergeAnimation(next.commitMergeAnimation);
     setDiffViewerMode(next.diffViewerMode);
     setRepositoryScanDepth(next.repositoryScanDepth);
     setCommitLogPageSize(next.commitLogPageSize);
@@ -637,7 +550,6 @@ export function ConfigView({
         setCommitGraphStyle(next.commitGraphStyle);
         setDiffViewerMode(next.diffViewerMode);
         setRepositoryScanDepth(next.repositoryScanDepth);
-        setCommitMergeAnimation(next.commitMergeAnimation);
         setCommitLogPageSize(next.commitLogPageSize);
         onConfigSaved(loadedConfig);
       } catch (error) {
@@ -852,7 +764,6 @@ export function ConfigView({
         selectedAiProvider,
         commitTitlePrompt,
         commitGraphStyle,
-        commitMergeAnimation,
         diffViewerMode,
         repositoryScanDepth: normalizedDepth,
         commitLogPageSize: normalizedCommitLogPageSize,
@@ -878,7 +789,6 @@ export function ConfigView({
       setRepositoryScanDepth(normalizeDepth(nextConfig.repositoryScanDepth));
       setCommitLogPageSize(clampCommitLogPageSize(nextConfig.commitLogPageSize));
       setCommitGraphStyle(nextConfig.commitGraphStyle);
-      setCommitMergeAnimation(nextConfig.commitMergeAnimation);
       setDiffViewerMode(nextConfig.diffViewerMode);
 
       onNotify("Config を保存しました。");
@@ -936,32 +846,6 @@ export function ConfigView({
                   </select>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                    Merge Node Animation
-                  </label>
-                  <div className="config-view__merge-animation-field">
-                    <div className="config-view__merge-animation-select">
-                      <select
-                        className="input input-select"
-                        value={commitMergeAnimation}
-                        onChange={(event) =>
-                          setCommitMergeAnimation(event.target.value as CommitMergeAnimation)
-                        }
-                      >
-                        {MERGE_NODE_ANIMATION_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <MergeNodeAnimationPreview
-                      animation={commitMergeAnimation}
-                      graphStyle={commitGraphStyle}
-                    />
-                  </div>
-                </div>
 
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
@@ -994,33 +878,6 @@ export function ConfigView({
                       }
                     }}
                     onBlur={() => setRepositoryScanDepth((current) => normalizeDepth(current))}
-                  />
-                  <p className="mt-1 text-xs text-ink-subtle">
-                    `$HOME` 以下の探索深さです（{MIN_REPOSITORY_SCAN_DEPTH} -{" "}
-                    {MAX_REPOSITORY_SCAN_DEPTH}）。
-                  </p>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                    Commit log page size
-                  </label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={COMMIT_LOG_PAGE_SIZE_MIN}
-                    max={COMMIT_LOG_PAGE_SIZE_MAX}
-                    step={1}
-                    value={commitLogPageSize}
-                    onChange={(event) => {
-                      const next = Number(event.target.value);
-                      if (Number.isFinite(next)) {
-                        setCommitLogPageSize(next);
-                      }
-                    }}
-                    onBlur={() =>
-                      setCommitLogPageSize((current) => clampCommitLogPageSize(current))
-                    }
                   />
                   <p className="mt-1 text-xs text-ink-subtle">
                     コミットログを一度に読み込む件数です（{COMMIT_LOG_PAGE_SIZE_MIN}〜

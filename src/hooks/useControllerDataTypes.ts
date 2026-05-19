@@ -7,7 +7,6 @@ import type {
   CommitDetail,
   CommitGraphStyle,
   CommitListItem,
-  CommitMergeAnimation,
   ConflictFileDetail,
   ConflictResolutionSide,
   ConflictSummary,
@@ -101,7 +100,6 @@ export interface UseControllerDataResult {
   clearCommitMessageDraft: () => void;
 
   commitGraphStyle: CommitGraphStyle;
-  commitMergeAnimation: CommitMergeAnimation;
   inlineError: UiError | null;
   setInlineError: (error: UiError | null) => void;
 

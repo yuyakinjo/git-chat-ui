@@ -235,26 +235,6 @@ impl Default for CommitGraphStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum CommitMergeAnimation {
-    None,
-    Pulse,
-    Ripple,
-    Orbit,
-    Shimmer,
-    Metaball,
-    Morph,
-    Dissolve,
-    Particle,
-}
-
-impl Default for CommitMergeAnimation {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub enum DiffViewerMode {
     Builtin,
     Pierre,
@@ -330,7 +310,6 @@ pub struct AppConfig {
     pub selected_ai_provider: AiProvider,
     pub commit_title_prompt: String,
     pub commit_graph_style: CommitGraphStyle,
-    pub commit_merge_animation: CommitMergeAnimation,
     pub diff_viewer_mode: DiffViewerMode,
     pub repository_scan_depth: usize,
     pub commit_log_page_size: usize,
@@ -361,7 +340,6 @@ impl Default for AppConfig {
             selected_ai_provider: AiProvider::OpenAi,
             commit_title_prompt: DEFAULT_COMMIT_TITLE_PROMPT.to_string(),
             commit_graph_style: CommitGraphStyle::Standard,
-            commit_merge_animation: CommitMergeAnimation::None,
             diff_viewer_mode: DiffViewerMode::Builtin,
             repository_scan_depth: 4,
             commit_log_page_size: DEFAULT_COMMIT_LOG_PAGE_SIZE,
@@ -872,7 +850,6 @@ pub struct SaveConfigInput {
     pub selected_ai_provider: Option<AiProvider>,
     pub commit_title_prompt: Option<String>,
     pub commit_graph_style: Option<CommitGraphStyle>,
-    pub commit_merge_animation: Option<CommitMergeAnimation>,
     pub diff_viewer_mode: Option<DiffViewerMode>,
     pub repository_scan_depth: Option<usize>,
     pub commit_log_page_size: Option<usize>,
@@ -1765,18 +1742,6 @@ fn normalize_config_value(value: Value) -> AppConfig {
         Some("japaneseExpress") => CommitGraphStyle::JapaneseExpress,
         _ => default.commit_graph_style,
     };
-    let commit_merge_animation = match value.get("commitMergeAnimation").and_then(Value::as_str) {
-        Some("none") => CommitMergeAnimation::None,
-        Some("pulse") => CommitMergeAnimation::Pulse,
-        Some("ripple") => CommitMergeAnimation::Ripple,
-        Some("orbit") => CommitMergeAnimation::Orbit,
-        Some("shimmer") => CommitMergeAnimation::Shimmer,
-        Some("metaball") => CommitMergeAnimation::Metaball,
-        Some("morph") => CommitMergeAnimation::Morph,
-        Some("dissolve") => CommitMergeAnimation::Dissolve,
-        Some("particle") => CommitMergeAnimation::Particle,
-        _ => default.commit_merge_animation,
-    };
     let diff_viewer_mode = match value.get("diffViewerMode").and_then(Value::as_str) {
         Some("builtin") => DiffViewerMode::Builtin,
         Some("pierre") => DiffViewerMode::Pierre,
@@ -1817,7 +1782,6 @@ fn normalize_config_value(value: Value) -> AppConfig {
         selected_ai_provider,
         commit_title_prompt,
         commit_graph_style,
-        commit_merge_animation,
         diff_viewer_mode,
         repository_scan_depth,
         commit_log_page_size,
@@ -1876,7 +1840,6 @@ fn write_config(config: &AppConfig) -> Result<(), String> {
         selected_ai_provider: config.selected_ai_provider,
         commit_title_prompt: resolve_commit_title_prompt(&config.commit_title_prompt),
         commit_graph_style: config.commit_graph_style,
-        commit_merge_animation: config.commit_merge_animation,
         diff_viewer_mode: config.diff_viewer_mode,
         repository_scan_depth: normalize_repository_scan_depth(config.repository_scan_depth),
         commit_log_page_size: normalize_commit_log_page_size(config.commit_log_page_size),
@@ -7821,9 +7784,6 @@ pub fn save_config(input: SaveConfigInput) -> Result<SaveConfigResponse, String>
         commit_graph_style: input
             .commit_graph_style
             .unwrap_or(current.commit_graph_style),
-        commit_merge_animation: input
-            .commit_merge_animation
-            .unwrap_or(current.commit_merge_animation),
         diff_viewer_mode: input.diff_viewer_mode.unwrap_or(current.diff_viewer_mode),
         repository_scan_depth: normalize_repository_scan_depth(
             input
@@ -7870,7 +7830,6 @@ pub fn generate_title(input: GenerateTitleInput) -> Result<TitleResponse, String
             .commit_title_prompt
             .unwrap_or(current.commit_title_prompt),
         commit_graph_style: current.commit_graph_style,
-        commit_merge_animation: current.commit_merge_animation,
         diff_viewer_mode: current.diff_viewer_mode,
         repository_scan_depth: current.repository_scan_depth,
         commit_log_page_size: current.commit_log_page_size,

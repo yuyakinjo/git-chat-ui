@@ -3,29 +3,7 @@ import { DEFAULT_COMMIT_TITLE_PROMPT, DEFAULT_OPENAI_MODEL } from "./ai.js";
 import type { RepositoryAssistantPolicies } from "./repositoryAssistant.js";
 
 export type CommitGraphStyle = "standard" | "japaneseExpress";
-export type CommitMergeAnimation =
-  | "none"
-  | "pulse"
-  | "ripple"
-  | "orbit"
-  | "shimmer"
-  | "metaball"
-  | "morph"
-  | "dissolve"
-  | "particle";
 export type DiffViewerMode = "builtin" | "pierre";
-
-export const COMMIT_MERGE_ANIMATIONS: readonly CommitMergeAnimation[] = [
-  "none",
-  "pulse",
-  "ripple",
-  "orbit",
-  "shimmer",
-  "metaball",
-  "morph",
-  "dissolve",
-  "particle",
-];
 
 export interface WindowState {
   x: number;
@@ -60,7 +38,6 @@ export interface AppConfig {
   selectedAiProvider: AiProvider;
   commitTitlePrompt: string;
   commitGraphStyle: CommitGraphStyle;
-  commitMergeAnimation: CommitMergeAnimation;
   diffViewerMode: DiffViewerMode;
   /** UI / API が一度に読み込むコミット数（100–200） */
   commitLogPageSize: number;
@@ -87,7 +64,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   selectedAiProvider: "openAi",
   commitTitlePrompt: DEFAULT_COMMIT_TITLE_PROMPT,
   commitGraphStyle: "standard",
-  commitMergeAnimation: "none",
   diffViewerMode: "builtin",
   commitLogPageSize: DEFAULT_COMMIT_LOG_PAGE_SIZE,
   repositoryScanDepth: 4,

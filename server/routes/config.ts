@@ -8,7 +8,6 @@ import type { AppConfig } from "../types.js";
 
 import {
   parseCommitGraphStyle,
-  parseCommitMergeAnimation,
   parseCommitLogPageSize,
   parseDiffViewerMode,
   parseRepositoryScanDepth,
@@ -44,7 +43,6 @@ export function createConfigRouter({
     try {
       const current = await readConfigImpl();
       const parsedGraphStyle = parseCommitGraphStyle(request.body.commitGraphStyle);
-      const parsedMergeAnimation = parseCommitMergeAnimation(request.body.commitMergeAnimation);
       const parsedDiffViewerMode = parseDiffViewerMode(request.body.diffViewerMode);
       const parsedSelectedAiProvider = parseSelectedAiProvider(request.body.selectedAiProvider);
       const parsedRepositoryScanDepth = parseRepositoryScanDepth(request.body.repositoryScanDepth);
@@ -78,7 +76,6 @@ export function createConfigRouter({
             ? request.body.commitTitlePrompt
             : current.commitTitlePrompt,
         commitGraphStyle: parsedGraphStyle ?? current.commitGraphStyle,
-        commitMergeAnimation: parsedMergeAnimation ?? current.commitMergeAnimation,
         diffViewerMode: parsedDiffViewerMode ?? current.diffViewerMode,
         repositoryScanDepth: parsedRepositoryScanDepth ?? current.repositoryScanDepth,
         commitLogPageSize: parsedCommitLogPageSize ?? current.commitLogPageSize,
