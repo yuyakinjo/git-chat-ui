@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -2011,12 +2011,37 @@ fn clamp_window_state_to_area(
     }
 }
 
+fn window_center_for_monitor_selection(
+    window: &tauri::WebviewWindow,
+    window_state: &WindowState,
+) -> (f64, f64) {
+    if let (Ok(outer), Ok(inner)) = (window.outer_size(), window.inner_size()) {
+        let width_delta = outer.width.saturating_sub(inner.width);
+        let height_delta = outer.height.saturating_sub(inner.height);
+        let outer_width = window_state.width.saturating_add(width_delta);
+        let outer_height = window_state.height.saturating_add(height_delta);
+
+        return (
+            f64::from(window_state.x) + (f64::from(outer_width) / 2.0),
+            f64::from(window_state.y) + (f64::from(outer_height) / 2.0),
+        );
+    }
+
+    (
+        f64::from(window_state.x) + (f64::from(window_state.width) / 2.0),
+        f64::from(window_state.y) + (f64::from(window_state.height) / 2.0),
+    )
+}
+
 fn restore_window_state(
     window: &tauri::WebviewWindow,
     window_state: &WindowState,
 ) -> Result<(), String> {
-    let center_x = f64::from(window_state.x) + (f64::from(window_state.width) / 2.0);
-    let center_y = f64::from(window_state.y) + (f64::from(window_state.height) / 2.0);
+    if window_state.is_maximized {
+        return Ok(());
+    }
+
+    let (center_x, center_y) = window_center_for_monitor_selection(window, window_state);
     let restored = window
         .monitor_from_point(center_x, center_y)
         .ok()
@@ -2039,19 +2064,18 @@ fn restore_window_state(
         .set_position(tauri::PhysicalPosition::new(restored.x, restored.y))
         .map_err(|error| format!("Failed to restore window position: {error}"))?;
 
-    if restored.is_maximized {
-        window
-            .maximize()
-            .map_err(|error| format!("Failed to restore maximized state: {error}"))?;
-    }
-
     Ok(())
 }
 
 fn persist_window_state_if_changed(
     window: &tauri::WebviewWindow,
     last_window_state: &Arc<Mutex<Option<WindowState>>>,
+    allow_persist: &AtomicBool,
 ) -> Result<(), String> {
+    if !allow_persist.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
     let next_window_state = capture_window_state(window)?;
     let mut guard = last_window_state
         .lock()
@@ -2078,15 +2102,19 @@ enum DebouncedWindowStateCommand {
 fn schedule_window_state_persist_on_main_thread(
     window: &tauri::WebviewWindow,
     last_window_state: &Arc<Mutex<Option<WindowState>>>,
+    allow_persist: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let persisted_window = window.clone();
     let cached_window_state = Arc::clone(last_window_state);
+    let persist_gate = Arc::clone(allow_persist);
 
     window
         .run_on_main_thread(move || {
-            if let Err(error) =
-                persist_window_state_if_changed(&persisted_window, &cached_window_state)
-            {
+            if let Err(error) = persist_window_state_if_changed(
+                &persisted_window,
+                &cached_window_state,
+                &persist_gate,
+            ) {
                 eprintln!("failed to persist main window state: {error}");
             }
         })
@@ -2096,6 +2124,7 @@ fn schedule_window_state_persist_on_main_thread(
 fn spawn_window_state_persist_worker(
     window: tauri::WebviewWindow,
     last_window_state: Arc<Mutex<Option<WindowState>>>,
+    allow_persist: Arc<AtomicBool>,
 ) -> mpsc::Sender<DebouncedWindowStateCommand> {
     let (sender, receiver) = mpsc::channel::<DebouncedWindowStateCommand>();
 
@@ -2110,6 +2139,7 @@ fn spawn_window_state_persist_worker(
                             if let Err(error) = schedule_window_state_persist_on_main_thread(
                                 &window,
                                 &last_window_state,
+                                &allow_persist,
                             ) {
                                 eprintln!(
                                     "failed to queue debounced main window state persistence: {error}"
@@ -2149,14 +2179,42 @@ pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
 
     let initial_window_state = read_config()?.window_state;
 
+    let allow_persist = Arc::new(AtomicBool::new(false));
+    let last_window_state = Arc::new(Mutex::new(initial_window_state.clone()));
+
     if let Some(window_state) = initial_window_state.as_ref() {
         restore_window_state(window, window_state)?;
     }
 
+    window
+        .show()
+        .map_err(|error| format!("Failed to show main window: {error}"))?;
+
+    if initial_window_state
+        .as_ref()
+        .is_some_and(|window_state| window_state.is_maximized)
+    {
+        window
+            .maximize()
+            .map_err(|error| format!("Failed to restore maximized state: {error}"))?;
+    }
+
+    allow_persist.store(true, Ordering::Release);
+    if let Ok(current_window_state) = capture_window_state(window) {
+        if let Ok(mut guard) = last_window_state
+            .lock()
+            .map_err(|_| "Failed to lock window state cache.".to_string())
+        {
+            *guard = Some(current_window_state);
+        }
+    }
+
     let persisted_window = window.clone();
-    let last_window_state = Arc::new(Mutex::new(initial_window_state));
-    let debounced_persist_sender =
-        spawn_window_state_persist_worker(persisted_window.clone(), Arc::clone(&last_window_state));
+    let debounced_persist_sender = spawn_window_state_persist_worker(
+        persisted_window.clone(),
+        Arc::clone(&last_window_state),
+        Arc::clone(&allow_persist),
+    );
     window.on_window_event(move |event| {
         if should_debounce_window_persist_event(event) {
             if let Err(error) = debounced_persist_sender.send(DebouncedWindowStateCommand::Persist)
@@ -2167,9 +2225,11 @@ pub fn setup_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
         }
 
         if should_immediately_persist_window_event(event) {
-            if let Err(error) =
-                persist_window_state_if_changed(&persisted_window, &last_window_state)
-            {
+            if let Err(error) = persist_window_state_if_changed(
+                &persisted_window,
+                &last_window_state,
+                &allow_persist,
+            ) {
                 eprintln!("failed to persist main window state: {error}");
             }
 
