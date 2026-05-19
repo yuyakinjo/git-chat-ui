@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
+  Copy,
   Download,
   ExternalLink,
   Folder,
@@ -28,6 +29,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { getBranchDeleteDisabledReason } from "../lib/branchDelete";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { canDropBranchOnBranch } from "../lib/branchDragDrop";
 import { getBranchPullDisabledReason, shouldShowBranchPullAction } from "../lib/pullCommand";
 import type { Branch, BranchPullRequest, BranchResponse, PullStatus, StashEntry } from "../types";
@@ -523,6 +525,11 @@ export function BranchTree({
     onRequestPullBranch(branch);
   };
 
+  const handleCopyBranchNameFromTree = (branch: Branch): void => {
+    setContextMenu(null);
+    void copyTextToClipboard(branch.name);
+  };
+
   const handleRenameStashRequestFromTree = (stash: StashEntry): void => {
     setContextMenu(null);
     onRequestRenameStash(stash);
@@ -848,6 +855,15 @@ export function BranchTree({
                     <span>このブランチから作成</span>
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="branch-context-menu__item"
+                  onClick={() => handleCopyBranchNameFromTree(contextMenu.branch)}
+                >
+                  <Copy size={14} />
+                  <span>ブランチ名をコピー</span>
+                </button>
                 <button
                   type="button"
                   role="menuitem"

@@ -9,8 +9,8 @@ export interface TreeNode {
 }
 
 export const CONTEXT_MENU_WIDTH_PX = 232;
-export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 60;
-export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 132;
+export const REMOTE_CONTEXT_MENU_HEIGHT_PX = 96;
+export const LOCAL_CONTEXT_MENU_HEIGHT_PX = 168;
 export const STASH_CONTEXT_MENU_HEIGHT_PX = 188;
 
 export function clampContextMenuPosition(
